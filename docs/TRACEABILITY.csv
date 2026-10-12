@@ -1,0 +1,82 @@
+Requirement ID,Primary implementation task,Spec area,Release,Planned test ID,Evidence status
+FR-AUTH-001,CORE-011,Cross-cutting,R1,TEST-FR-AUTH-001,Planned; not executed
+FR-AUTH-002,CORE-011,Cross-cutting,R1,TEST-FR-AUTH-002,Planned; not executed
+FR-AUTH-003,CORE-011,Cross-cutting,R1,TEST-FR-AUTH-003,Planned; not executed
+FR-I18N-001,CORE-011,Cross-cutting,R1,TEST-FR-I18N-001,Planned; not executed
+FR-I18N-002,CORE-011,Cross-cutting,R1,TEST-FR-I18N-002,Planned; not executed
+FR-I18N-003,CORE-011,Cross-cutting,R1,TEST-FR-I18N-003,Planned; not executed
+FR-TEAM-001,CORE-001,Teams,R1,TEST-FR-TEAM-001,Planned; not executed
+FR-TEAM-002,CORE-001,Teams,R1,TEST-FR-TEAM-002,Planned; not executed
+FR-TEAM-003,CORE-001,Teams,R1,TEST-FR-TEAM-003,Planned; not executed
+FR-TEAM-004,CORE-001,Teams,R1,TEST-FR-TEAM-004,Planned; not executed
+FR-TEAM-005,CORE-001,Teams,R1,TEST-FR-TEAM-005,Planned; not executed
+FR-TEAM-006,CORE-001,Teams,R1,TEST-FR-TEAM-006,Planned; not executed
+FR-TEAM-007,CORE-001,Teams,R1,TEST-FR-TEAM-007,Planned; not executed
+FR-PROJ-001,CORE-003,Projects,R1,TEST-FR-PROJ-001,Planned; not executed
+FR-PROJ-002,CORE-003,Projects,R1,TEST-FR-PROJ-002,Planned; not executed
+FR-PROJ-003,CORE-003,Projects,R1,TEST-FR-PROJ-003,Planned; not executed
+FR-PROJ-004,CORE-003,Projects,R1,TEST-FR-PROJ-004,Planned; not executed
+FR-PROJ-005,CORE-003,Projects,R1,TEST-FR-PROJ-005,Planned; not executed
+FR-PROJ-006,CORE-003,Projects,R1,TEST-FR-PROJ-006,Planned; not executed
+FR-PROJ-007,CORE-003,Projects,R1,TEST-FR-PROJ-007,Planned; not executed
+FR-PROJ-008,CORE-003,Projects,R1,TEST-FR-PROJ-008,Planned; not executed
+FR-TASK-001,CORE-005,Tasks,R1,TEST-FR-TASK-001,Planned; not executed
+FR-TASK-002,CORE-005,Tasks,R1,TEST-FR-TASK-002,Planned; not executed
+FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,Planned; not executed
+FR-TASK-004,CORE-005,Tasks,R1,TEST-FR-TASK-004,Planned; not executed
+FR-TASK-005,CORE-005,Tasks,R1,TEST-FR-TASK-005,Planned; not executed
+FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,Planned; not executed
+FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,Planned; not executed
+FR-TASK-008,CORE-005,Tasks,R1,TEST-FR-TASK-008,Planned; not executed
+FR-TASK-009,CORE-005,Tasks,R1,TEST-FR-TASK-009,Planned; not executed
+FR-CUST-001,FLEX-001,Custom fields,R2,TEST-FR-CUST-001,Planned; not executed
+FR-CUST-002,FLEX-001,Custom fields,R2,TEST-FR-CUST-002,Planned; not executed
+FR-CUST-003,FLEX-001,Custom fields,R2,TEST-FR-CUST-003,Planned; not executed
+FR-CUST-004,FLEX-001,Custom fields,R2,TEST-FR-CUST-004,Planned; not executed
+FR-CUST-005,FLEX-001,Custom fields,R2,TEST-FR-CUST-005,Planned; not executed
+FR-CUST-006,FLEX-001,Custom fields,R2,TEST-FR-CUST-006,Planned; not executed
+FR-CUST-007,FLEX-001,Custom fields,R2,TEST-FR-CUST-007,Planned; not executed
+FR-CUST-008,FLEX-001,Custom fields,R2,TEST-FR-CUST-008,Planned; not executed
+FR-SPR-001,FLEX-005,Sprints,R2,TEST-FR-SPR-001,Planned; not executed
+FR-SPR-002,FLEX-005,Sprints,R2,TEST-FR-SPR-002,Planned; not executed
+FR-SPR-003,FLEX-005,Sprints,R2,TEST-FR-SPR-003,Planned; not executed
+FR-SPR-004,FLEX-005,Sprints,R2,TEST-FR-SPR-004,Planned; not executed
+FR-SPR-005,FLEX-005,Sprints,R2,TEST-FR-SPR-005,Planned; not executed
+FR-SPR-006,FLEX-005,Sprints,R2,TEST-FR-SPR-006,Planned; not executed
+FR-COL-001,CORE-008,Collaboration,R1,TEST-FR-COL-001,Planned; not executed
+FR-COL-002,CORE-008,Collaboration,R1,TEST-FR-COL-002,Planned; not executed
+FR-COL-003,CORE-008,Collaboration,R1,TEST-FR-COL-003,Planned; not executed
+FR-COL-004,CORE-008,Collaboration,R1,TEST-FR-COL-004,Planned; not executed
+FR-COL-005,CORE-008,Collaboration,R1,TEST-FR-COL-005,Planned; not executed
+FR-GH-001,GH-001,GitHub,R3,TEST-FR-GH-001,Planned; not executed
+FR-GH-002,GH-001,GitHub,R3,TEST-FR-GH-002,Planned; not executed
+FR-GH-003,GH-001,GitHub,R3,TEST-FR-GH-003,Planned; not executed
+FR-GH-004,GH-004,GitHub,R3,TEST-FR-GH-004,Planned; not executed
+FR-GH-005,GH-004,GitHub,R3,TEST-FR-GH-005,Planned; not executed
+FR-GH-006,GH-004,GitHub,R3,TEST-FR-GH-006,Planned; not executed
+FR-GH-007,SYNC-003,GitHub,R4,TEST-FR-GH-007,Planned; not executed
+FR-GH-008,SYNC-003,GitHub,R4,TEST-FR-GH-008,Planned; not executed
+FR-GH-009,SYNC-003,GitHub,R4,TEST-FR-GH-009,Planned; not executed
+FR-GH-010,SYNC-003,GitHub,R4,TEST-FR-GH-010,Planned; not executed
+FR-GH-011,GH-007,GitHub,R3,TEST-FR-GH-011,Planned; not executed
+FR-GH-012,GH-007,GitHub,R3,TEST-FR-GH-012,Planned; not executed
+FR-GH-013,FUTURE-GH-ACTIONS-001,GitHub,Post-v1.1,TEST-FR-GH-013,Deferred; not executed
+FR-GH-014,GH-007,GitHub,R3,TEST-FR-GH-014,Planned; not executed
+NFR-SEC-001,FND-003,Quality/Operations,R0,TEST-NFR-SEC-001,Planned; not executed
+NFR-SEC-002,FND-003,Quality/Operations,R0,TEST-NFR-SEC-002,Planned; not executed
+NFR-SEC-003,FND-003,Quality/Operations,R0,TEST-NFR-SEC-003,Planned; not executed
+NFR-SEC-004,FND-003,Quality/Operations,R0,TEST-NFR-SEC-004,Planned; not executed
+NFR-SEC-005,FND-003,Quality/Operations,R0,TEST-NFR-SEC-005,Planned; not executed
+NFR-SEC-006,FND-003,Quality/Operations,R0,TEST-NFR-SEC-006,Planned; not executed
+NFR-PERF-001,FND-003,Quality/Operations,R0,TEST-NFR-PERF-001,Planned; not executed
+NFR-PERF-002,FND-003,Quality/Operations,R0,TEST-NFR-PERF-002,Planned; not executed
+NFR-REL-001,FND-003,Quality/Operations,R0,TEST-NFR-REL-001,Planned; not executed
+NFR-REL-002,FND-003,Quality/Operations,R0,TEST-NFR-REL-002,Planned; not executed
+NFR-UX-001,FND-003,Quality/Operations,R0,TEST-NFR-UX-001,Planned; not executed
+NFR-UX-002,FND-003,Quality/Operations,R0,TEST-NFR-UX-002,Planned; not executed
+NFR-I18N-001,FND-003,Quality/Operations,R0,TEST-NFR-I18N-001,Planned; not executed
+NFR-OPS-001,FND-003,Quality/Operations,R0,TEST-NFR-OPS-001,Planned; not executed
+NFR-OPS-002,FND-003,Quality/Operations,R0,TEST-NFR-OPS-002,Planned; not executed
+NFR-OPS-003,FND-003,Quality/Operations,R0,TEST-NFR-OPS-003,Planned; not executed
+NFR-OPS-004,FND-003,Quality/Operations,R0,TEST-NFR-OPS-004,Planned; not executed
+NFR-OPS-005,FND-003,Quality/Operations,R0,TEST-NFR-OPS-005,Planned; not executed
