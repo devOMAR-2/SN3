@@ -1,0 +1,90 @@
+name: "🛠️ Development task"
+description: "Track a planned implementation task from DEVELOPMENT_PLAN.md."
+title: "[TASK-ID] Short action-oriented title"
+labels: ["type:task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Internal/planned work item for SN3. Use the exact task ID from docs/DEVELOPMENT_PLAN.md (e.g. FND-001). Keep the issue consistent with docs/BRD.md, docs/ARCHITECTURE.md, docs/DATABASE.md, docs/API_SPEC.md, docs/DESIGN_SYSTEM.md and AGENTS.md.
+        Set **Milestone**, **Project Status**, **Priority**, **Area**, and **Release** using GitHub metadata after creating the issue.
+  - type: input
+    id: task_id
+    attributes:
+      label: Task ID
+      description: Exact ID from DEVELOPMENT_PLAN.md.
+      placeholder: "FND-001"
+    validations:
+      required: true
+  - type: dropdown
+    id: release
+    attributes:
+      label: Release
+      options:
+        - R0 — Foundation
+        - R1 — Core
+        - R2 — Customization
+        - R3 — GitHub Integration (v1.0)
+        - R4 — GitHub Issues Sync (v1.1)
+    validations:
+      required: true
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective and scope
+      description: Define the intended outcome and explicit exclusions.
+    validations:
+      required: true
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Related requirements and specifications
+      description: BRD IDs, API routes, schema entities, design references, traceability IDs.
+      placeholder: "BRD-...; docs/API_SPEC.md §..."
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies / blockers
+      description: Link other task IDs or GitHub issues. Enter None if there are no dependencies.
+      placeholder: "Blocked by FND-002 (#12)"
+    validations:
+      required: true
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Implementation notes
+      description: Architecture boundaries, security/tenancy, migrations, API and UI considerations.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ] 
+        - [ ] 
+    validations:
+      required: true
+  - type: textarea
+    id: testing
+    attributes:
+      label: Required tests and verification
+      value: |
+        - [ ] Unit / feature tests as applicable
+        - [ ] Authorization and tenant-isolation tests as applicable
+        - [ ] API contract / UI checks as applicable
+        - [ ] CI passes
+    validations:
+      required: true
+  - type: textarea
+    id: definition_done
+    attributes:
+      label: Definition of done
+      value: |
+        - [ ] Acceptance criteria verified
+        - [ ] Tests added/updated and passing
+        - [ ] Documentation updated if needed
+        - [ ] Pull request linked to this issue
+        - [ ] No secrets or unrelated changes committed
+    validations:
+      required: true
