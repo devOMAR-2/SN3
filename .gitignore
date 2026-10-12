@@ -1,0 +1,21 @@
+# Local editor and OS artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Dependencies and build output (future app)
+node_modules/
+vendor/
+dist/
+build/
+coverage/
+.phpunit.cache/
