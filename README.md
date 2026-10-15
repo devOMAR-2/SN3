@@ -1,7 +1,7 @@
 # سنع | SN3
 
 <p align="center">
-  <img src="assets/sn3-preview.svg" alt="سنع SN3 — Open Source Project Management" width="100%" />
+  <img src="assets/sn3-preview.png" alt="سنع SN3 — Open Source Project Management" width="100%" />
 </p>
 
 **Free, open-source project management for modern teams.**
