@@ -37,6 +37,8 @@ php artisan serve
 
 `composer dev` runs the web server, queue worker and Vite together.
 
+The build tooling lives in `devDependencies`. If `NODE_ENV=production` is set in your shell or system environment, npm skips those packages: use `npm ci --include=dev`.
+
 | Check | Command |
 | --- | --- |
 | PHP tests (Pest) | `composer test` (uses the `sn3_testing` database from `phpunit.xml` once tests touch the DB) |
