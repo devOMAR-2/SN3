@@ -106,7 +106,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 ### `tasks`
 
-- `id uuid PK`; `team_id uuid NOT NULL`; `project_id uuid NOT NULL`; `task_number bigint NOT NULL CHECK > 0`; `title varchar(300) NOT NULL`; `description text NULL` (sanitize rendered Markdown); `status_id uuid NOT NULL`; `assignee_user_id uuid NULL`; `created_by uuid NOT NULL`; `priority varchar(16) NOT NULL DEFAULT 'none' CHECK IN ('none','low','medium','high','urgent')`; `due_at timestamptz NULL`; `start_at timestamptz NULL`; `position numeric(20,10) NOT NULL`; `parent_task_id uuid NULL`; `created_at`, `updated_at`, `completed_at NULL`; `archived_at NULL`.
+- `id uuid PK`; `team_id uuid NOT NULL`; `project_id uuid NOT NULL`; `task_number bigint NOT NULL CHECK > 0`; `title varchar(200) NOT NULL`; `description text NULL` (sanitize rendered Markdown); `status_id uuid NOT NULL`; `assignee_user_id uuid NULL`; `created_by uuid NOT NULL`; `priority varchar(16) NOT NULL DEFAULT 'none' CHECK IN ('none','low','medium','high','urgent')`; `due_at timestamptz NULL`; `start_at timestamptz NULL`; `position numeric(20,10) NOT NULL`; `parent_task_id uuid NULL`; `created_at`, `updated_at`, `completed_at NULL`; `archived_at NULL`.
 - `UNIQUE(project_id,task_number)`; `UNIQUE(id,project_id)`; composite FK `(project_id,team_id) -> projects`; `(status_id,project_id) -> project_statuses(id,project_id)`; `(parent_task_id,project_id) -> tasks(id,project_id)`; assignee `(team_id,assignee_user_id) -> team_memberships(team_id,user_id)` when not null. Indexes `(project_id,status_id,position)`, `(project_id,assignee_user_id)`, `(team_id,project_id,updated_at DESC)`, `(project_id,due_at)`.
 - Stable display key = `projects.project_key || '-' || tasks.task_number`; renaming project key would break old links, so **DECIDED:** freeze `project_key` after the first task is created.
 - **DECIDED-006:** `assignee_user_id` is the sole nullable primary assignee. Multiple assignees are not supported; watchers are separate entities if implemented.
@@ -120,7 +120,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 ### `task_checklist_items`
 
-- `id`, `task_id`, `content varchar(500)`, `is_done boolean`, `position numeric(20,10)`, `completed_by NULL`, `completed_at NULL`, timestamps. Index `(task_id,position)`.
+- `id`, `task_id`, `content varchar(300)`, `is_done boolean`, `position numeric(20,10)`, `completed_by NULL`, `completed_at NULL`, timestamps. Index `(task_id,position)`.
 
 ### `task_comments`
 
@@ -250,7 +250,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 ## 13. Retention, deletion, backup and portability
 
-- **DECIDED-011:** archival, deletion grace period, cascading deletion, legal retention, and restore policy. Until approved, do not implement destructive hard-delete cascades for team/project roots.
+- **DECIDED-011 (closed; see §18):** archive is reversible and read-only; delete moves a team/project to trash for 30 days, after which a scheduled job purges app data. Hard deletion removes application data and queued integration links, backups age out per retention, and remote GitHub resources are never deleted. Implement purge only through the 30-day trash lifecycle, never as an immediate cascade.
 - **DECIDED-004:** Cloud storage quotas, attachment retention, export, and backup policies. Cloud fair-use limits must not become paywalled feature gates; Self-Hosted operator controls storage infrastructure.
 - Keep transactional database backups consistent with attachment snapshots. Document point-in-time recovery if supported and test restores. Encrypt backups and limit access.
 - Provide a versioned export format for team/project data; importing must regenerate or remap internal IDs safely and preserve privacy rules. Export includes teams, memberships, projects, workflows, tasks, comments, checklist items, labels, custom fields, views, sprint history and audit metadata, plus attachment manifests and signed downloadable attachment archive. Exclude secrets, password hashes, private tokens and GitHub installation credentials. Import is outside public v1.0; exports use versioned JSON manifests.
@@ -295,7 +295,7 @@ All previous decision gates are closed; binding choices are listed in §18.
 
 ## 17. AI agent handoff
 
-**Business Analyst:** resolve §15 gates with product owner; update BRD decision register.  
+**Business Analyst:** keep BRD, `TRACEABILITY.csv` and this document aligned with the §18 decision register; no product-owner gates remain open.  
 **Database Engineer:** convert approved entities into ordered Laravel migrations, explicit composite constraints, indexes, and schema diagram; flag PostgreSQL-specific features.  
 **Backend Engineer:** implement transaction boundaries and policy-scoped repositories/services; avoid controller-level tenant filtering as sole defense.  
 **Frontend Engineer:** treat database field names as implementation detail; consume validated DTO/API contracts.  

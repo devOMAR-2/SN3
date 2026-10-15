@@ -19,3 +19,10 @@ Scope: static documentation audit only; **no application code or tests were run*
 - Verify migrations and actual database behavior once code exists.
 
 No repository, application code, migrations, or deployment was created.
+
+## Changelog — 2026-10-16 specification reconciliation
+Static documentation changes only; no application code or tests were run.
+- `TRACEABILITY.csv`: remapped FR-GH-002/004/005/006/007/010 to the tasks and releases that deliver them (webhook verification and automations are public v1.0; Issues sync mapping is v1.1). Remapped FR-AUTH, FR-I18N, FR-TEAM-002/003, FR-PROJ-008, FR-TASK-005, FR-COL-003..005 and FR-CUST-001/002/005/006/008 to their implementing tasks.
+- `DATABASE.md`: `tasks.title` is `varchar(200)` and `task_checklist_items.content` is `varchar(300)` to match `API_SPEC.md`; removed stale "until approved" text in §13 and the open-gate handoff in §17.
+- `API_SPEC.md`: status `position` is a read-only ordinal; reordering is via `PUT .../statuses/order`.
+- `ACCEPTANCE_SCENARIOS.csv`: added 15 scenarios (team ownership, invitations, key immutability, status deletion, idempotency, trash lifecycle, quotas and rate limits, notification redaction, webhook signature, revoked installation). All remain "Specified; not executed".
