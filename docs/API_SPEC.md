@@ -168,7 +168,7 @@ Create: `{ "name":"Website", "key":"WEB", "visibility":"team", "template_id":nul
 | GET | `/projects/{project_id}/settings` | Effective project configuration | Project viewer |
 | PATCH | `/projects/{project_id}/settings` | Toggle sprints, points, enabled views | Owner/Project Manager |
 
-Status: `name` 1–50, `color` hex RGB, `category` one of `todo`, `in_progress`, `done`, `position` nonnegative integer. Every project has at least one status in `todo` and one in `done`. Default statuses are To Do, In Progress, Done. Status IDs are project-local. Deleting a nonempty status requires `replacement_status_id` in same project and a transaction moving all tasks. Status changes preserve activity log. Sprints default disabled; disabling after use retains historic sprint data, hides planning controls, and prevents starting new sprints until reenabled.
+Status: `name` 1–50, `color` hex RGB, `category` one of `todo`, `in_progress`, `done`, `position` is read-only in responses (0-based ordinal derived from the stored rank in `project_statuses.position`); reordering is done only through `PUT /projects/{project_id}/statuses/order`, which accepts the full ordered list of status IDs. Every project has at least one status in `todo` and one in `done`. Default statuses are To Do, In Progress, Done. Status IDs are project-local. Deleting a nonempty status requires `replacement_status_id` in same project and a transaction moving all tasks. Status changes preserve activity log. Sprints default disabled; disabling after use retains historic sprint data, hides planning controls, and prevents starting new sprints until reenabled.
 
 ## 6. Tasks, checklist, comments, attachments (P0)
 
