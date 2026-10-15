@@ -20,10 +20,13 @@ Use the GitHub Issue Forms for bugs, features, and development tasks. Planned ta
 1. Take an Issue marked **Ready** with its dependencies resolved.
 2. Create a branch such as `feature/FND-001-foundation`, `fix/CORE-005-validation`, or `docs/update-api-spec`.
 3. Make a focused change. Follow security, tenant isolation, localization, accessibility, and testing requirements.
-4. Open a Pull Request using the template. Link the Issue with `Closes #123` only when the PR fully resolves it.
+4. Branch from `dev` and open the Pull Request against `dev`, using the template. Link the Issue with `Closes #123` only when the PR fully resolves it. `main` only receives release PRs that merge `dev` into `main`.
 5. Wait for required checks and reviews before merging. Never bypass branch protection.
 
 Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`.
+
+## Local checks
+Run the checks listed under **Local development** in the [README](README.md) (`composer lint`, `composer test`, `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run build`) before opening a PR.
 
 ## Quality
 - Never commit credentials, tokens, production data, or `.env` files.
