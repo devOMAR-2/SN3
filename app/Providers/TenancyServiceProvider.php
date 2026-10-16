@@ -7,6 +7,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Support\Tenancy\AccessibleProjects;
 use App\Support\Tenancy\AccessibleTeams;
+use App\Support\Tenancy\RecoverableResources;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
@@ -25,6 +26,7 @@ class TenancyServiceProvider extends ServiceProvider
     {
         $this->app->singleton(AccessibleTeams::class);
         $this->app->singleton(AccessibleProjects::class);
+        $this->app->singleton(RecoverableResources::class);
     }
 
     public function boot(): void
@@ -37,6 +39,16 @@ class TenancyServiceProvider extends ServiceProvider
         // is a 404 for everyone but its explicit members and the Team Owner (ADR-020).
         Route::bind('project', function (string $value): Project {
             return $this->app->make(AccessibleProjects::class)->findOrFail($this->user(), $value);
+        });
+
+        // Only `POST …/restore-deleted` reaches the trash (CORE-010, ADR-022 §4): a trashed team for its
+        // Owner, a trashed project for those who could see it and may recover it, within 30 days.
+        Route::bind('trashedTeam', function (string $value): Team {
+            return $this->app->make(RecoverableResources::class)->team($this->user(), $value);
+        });
+
+        Route::bind('trashedProject', function (string $value): Project {
+            return $this->app->make(RecoverableResources::class)->project($this->user(), $value);
         });
     }
 

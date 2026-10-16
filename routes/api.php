@@ -6,8 +6,10 @@ use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\ProjectController;
+use App\Http\Controllers\Api\V1\ProjectLifecycleController;
 use App\Http\Controllers\Api\V1\ProjectMemberController;
 use App\Http\Controllers\Api\V1\TeamController;
+use App\Http\Controllers\Api\V1\TeamLifecycleController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
 use App\Http\Controllers\Api\V1\TeamOwnershipController;
 use Illuminate\Support\Facades\Route;
@@ -75,4 +77,16 @@ Route::middleware('auth')->group(function (): void {
     Route::get('projects/{project}/members', [ProjectMemberController::class, 'index'])->name('projects.members.index');
     Route::put('projects/{project}/members/{member}', [ProjectMemberController::class, 'update'])->name('projects.members.update');
     Route::delete('projects/{project}/members/{member}', [ProjectMemberController::class, 'destroy'])->name('projects.members.destroy');
+
+    // Archive and 30-day trash (API_SPEC.md §3, §4; ADR-022). `{trashedTeam}` and `{trashedProject}`
+    // resolve only trashed rows the caller may recover (RecoverableResources); anything else is 404.
+    Route::post('teams/{team}/archive', [TeamLifecycleController::class, 'archive'])->name('teams.archive');
+    Route::post('teams/{team}/restore', [TeamLifecycleController::class, 'unarchive'])->name('teams.restore');
+    Route::delete('teams/{team}', [TeamLifecycleController::class, 'destroy'])->name('teams.destroy');
+    Route::post('teams/{trashedTeam}/restore-deleted', [TeamLifecycleController::class, 'restoreDeleted'])->name('teams.restore-deleted');
+
+    Route::post('projects/{project}/archive', [ProjectLifecycleController::class, 'archive'])->name('projects.archive');
+    Route::post('projects/{project}/restore', [ProjectLifecycleController::class, 'unarchive'])->name('projects.restore');
+    Route::delete('projects/{project}', [ProjectLifecycleController::class, 'destroy'])->name('projects.destroy');
+    Route::post('projects/{trashedProject}/restore-deleted', [ProjectLifecycleController::class, 'restoreDeleted'])->name('projects.restore-deleted');
 });

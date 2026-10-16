@@ -52,14 +52,25 @@ it('schedules daily pruning of expired idempotency records', function () {
         ->and($event->onOneServer)->toBeTrue();
 });
 
+it('schedules the daily trash purge (CORE-010)', function () {
+    $event = scheduledCommand('trash:purge');
+
+    expect($event)->not->toBeNull()
+        ->and($event->expression)->toBe('40 3 * * *')
+        ->and($event->onOneServer)->toBeTrue()
+        ->and($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(60);
+});
+
 it('lists only the operational tasks', function () {
-    expect(app(Schedule::class)->events())->toHaveCount(4);
+    expect(app(Schedule::class)->events())->toHaveCount(5);
 
     $this->artisan('schedule:list')
         ->expectsOutputToContain('queue:prune-failed --hours=720')
         ->expectsOutputToContain('queue:prune-batches --hours=48 --unfinished=72 --cancelled=72')
         ->expectsOutputToContain('auth:clear-resets')
         ->expectsOutputToContain('model:prune')
+        ->expectsOutputToContain('trash:purge')
         ->assertSuccessful();
 });
 

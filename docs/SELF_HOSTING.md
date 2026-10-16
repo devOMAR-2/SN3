@@ -111,6 +111,7 @@ The `scheduler` runs `schedule:work --whisper`, which evaluates `routes/console.
 | `queue:prune-batches --hours=48 --unfinished=72 --cancelled=72` | daily 03:10 UTC |
 | `auth:clear-resets` (delete expired password-reset tokens) | daily 03:20 UTC |
 | `model:prune --model=App\Models\ApiIdempotencyRecord` (delete `Idempotency-Key` results older than 24 hours) | daily 03:30 UTC |
+| `trash:purge` (permanently delete teams and projects that have been in the trash for 30 days; local data only, never anything on GitHub) | daily 03:40 UTC |
 
 Run exactly one `scheduler`. Tasks also take a lock in the database cache (`onOneServer`), so an accidental second scheduler doesn't run them twice. You can run more than one `worker` (`docker compose up -d --scale worker=2`).
 

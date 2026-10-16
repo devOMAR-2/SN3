@@ -65,7 +65,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 ### `teams`
 
-- `id uuid PK`; `name varchar(160) NOT NULL`; `slug varchar(100) NOT NULL UNIQUE` (deployment-wide unique); `description varchar(1000) NULL` (CORE-001); `owner_user_id uuid NOT NULL FK users(id)`; `created_at`, `updated_at`; `archived_at NULL` (30-day trash and purge policy).
+- `id uuid PK`; `name varchar(160) NOT NULL`; `slug varchar(100) NOT NULL UNIQUE` (deployment-wide unique); `description varchar(1000) NULL` (CORE-001); `owner_user_id uuid NOT NULL FK users(id)`; `created_at`, `updated_at`; `archived_at NULL` (read-only archive); `deleted_at NULL` (30-day trash and purge policy, §13, §20). *(Technical correction, CORE-010: this line had attributed the trash to `archived_at`; §20 adds `deleted_at` for it, and `archived_at` is the independent archive state.)*
 - Owner must also have exactly one membership with role `owner`. This is a cross-table invariant; enforce ownership transfer in one transaction with row locks, plus integrity verification. Consider a deferrable trigger if required for strict DB-level enforcement.
 
 ### `team_memberships`
@@ -98,7 +98,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
     - `projects.team_id` and `(project_id, team_id)` cascade. Only the trash purge deletes.
     - `created_by` and `added_by` are `RESTRICT`.
     - `(team_id, user_id) → team_memberships` has no ON DELETE action. Removing a team member deletes their project memberships in the same transaction, and the database refuses a team membership delete that would leave any behind.
-    - That key is `DEFERRABLE INITIALLY IMMEDIATE`. The team purge (CORE-010) must `SET CONSTRAINTS project_memberships_team_id_user_id_foreign DEFERRED`, or delete project memberships first, because PostgreSQL checks it during the cascade to `team_memberships`, before the cascade to `projects`.
+    - That key is `DEFERRABLE INITIALLY IMMEDIATE`. A team purge must defer it, because PostgreSQL checks it in the middle of the cascade: after the cascade to `team_memberships` and before the cascade to `projects` has removed the project memberships. Checked immediately, it would refuse every team purge. The trash purge (CORE-010, ADR-022 §5) therefore runs each delete with `SET CONSTRAINTS ALL DEFERRED`.
   - **`AccessibleProjects` (§10.2):** `App\Support\Tenancy\AccessibleProjects` implements the single authorization query; later resources use its `constrain()`.
 
 ### `project_templates` and `project_views` — public v1.0
@@ -260,6 +260,13 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 ## 13. Retention, deletion, backup and portability
 
 - **DECIDED-011 (closed; see §18):** archive is reversible and read-only; delete moves a team/project to trash for 30 days, after which a scheduled job purges app data. Hard deletion removes application data and queued integration links, backups age out per retention, and remote GitHub resources are never deleted. Implement purge only through the 30-day trash lifecycle, never as an immediate cascade.
+- **Implemented (CORE-010, ADR-022):**
+  - **Two independent states:** `archived_at` (read-only, readable) and `deleted_at` (trash) are set only on the root row (`teams` or `projects`); nothing below it is changed. An archived team makes its projects read-only without touching their own `archived_at`. A trashed team hides all its projects.
+  - **Recovery window:** a row is recoverable while `deleted_at > now − 30 days` and purgeable once `deleted_at <= now − 30 days` (`App\Domain\Trash\TrashRetention`). The two never overlap and do not depend on when the purge ran.
+  - **Purge:** `trash:purge`, daily at 03:40 UTC. It deletes trashed `projects` and then `teams` rows past the window, in keyset batches of 100, one transaction per row, with the team row locked first and `SET CONSTRAINTS ALL DEFERRED`. The `DELETE` repeats the trash condition, so a row recovered meanwhile survives, and re-runs are idempotent. A row whose delete fails (also at COMMIT) is rolled back, logged as `trash.purge_failed` and skipped; the command then exits non-zero and the row is retried on the next run. Descendants go by `ON DELETE CASCADE`. Remote GitHub resources are never touched.
+  - **Rule for every migration** (guarded by `tests/Feature/Trash/TrashPurgeTest.php`, which walks the cascade graph from `teams` and `projects` recursively): a foreign key to `teams` or `projects`, from any table, is `ON DELETE CASCADE`; a foreign key to any other table the purge deletes from cascades, sets NULL/DEFAULT, or is a `DEFERRABLE` NO ACTION key between two tables the purge deletes from. Stored files (attachments, exports) are not rows: their tasks must delete them along with the purge.
+  - **Indexes:** partial indexes `teams_trashed_deleted_at_index` and `projects_trashed_deleted_at_index` on `deleted_at WHERE deleted_at IS NOT NULL` (migration `2026_10_19_000200`).
+  - **Identifiers:** team slugs and project keys stay reserved until the purge, which frees them.
 - **DECIDED-004:** Cloud storage quotas, attachment retention, export, and backup policies. Cloud fair-use limits must not become paywalled feature gates; Self-Hosted operator controls storage infrastructure.
 - Keep transactional database backups consistent with attachment snapshots. Document point-in-time recovery if supported and test restores. Encrypt backups and limit access.
 - Provide a versioned export format for team/project data; importing must regenerate or remap internal IDs safely and preserve privacy rules. Export includes teams, memberships, projects, workflows, tasks, comments, checklist items, labels, custom fields, views, sprint history and audit metadata, plus attachment manifests and signed downloadable attachment archive. Exclude secrets, password hashes, private tokens and GitHub installation credentials. Import is outside public v1.0; exports use versioned JSON manifests.
