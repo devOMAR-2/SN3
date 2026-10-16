@@ -6,6 +6,7 @@ use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Workflows\StatusCategory;
 use App\Domain\Workflows\StatusOrder;
 use App\Domain\Workflows\StatusRules;
+use App\Domain\Workflows\WorkflowVersion;
 use App\Models\Project;
 use App\Models\ProjectStatus;
 use App\Models\User;
@@ -24,9 +25,11 @@ use Illuminate\Validation\ValidationException;
  * 2. `replacement_status_id`, when given, must be another status of the same project (422
  *    `exists` / `different`; a status of another project is answered like a random ID).
  * 3. The project must keep a `todo` and a `done` status (409).
- * 4. The status is deleted. If it was the default, the replacement becomes the default, otherwise
- *    the first remaining `todo` status.
- * 5. The remaining ranks are rewritten densely, in their current order.
+ * 4. The status is deleted. If it was the default, the replacement becomes the default when it is a
+ *    `todo` status, otherwise the first remaining `todo` status by position: the default is always
+ *    a `todo` status, because new tasks start in it.
+ * 5. The remaining ranks are rewritten densely, in their current order, and the workflow version
+ *    is incremented.
  *
  * Tasks do not exist yet. CORE-005 adds, at step 4: move every task of the status to the
  * replacement in this transaction, and refuse (409) when the status still has tasks and no
@@ -36,12 +39,14 @@ use Illuminate\Validation\ValidationException;
 final class DeleteStatus
 {
     /**
+     * @return int the new workflow version
+     *
      * @throws StaleVersionException
      */
-    public function handle(Project $project, ProjectStatus $status, User $actor, int $expectedVersion, ?string $replacementId = null): void
+    public function handle(Project $project, ProjectStatus $status, User $actor, int $expectedVersion, ?string $replacementId = null): int
     {
-        DB::transaction(function () use ($project, $status, $actor, $expectedVersion, $replacementId): void {
-            $lockedProject = ProjectWriteLock::project($project, $actor, 'update');
+        return DB::transaction(function () use ($project, $status, $actor, $expectedVersion, $replacementId): int {
+            $lockedProject = ProjectWriteLock::project($project, $actor, 'manageWorkflow');
 
             $statuses = $lockedProject->statuses()->orderBy('position')->lock(ProjectStatus::WRITE_LOCK)->get();
             $locked = $statuses->firstWhere('id', $status->id)
@@ -68,14 +73,16 @@ final class DeleteStatus
             $locked->delete();
 
             if ($locked->is_default) {
-                $default = $replacement
-                    ?? $remaining->first(fn (ProjectStatus $other): bool => $other->category === StatusCategory::Todo);
+                $default = $replacement?->category === StatusCategory::Todo
+                    ? $replacement
+                    : $remaining->first(fn (ProjectStatus $other): bool => $other->category === StatusCategory::Todo);
 
                 // assertRequiredCategories() guarantees a remaining `todo` status.
                 $default?->forceFill(['is_default' => true])->save();
             }
 
             StatusOrder::write($lockedProject->id, $remaining->map(fn (ProjectStatus $other): string => $other->id)->all());
+            WorkflowVersion::bump($lockedProject);
 
             Log::info('workflow.status_deleted', [
                 'team_id' => $lockedProject->team_id,
@@ -84,6 +91,8 @@ final class DeleteStatus
                 'actor_id' => $actor->id,
                 'replacement_status_id' => $replacement?->id,
             ]);
+
+            return $lockedProject->workflow_version;
         });
     }
 }

@@ -17,11 +17,12 @@ final class StatusOrder
 {
     /**
      * @param  array<int, string>  $orderedIds
+     * @return int how many statuses moved
      */
-    public static function write(string $projectId, array $orderedIds): void
+    public static function write(string $projectId, array $orderedIds): int
     {
         if ($orderedIds === []) {
-            return;
+            return 0;
         }
 
         $values = [];
@@ -33,7 +34,7 @@ final class StatusOrder
             $bindings[] = $position;
         }
 
-        DB::update(
+        return DB::update(
             'UPDATE project_statuses AS s SET position = v.position, updated_at = now() '
             .'FROM (VALUES '.implode(', ', $values).') AS v(id, position) '
             .'WHERE s.project_id = ? AND s.id = v.id AND s.position <> v.position',

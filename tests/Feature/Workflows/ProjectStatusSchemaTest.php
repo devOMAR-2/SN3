@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Workflows\StatusOrder;
 use App\Models\Project;
 use App\Models\ProjectStatus;
 use App\Models\Team;
@@ -121,14 +122,31 @@ it('has the keys and indexes DATABASE.md §5 requires', function () {
 
 it('gives every existing project the default workflow on upgrade, in its creator\'s language', function () {
     // Back to the schema before CORE-004, with projects created then.
-    Artisan::call('migrate:rollback', ['--step' => 2, '--force' => true]);
+    Artisan::call('migrate:rollback', ['--step' => 3, '--force' => true]);
+
+    // Raw rows: the current Project model already knows columns that did not exist then.
+    $legacyRow = function (Team $team, string $key, bool $trashed = false): Project {
+        $id = (string) Str::uuid7();
+        DB::table('projects')->insert([
+            'id' => $id,
+            'team_id' => $team->id,
+            'name' => 'Legacy '.$key,
+            'project_key' => $key,
+            'visibility' => 'team',
+            'created_by' => $team->owner_user_id,
+            'created_at' => now(),
+            'updated_at' => now(),
+            'deleted_at' => $trashed ? now() : null,
+        ]);
+
+        return (new Project)->forceFill(['id' => $id]);
+    };
 
     $english = User::factory()->create(['locale' => 'en']);
     $team = Team::factory()->ownedBy($english)->create();
-    $legacy = Project::factory()->for($team)->create();
-    $trashed = Project::factory()->for($team)->create();
-    $trashed->delete();
-    $arabic = Project::factory()->for($this->team)->create();
+    $legacy = $legacyRow($team, 'OLD');
+    $trashed = $legacyRow($team, 'GONE', trashed: true);
+    $arabic = $legacyRow($this->team, 'QDM');
 
     Artisan::call('migrate', ['--force' => true]);
 
@@ -142,5 +160,33 @@ it('gives every existing project the default workflow on upgrade, in its creator
     ])
         ->and($board($trashed))->toHaveCount(3)
         ->and(array_column($board($arabic), 0))->toBe(['للإنجاز', 'قيد التنفيذ', 'مكتمل'])
-        ->and(Uuid::fromString(ProjectStatus::query()->where('project_id', $legacy->id)->value('id'))->getFields()->getVersion())->toBe(7);
+        ->and(ProjectStatus::query()->whereIn('project_id', [$legacy->id, $trashed->id, $arabic->id])->pluck('id')
+            ->map(fn (string $id) => Uuid::fromString($id)->getFields()->getVersion())->unique()->values()->all())->toBe([7])
+        ->and(ProjectStatus::query()->whereIn('project_id', [$legacy->id, $trashed->id, $arabic->id])->pluck('id')->unique()->count())->toBe(9)
+        ->and(DB::table('projects')->whereIn('id', [$legacy->id, $trashed->id, $arabic->id])->pluck('workflow_version')->unique()->values()->all())->toBe([1]);
+});
+
+it('only ever makes a todo status the default', function () {
+    $bare = Project::factory()->for($this->team)->create();
+
+    expect(wfRejected(fn () => wfInsertStatusRow($bare, ['is_default' => true, 'category' => 'done'])))->toContain('project_statuses_default_is_todo_check')
+        ->and(wfRejected(fn () => wfInsertStatusRow($bare, ['is_default' => true, 'category' => 'in_progress'])))->toContain('project_statuses_default_is_todo_check')
+        ->and(wfRejected(fn () => wfInsertStatusRow($bare, ['is_default' => true, 'category' => 'todo'])))->toBe('accepted');
+});
+
+it('starts the workflow version at 1 and keeps it positive', function () {
+    expect($this->project->refresh()->workflow_version)->toBe(1)
+        ->and(wfRejected(fn () => DB::table('projects')->where('id', $this->project->id)->update(['workflow_version' => 0])))
+        ->toContain('projects_workflow_version_check');
+});
+
+it('rewrites ranks only within the given project', function () {
+    $other = Project::factory()->for($this->team)->withDefaultStatuses()->create();
+    $before = $this->project->statuses()->orderBy('position')->pluck('id')->all();
+
+    // Another project's ID with this project's statuses: nothing moves anywhere.
+    expect(DB::transaction(fn () => StatusOrder::write($other->id, array_reverse($before))))->toBe(0)
+        ->and($this->project->statuses()->orderBy('position')->pluck('id')->all())->toBe($before)
+        ->and(DB::transaction(fn () => StatusOrder::write($this->project->id, array_reverse($before))))->toBe(2)
+        ->and($this->project->statuses()->orderBy('position')->pluck('id')->all())->toBe(array_reverse($before));
 });

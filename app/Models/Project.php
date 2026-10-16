@@ -31,6 +31,7 @@ use Illuminate\Support\Carbon;
  * @property bool $sprints_enabled
  * @property int $next_task_number
  * @property int $version
+ * @property int $workflow_version
  * @property Carbon|null $archived_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -78,6 +79,7 @@ class Project extends Model
         'sprints_enabled' => false,
         'next_task_number' => 1,
         'version' => 1,
+        'workflow_version' => 1,
     ];
 
     /**
@@ -90,6 +92,7 @@ class Project extends Model
             'sprints_enabled' => 'boolean',
             'next_task_number' => 'integer',
             'version' => 'integer',
+            'workflow_version' => 'integer',
             'archived_at' => 'datetime',
             'deleted_at' => 'datetime',
         ];

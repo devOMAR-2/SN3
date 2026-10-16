@@ -42,8 +42,8 @@ class ProjectPolicy
     }
 
     /**
-     * PATCH /projects/{project} (name, key, description, visibility), PATCH /projects/{project}/settings
-     * and workflow status changes (API_SPEC.md §5, §17 "project settings, workflow"; ADR-021).
+     * PATCH /projects/{project} (name, key, description, visibility) and PATCH
+     * /projects/{project}/settings (API_SPEC.md §5, §17; ADR-021 §6).
      */
     public function update(User $user, Project $project): bool
     {
@@ -62,6 +62,16 @@ class ProjectPolicy
             TeamRole::Admin, TeamRole::Member => $project->roleOf($user) === ProjectRole::Manager,
             TeamRole::Viewer, null => false,
         };
+    }
+
+    /**
+     * Workflow status writes and reordering (API_SPEC.md §5 and §18 "Owner/Project Manager";
+     * ADR-021 §1). The same rule as membership: a Team Admin needs an explicit `manager` role here
+     * even on a team-visible project, and a Team Viewer never qualifies.
+     */
+    public function manageWorkflow(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
     }
 
     /** Write access to project content: tasks, comments and ordinary collaboration (CORE-005+). */

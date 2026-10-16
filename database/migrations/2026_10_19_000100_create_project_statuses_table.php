@@ -4,7 +4,6 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Str;
 
 /**
  * Migration group 03, first part (DATABASE.md §5, §14, §20): `project_statuses` (CORE-004, ADR-021).
@@ -19,7 +18,7 @@ use Illuminate\Support\Str;
  *   INITIALLY IMMEDIATE so PostgreSQL checks it at the end of each statement instead of row by row:
  *   a reorder rewrites every rank in one UPDATE. Nothing defers it further.
  * - Names are unique per project, ignoring case (DATABASE.md §5 "consider unique case-insensitive
- *   status names"), and at most one status per project is the default.
+ *   status names"), and at most one status per project is the default, always a `todo` one.
  * - `version` backs `If-Match` on status changes (API_SPEC.md §1.4, §18).
  *
  * Existing projects get the default workflow (To do, In progress, Done) in their creator's
@@ -65,6 +64,8 @@ return new class extends Migration
         DB::statement('ALTER TABLE project_statuses ADD CONSTRAINT project_statuses_project_id_position_unique UNIQUE (project_id, position) DEFERRABLE INITIALLY IMMEDIATE');
         DB::statement('CREATE UNIQUE INDEX project_statuses_project_id_lower_name_unique ON project_statuses (project_id, lower(name))');
         DB::statement('CREATE UNIQUE INDEX project_statuses_project_id_default_unique ON project_statuses (project_id) WHERE is_default');
+        // New tasks start in the default status, so it must never be a done (or in-progress) status.
+        DB::statement("ALTER TABLE project_statuses ADD CONSTRAINT project_statuses_default_is_todo_check CHECK (NOT is_default OR category = 'todo')");
 
         $this->seedExistingProjects();
     }
@@ -75,36 +76,28 @@ return new class extends Migration
     }
 
     /**
-     * Trashed projects too: a restored project must have a workflow.
+     * One set-based INSERT for every project, trashed ones included (a restored project must have a
+     * workflow). Names follow the creator's locale; IDs are UUIDv7, built in SQL from the clock and
+     * `gen_random_uuid()` (PostgreSQL 16 has no native v7 generator): the first 48 bits become the
+     * Unix time in milliseconds and the version nibble becomes 7.
      */
     private function seedExistingProjects(): void
     {
-        $projects = DB::table('projects')
-            ->join('users', 'users.id', '=', 'projects.created_by')
-            ->select(['projects.id', 'projects.team_id', 'users.locale'])
-            ->orderBy('projects.id');
+        $values = [];
+        $bindings = [];
 
-        foreach ($projects->lazy() as $project) {
-            $locale = $project->locale;
-            $names = is_string($locale) && array_key_exists($locale, self::DEFAULTS) ? self::DEFAULTS[$locale] : self::DEFAULTS['ar'];
-            $now = now();
-            $rows = [];
-
-            foreach (array_keys($names) as $position => $category) {
-                $rows[] = [
-                    'id' => (string) Str::uuid7(),
-                    'project_id' => $project->id,
-                    'team_id' => $project->team_id,
-                    'name' => $names[$category],
-                    'category' => $category,
-                    'position' => $position,
-                    'is_default' => $category === 'todo',
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
-            }
-
-            DB::table('project_statuses')->insert($rows);
+        foreach (self::DEFAULTS['en'] as $category => $english) {
+            $values[] = '(?, ?::numeric, ?, ?, ?::boolean)';
+            array_push($bindings, $category, count($values) - 1, self::DEFAULTS['ar'][$category], $english, $category === 'todo' ? 'true' : 'false');
         }
+
+        DB::insert(
+            'INSERT INTO project_statuses (id, project_id, team_id, name, category, position, is_default, created_at, updated_at) '
+            ."SELECT encode(set_bit(set_bit(overlay(uuid_send(gen_random_uuid()) PLACING substring(int8send(floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint) FROM 3) FROM 1 FOR 6), 52, 1), 53, 1), 'hex')::uuid, "
+            ."p.id, p.team_id, CASE WHEN u.locale = 'en' THEN d.name_en ELSE d.name_ar END, d.category, d.position, d.is_default, now(), now() "
+            .'FROM projects p JOIN users u ON u.id = p.created_by '
+            .'CROSS JOIN (VALUES '.implode(', ', $values).') AS d(category, position, name_ar, name_en, is_default)',
+            $bindings,
+        );
     }
 };

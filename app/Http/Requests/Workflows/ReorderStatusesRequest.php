@@ -8,7 +8,8 @@ use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * PUT /api/v1/projects/{project}/statuses/order (API_SPEC.md §5): `{ "status_ids": [ … ] }`, every
- * status ID of the project exactly once, in the new board order. A list that no longer matches the
+ * status ID of the project exactly once, in the new board order, with `If-Match` carrying the
+ * workflow version from `GET /statuses` (412 when stale). A list that no longer matches the
  * project's statuses is a 409 (ReorderStatuses).
  */
 class ReorderStatusesRequest extends FormRequest
@@ -18,9 +19,10 @@ class ReorderStatusesRequest extends FormRequest
     /** @var list<string> */
     public const FIELDS = ['status_ids'];
 
+    /** Owner or project manager (ProjectPolicy::manageWorkflow): 403 before validation. */
     public function authorize(): bool
     {
-        return $this->user()?->can('update', $this->route('project')) ?? false;
+        return $this->user()?->can('manageWorkflow', $this->route('project')) ?? false;
     }
 
     /**

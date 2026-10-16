@@ -17,7 +17,8 @@ use Illuminate\Support\Facades\Process;
 // - PROJ-01: a key change racing the first allocation either lands before it or is refused (409);
 //   a task number is never issued under a key that later changes.
 // - Status ordering: a status added while the workflow is reordered never leaves a gap or a
-//   duplicate position.
+//   duplicate position, and four simultaneous creates get four distinct positions (this one fails
+//   if ProjectWriteLock stops locking).
 
 const WORKFLOW_RACE_BARRIER_KEY = 640_004;
 
@@ -131,20 +132,39 @@ it('keeps positions dense when a status is added while the workflow is reordered
             $this->owner->id,
         ),
         sprintf(
-            'app(App\Domain\Workflows\Actions\ReorderStatuses::class)->handle(App\Models\Project::findOrFail("%s"), App\Models\User::findOrFail("%s"), [%s]); echo "reordered";',
+            'app(App\Domain\Workflows\Actions\ReorderStatuses::class)->handle(App\Models\Project::findOrFail("%s"), App\Models\User::findOrFail("%s"), 1, [%s]); echo "reordered";',
             $this->project->id,
             $this->owner->id,
             $reversed,
         ),
     ]);
 
-    // Reorder first (then the new status is appended), or create first (then the stale list is a 409).
-    expect([['created', 'reordered'], ['DomainConflictException', 'created']])->toContain($outcomes);
+    // Reorder first (then the new status is appended), or create first (then the reorder's workflow
+    // version is stale: 412).
+    expect([['created', 'reordered'], ['StaleVersionException', 'created']])->toContain($outcomes);
 
     $board = $this->project->statuses()->orderBy('position')->get();
     expect($board->pluck('position')->all())->toBe([0, 1, 2, 3])
         ->and($board->last()?->name)->toBe('Raced')
-        ->and($board->first()?->name)->toBe(in_array('reordered', $outcomes, true) ? 'Done' : 'To do');
+        ->and($board->first()?->name)->toBe(in_array('reordered', $outcomes, true) ? 'Done' : 'To do')
+        ->and($this->project->refresh()->workflow_version)->toBe(in_array('reordered', $outcomes, true) ? 3 : 2);
+});
+
+it('appends concurrently created statuses at distinct, dense positions', function () {
+    $create = fn (string $name) => sprintf(
+        'app(App\Domain\Workflows\Actions\CreateStatus::class)->handle(App\Models\Project::findOrFail("%s"), App\Models\User::findOrFail("%s"), "%s", App\Domain\Workflows\StatusCategory::InProgress); echo "created";',
+        $this->project->id,
+        $this->owner->id,
+        $name,
+    );
+
+    // Without the team and project locks the four writers read the same last rank and collide.
+    expect(wfRaceInProcesses([$create('A'), $create('B'), $create('C'), $create('D')]))->toBe(['created', 'created', 'created', 'created']);
+
+    $board = $this->project->statuses()->orderBy('position')->get();
+    expect($board->pluck('position')->all())->toBe([0, 1, 2, 3, 4, 5, 6])
+        ->and($board->slice(3)->pluck('name')->sort()->values()->all())->toBe(['A', 'B', 'C', 'D'])
+        ->and($this->project->refresh()->workflow_version)->toBe(5);
 });
 
 it('refuses to allocate a task number outside a transaction', function () {

@@ -17,9 +17,10 @@ class UpdateStatusRequest extends FormRequest
     /** @var list<string> */
     public const FIELDS = ['name', 'category', 'color'];
 
+    /** Owner or project manager (ProjectPolicy::manageWorkflow): 403 before validation. */
     public function authorize(): bool
     {
-        return $this->user()?->can('update', $this->route('project')) ?? false;
+        return $this->user()?->can('manageWorkflow', $this->route('project')) ?? false;
     }
 
     /**

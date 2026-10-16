@@ -18,6 +18,7 @@ use App\Support\Exceptions\DomainConflictException;
 use App\Support\Tenancy\AccessibleProjects;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -194,26 +195,35 @@ it('requires authentication for every workflow endpoint', function (string $meth
 // --- Who may change the workflow --------------------------------------------------------------------
 
 /**
- * [team role, visibility, explicit project role, can view, can manage the workflow]. Managing
- * follows ProjectPolicy::update (API_SPEC.md §5, §17; ADR-020 §5).
+ * [team role, visibility, explicit project role, can view, can manage the workflow, can change
+ * settings]. The workflow follows ProjectPolicy::manageWorkflow (API_SPEC.md §5/§18 "Owner/Project
+ * Manager": the membership rule); settings follow ProjectPolicy::update, like PATCH /projects
+ * (API_SPEC.md §17, ADR-020 §5), so a Team Admin changes a team-visible project's settings but
+ * not its workflow without the `manager` role.
  */
 dataset('workflow access', [
-    'Owner, private, no membership' => ['owner', 'private', null, true, true],
-    'Admin, team, no membership' => ['admin', 'team', null, true, true],
-    'Admin, private, no membership' => ['admin', 'private', null, false, false],
-    'Admin, private, manager' => ['admin', 'private', 'manager', true, true],
-    'Admin, private, contributor' => ['admin', 'private', 'contributor', true, false],
-    'Member, team, no membership' => ['member', 'team', null, true, false],
-    'Member, team, manager' => ['member', 'team', 'manager', true, true],
-    'Member, private, contributor' => ['member', 'private', 'contributor', true, false],
-    'Member, private, no membership' => ['member', 'private', null, false, false],
-    'Viewer, team, no membership' => ['viewer', 'team', null, true, false],
-    'Viewer, team, manager' => ['viewer', 'team', 'manager', true, false],
-    'Viewer, private, manager' => ['viewer', 'private', 'manager', true, false],
-    'other team' => ['outsider', 'team', null, false, false],
+    'Owner, team, no membership' => ['owner', 'team', null, true, true, true],
+    'Owner, private, no membership' => ['owner', 'private', null, true, true, true],
+    'Admin, team, no membership' => ['admin', 'team', null, true, false, true],
+    'Admin, team, manager' => ['admin', 'team', 'manager', true, true, true],
+    'Admin, team, contributor' => ['admin', 'team', 'contributor', true, false, true],
+    'Admin, private, no membership' => ['admin', 'private', null, false, false, false],
+    'Admin, private, manager' => ['admin', 'private', 'manager', true, true, true],
+    'Admin, private, contributor' => ['admin', 'private', 'contributor', true, false, false],
+    'Member, team, no membership' => ['member', 'team', null, true, false, false],
+    'Member, team, manager' => ['member', 'team', 'manager', true, true, true],
+    'Member, team, contributor' => ['member', 'team', 'contributor', true, false, false],
+    'Member, private, manager' => ['member', 'private', 'manager', true, true, true],
+    'Member, private, contributor' => ['member', 'private', 'contributor', true, false, false],
+    'Member, private, no membership' => ['member', 'private', null, false, false, false],
+    'Viewer, team, no membership' => ['viewer', 'team', null, true, false, false],
+    'Viewer, team, manager' => ['viewer', 'team', 'manager', true, false, false],
+    'Viewer, private, manager' => ['viewer', 'private', 'manager', true, false, false],
+    'other team, team' => ['outsider', 'team', null, false, false, false],
+    'other team, private' => ['outsider', 'private', null, false, false, false],
 ]);
 
-it('lets exactly the project managers change the workflow and settings', function (string $role, string $visibility, ?string $projectRole, bool $view, bool $manage) {
+it('lets exactly the project managers change the workflow, and project managers and team-visible Admins the settings', function (string $role, string $visibility, ?string $projectRole, bool $view, bool $workflow, bool $settings) {
     $project = Project::factory()->for($this->team)->withDefaultStatuses()->create(['visibility' => $visibility]);
     $actor = match ($role) {
         'owner' => $this->owner,
@@ -231,29 +241,33 @@ it('lets exactly the project managers change the workflow and settings', functio
 
     $list = $this->actingAs($actor)->getJson("{$base}/statuses");
     $view ? $list->assertOk() : $list->assertNotFound();
-    $settings = $this->actingAs($actor)->getJson("{$base}/settings");
-    $view ? $settings->assertOk() : $settings->assertNotFound();
+    $settingsRead = $this->actingAs($actor)->getJson("{$base}/settings");
+    $view ? $settingsRead->assertOk() : $settingsRead->assertNotFound();
 
     $create = $this->actingAs($actor)->postJson("{$base}/statuses", ['name' => 'Review', 'category' => 'in_progress']);
-    $manage ? $create->assertCreated() : $create->assertStatus($denied);
+    $workflow ? $create->assertCreated()->assertJsonPath('meta.workflow_version', 2) : $create->assertStatus($denied);
 
     $rename = $this->actingAs($actor)->patchJson("{$base}/statuses/{$doing->id}", ['name' => 'Doing'], ['If-Match' => '"1"']);
-    $manage ? $rename->assertOk() : $rename->assertStatus($denied);
+    $workflow ? $rename->assertOk()->assertJsonPath('meta.workflow_version', 3) : $rename->assertStatus($denied);
 
     $ids = $project->statuses()->orderByDesc('position')->pluck('id')->all();
-    $reorder = $this->actingAs($actor)->putJson("{$base}/statuses/order", ['status_ids' => $ids]);
-    $manage ? $reorder->assertOk() : $reorder->assertStatus($denied);
+    $reorder = $this->actingAs($actor)->putJson("{$base}/statuses/order", ['status_ids' => $ids], ['If-Match' => $workflow ? '"3"' : '"1"']);
+    $workflow ? $reorder->assertOk()->assertJsonPath('meta.workflow_version', 4) : $reorder->assertStatus($denied);
 
-    $delete = $this->actingAs($actor)->deleteJson("{$base}/statuses/{$doing->id}", [], ['If-Match' => $manage ? '"2"' : '"1"']);
-    $manage ? $delete->assertNoContent() : $delete->assertStatus($denied);
+    $delete = $this->actingAs($actor)->deleteJson("{$base}/statuses/{$doing->id}", [], ['If-Match' => $workflow ? '"2"' : '"1"']);
+    $workflow ? $delete->assertNoContent()->assertHeader('ETag', '"5"') : $delete->assertStatus($denied);
 
     $patch = $this->actingAs($actor)->patchJson("{$base}/settings", ['sprints_enabled' => true], ['If-Match' => '"1"']);
-    $manage ? $patch->assertOk() : $patch->assertStatus($denied);
+    $settings ? $patch->assertOk() : $patch->assertStatus($denied);
 
-    expect(wfBoard($project))->toBe($manage
+    $fresh = Project::query()->findOrFail($project->id);
+    expect(wfBoard($project))->toBe($workflow
         ? [['Review', 'in_progress', 0, false], ['Done', 'done', 1, false], ['To do', 'todo', 2, true]]
         : [['To do', 'todo', 0, true], ['In progress', 'in_progress', 1, false], ['Done', 'done', 2, false]])
-        ->and($project->refresh()->sprints_enabled)->toBe($manage);
+        ->and($fresh->workflow_version)->toBe($workflow ? 5 : 1)
+        ->and($fresh->sprints_enabled)->toBe($settings)
+        ->and(Gate::forUser($actor)->allows('manageWorkflow', $fresh))->toBe($workflow)
+        ->and(Gate::forUser($actor)->allows('update', $fresh))->toBe($settings);
 })->with('workflow access');
 
 it('answers 403 to a Viewer project manager whatever the body (AUTH-04)', function (string $method, string $suffix, array $body) {
@@ -366,7 +380,10 @@ it('caps a workflow at the status limit (409)', function () {
 it('renames, recolours and recategorises a status against its version', function () {
     $doing = wfStatus($this->project, 'In progress');
 
-    $this->actingAs($this->members['admin'])
+    $manager = $this->members['member'];
+    wfJoinProject($this->project, $manager, ProjectRole::Manager);
+
+    $this->actingAs($manager)
         ->patchJson("/api/v1/projects/{$this->project->id}/statuses/{$doing->id}", ['name' => ' Doing ', 'color' => '#abcdef', 'category' => 'todo'], ['If-Match' => '"1"'])
         ->assertOk()
         ->assertJsonPath('data.name', 'Doing')
@@ -382,10 +399,13 @@ it('renames, recolours and recategorises a status against its version', function
         ->assertJsonPath('data.version', 3);
     $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$this->project->id}/statuses/{$doing->id}", ['name' => 'Doing'], ['If-Match' => '"3"'])
         ->assertOk()
-        ->assertJsonPath('data.version', 3);
+        ->assertJsonPath('data.version', 3)
+        ->assertJsonPath('meta.workflow_version', 3)
+        ->assertHeader('ETag', '"3"');
 
+    // Two real changes moved the workflow version; the project's own version is untouched.
     expect(wfBoard($this->project))->toBe([['To do', 'todo', 0, true], ['Doing', 'todo', 1, false], ['Done', 'done', 2, false]])
-        ->and($this->project->refresh()->version)->toBe(1);
+        ->and($this->project->refresh())->version->toBe(1)->workflow_version->toBe(3);
 });
 
 it('requires If-Match on status changes (428) and refuses a stale version (412)', function () {
@@ -525,18 +545,21 @@ it('reorders the whole workflow and returns it in the new order', function () {
     [$todo, $doing, $done] = [wfStatus($this->project, 'To do'), wfStatus($this->project, 'In progress'), wfStatus($this->project, 'Done')];
 
     $this->actingAs($this->owner)
-        ->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => [$done->id, strtoupper($todo->id), $doing->id]])
+        ->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => [$done->id, strtoupper($todo->id), $doing->id]], ['If-Match' => '"1"'])
         ->assertOk()
+        ->assertJsonPath('meta.workflow_version', 2)
+        ->assertHeader('ETag', '"2"')
         ->assertJsonPath('data.*.name', ['Done', 'To do', 'In progress'])
         ->assertJsonPath('data.*.position', [0, 1, 2])
         ->assertJsonPath('data.*.version', [1, 1, 1]);
 
     expect(wfBoard($this->project))->toBe([['Done', 'done', 0, false], ['To do', 'todo', 1, true], ['In progress', 'in_progress', 2, false]]);
 
-    // The same order again is a no-op.
+    // The same order again is a no-op and keeps the workflow version.
     $this->actingAs($this->owner)
-        ->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => [$done->id, $todo->id, $doing->id]])
-        ->assertOk();
+        ->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => [$done->id, $todo->id, $doing->id]], ['If-Match' => '"2"'])
+        ->assertOk()
+        ->assertJsonPath('meta.workflow_version', 2);
 
     Log::shouldHaveReceived('info')->with('workflow.statuses_reordered', [
         'team_id' => $this->team->id,
@@ -555,7 +578,7 @@ it('refuses an order that does not list exactly the project\'s statuses (409)', 
         'extra status' => [...$ids, $foreign],
         'random id' => [...array_slice($ids, 0, 2), (string) Str::uuid7()],
     ] as $list) {
-        $this->actingAs($this->owner)->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => $list])
+        $this->actingAs($this->owner)->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => $list], ['If-Match' => '"1"'])
             ->assertStatus(409);
     }
 
@@ -581,6 +604,105 @@ it('validates the order body with stable codes', function (mixed $ids, string $f
     'duplicate' => [['{first}', '{first}'], 'status_ids.0', 'distinct'],
     'too many' => [array_fill(0, StatusRules::MAX_STATUSES + 1, '{first}'), 'status_ids', 'max'],
 ]);
+
+it('requires the workflow version in If-Match to reorder (428) and refuses a stale one (412)', function () {
+    $ids = $this->project->statuses()->orderByDesc('position')->pluck('id')->all();
+    $uri = "/api/v1/projects/{$this->project->id}/statuses/order";
+
+    $this->actingAs($this->owner)->putJson($uri, ['status_ids' => $ids])
+        ->assertStatus(428)
+        ->assertJsonPath('error.code', 'precondition_required');
+    $this->actingAs($this->owner)->putJson($uri, ['status_ids' => $ids], ['If-Match' => '"2"'])
+        ->assertStatus(412)
+        ->assertJsonPath('error.code', 'version_mismatch');
+
+    expect(wfBoard($this->project)[0][0])->toBe('To do')
+        ->and($this->project->refresh()->workflow_version)->toBe(1);
+});
+
+it('refuses a reorder made from a stale list instead of losing the newer order', function () {
+    $alice = $this->owner;
+    $bob = $this->members['member'];
+    wfJoinProject($this->project, $bob, ProjectRole::Manager);
+    [$todo, $doing, $done] = [wfStatus($this->project, 'To do'), wfStatus($this->project, 'In progress'), wfStatus($this->project, 'Done')];
+
+    // Both managers load the same workflow.
+    $etag = $this->actingAs($alice)->getJson("/api/v1/projects/{$this->project->id}/statuses")
+        ->assertOk()
+        ->assertJsonPath('meta.workflow_version', 1)
+        ->assertHeader('ETag', '"1"')
+        ->headers->get('ETag');
+    $this->actingAs($bob)->getJson("/api/v1/projects/{$this->project->id}/statuses")->assertHeader('ETag', $etag);
+
+    $this->actingAs($alice)->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => [$done->id, $doing->id, $todo->id]], ['If-Match' => $etag])
+        ->assertOk();
+
+    // Bob saves from his stale copy: 412, and Alice's order stands.
+    $this->actingAs($bob)->putJson("/api/v1/projects/{$this->project->id}/statuses/order", ['status_ids' => [$doing->id, $todo->id, $done->id]], ['If-Match' => $etag])
+        ->assertStatus(412)
+        ->assertJsonPath('error.code', 'version_mismatch');
+
+    expect(array_column(wfBoard($this->project), 0))->toBe(['Done', 'In progress', 'To do'])
+        ->and($this->project->refresh()->workflow_version)->toBe(2);
+});
+
+it('moves the workflow version on every status change, so a reorder after one is stale', function () {
+    $uri = "/api/v1/projects/{$this->project->id}";
+    $doing = wfStatus($this->project, 'In progress');
+
+    $created = $this->actingAs($this->owner)->postJson("{$uri}/statuses", ['name' => 'Review', 'category' => 'todo'])
+        ->assertCreated()
+        ->assertJsonPath('meta.workflow_version', 2)
+        ->assertHeader('ETag', '"2"')
+        ->json('data.id');
+    $this->actingAs($this->owner)->patchJson("{$uri}/statuses/{$doing->id}", ['color' => '#145A38'], ['If-Match' => '"1"'])
+        ->assertOk()
+        ->assertJsonPath('meta.workflow_version', 3);
+    $this->actingAs($this->owner)->deleteJson("{$uri}/statuses/{$created}", [], ['If-Match' => '"1"'])
+        ->assertNoContent()
+        ->assertHeader('ETag', '"4"');
+
+    $ids = $this->project->statuses()->orderByDesc('position')->pluck('id')->all();
+    $this->actingAs($this->owner)->putJson("{$uri}/statuses/order", ['status_ids' => $ids], ['If-Match' => '"3"'])->assertStatus(412);
+    $this->actingAs($this->owner)->putJson("{$uri}/statuses/order", ['status_ids' => $ids], ['If-Match' => '"4"'])->assertOk();
+
+    // A status version still guards its own PATCH and DELETE, and workflow edits leave the project version alone.
+    expect($this->project->refresh())->workflow_version->toBe(5)->version->toBe(1)
+        ->and($doing->refresh()->version)->toBe(2);
+});
+
+it('keeps the default in a todo status when the default status changes category', function () {
+    $backlog = ProjectStatus::factory()->for($this->project)->category(StatusCategory::Todo)->create(['name' => 'Backlog']);
+    $later = ProjectStatus::factory()->for($this->project)->category(StatusCategory::Todo)->create(['name' => 'Later']);
+    $todo = wfStatus($this->project, 'To do');
+
+    $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$this->project->id}/statuses/{$todo->id}", ['category' => 'done'], ['If-Match' => '"1"'])
+        ->assertOk()
+        ->assertJsonPath('data.category', 'done')
+        ->assertJsonPath('data.is_default', false);
+
+    // The first remaining todo status by position takes the default.
+    expect($backlog->refresh()->is_default)->toBeTrue()
+        ->and($later->refresh()->is_default)->toBeFalse()
+        ->and($this->project->statuses()->where('is_default', true)->count())->toBe(1);
+
+    // Renaming or recolouring the default keeps it.
+    $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$this->project->id}/statuses/{$backlog->id}", ['name' => 'Inbox', 'category' => 'todo'], ['If-Match' => '"1"'])
+        ->assertOk()
+        ->assertJsonPath('data.is_default', true);
+});
+
+it('keeps the default in a todo status when the default is deleted with a non-todo replacement', function () {
+    $later = ProjectStatus::factory()->for($this->project)->category(StatusCategory::Todo)->create(['name' => 'Later']);
+    $todo = wfStatus($this->project, 'To do');
+    $done = wfStatus($this->project, 'Done');
+
+    $this->actingAs($this->owner)->deleteJson("/api/v1/projects/{$this->project->id}/statuses/{$todo->id}", ['replacement_status_id' => $done->id], ['If-Match' => '"1"'])
+        ->assertNoContent();
+
+    expect($done->refresh()->is_default)->toBeFalse()
+        ->and($later->refresh()->is_default)->toBeTrue();
+});
 
 // --- Archived team or project: read-only (423) ------------------------------------------------------------
 
@@ -628,18 +750,40 @@ it('re-checks the actor on the locked rows, so a demoted manager cannot change t
     expect(fn () => app(CreateStatus::class)->handle($stale, $manager, 'Late', StatusCategory::Todo))->toThrow(DomainConflictException::class)
         ->and(fn () => app(UpdateStatus::class)->handle($stale, $doing, $manager, 1, ['name' => 'Late']))->toThrow(DomainConflictException::class)
         ->and(fn () => app(DeleteStatus::class)->handle($stale, $doing, $manager, 1))->toThrow(DomainConflictException::class)
-        ->and(fn () => app(ReorderStatuses::class)->handle($stale, $manager, array_reverse($ids)))->toThrow(DomainConflictException::class)
+        ->and(fn () => app(ReorderStatuses::class)->handle($stale, $manager, 1, array_reverse($ids)))->toThrow(DomainConflictException::class)
         ->and(wfBoard($project))->toBe([['To do', 'todo', 0, true], ['In progress', 'in_progress', 1, false], ['Done', 'done', 2, false]]);
 });
 
-it('answers 404 when the project became invisible while the request waited', function () {
+it('re-checks the workflow right itself, so a demoted Admin manager of a team-visible project is refused', function () {
     $admin = $this->members['admin'];
+    wfJoinProject($this->project, $admin, ProjectRole::Manager);
     $stale = app(AccessibleProjects::class)->findOrFail($admin, $this->project->id);
+    $doing = wfStatus($this->project, 'In progress');
+    $ids = $this->project->statuses()->pluck('id')->all();
 
-    $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$this->project->id}", ['visibility' => 'private'], ['If-Match' => '"1"'])->assertOk();
+    // Still allowed to edit the project (update), no longer to manage its workflow.
+    $this->actingAs($this->owner)->putJson("/api/v1/projects/{$this->project->id}/members/{$admin->id}", ['role' => 'contributor'])->assertOk();
+
+    expect(fn () => app(CreateStatus::class)->handle($stale, $admin, 'Late', StatusCategory::Todo))->toThrow(DomainConflictException::class)
+        ->and(fn () => app(UpdateStatus::class)->handle($stale, $doing, $admin, 1, ['name' => 'Late']))->toThrow(DomainConflictException::class)
+        ->and(fn () => app(DeleteStatus::class)->handle($stale, $doing, $admin, 1))->toThrow(DomainConflictException::class)
+        ->and(fn () => app(ReorderStatuses::class)->handle($stale, $admin, 1, array_reverse($ids)))->toThrow(DomainConflictException::class)
+        ->and(wfBoard($this->project))->toHaveCount(3)
+        ->and($this->project->refresh()->workflow_version)->toBe(1);
+});
+
+it('answers 404 when the project became invisible while the request waited', function () {
+    $project = Project::factory()->for($this->team)->private()->withDefaultStatuses()->create();
+    $admin = $this->members['admin'];
+    wfJoinProject($project, $admin, ProjectRole::Manager);
+    $stale = app(AccessibleProjects::class)->findOrFail($admin, $project->id);
+
+    // The Owner removes the Admin from the private project after their request passed its checks.
+    $this->actingAs($this->owner)->deleteJson("/api/v1/projects/{$project->id}/members/{$admin->id}")->assertNoContent();
 
     expect(fn () => app(CreateStatus::class)->handle($stale, $admin, 'Late', StatusCategory::Todo))->toThrow(ModelNotFoundException::class)
-        ->and(wfBoard($this->project))->toHaveCount(3);
+        ->and(fn () => app(ReorderStatuses::class)->handle($stale, $admin, 1, $project->statuses()->pluck('id')->all()))->toThrow(ModelNotFoundException::class)
+        ->and(wfBoard($project))->toHaveCount(3);
 });
 
 it('answers 404 for a status deleted while the request waited', function () {
@@ -668,6 +812,7 @@ it('logs workflow events with identifiers only', function () {
         'actor_id' => $this->owner->id,
         'from' => 'in_progress',
         'to' => 'done',
+        'default_status_id' => null,
     ])->once();
     Log::shouldNotHaveReceived('info', fn (string $message, array $context = []) => preg_match('/Secret merger|Due diligence|Negotiation/', (string) json_encode($context)) === 1);
 });

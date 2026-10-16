@@ -5,6 +5,7 @@ namespace App\Domain\Workflows\Actions;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Workflows\StatusCategory;
 use App\Domain\Workflows\StatusRules;
+use App\Domain\Workflows\WorkflowVersion;
 use App\Models\Project;
 use App\Models\ProjectStatus;
 use App\Models\User;
@@ -17,21 +18,26 @@ use Illuminate\Support\Facades\Log;
  * Adds a status at the end of the project's workflow (API_SPEC.md §5 POST, FR-CUST-001).
  *
  * Locks team → project (ProjectWriteLock: 423 when archived, 404/409 when the actor lost access
- * meanwhile), so the new rank `n` is computed while no other status writer can run. A name already
- * used in the project (ignoring case) and a full workflow (StatusRules::MAX_STATUSES) are 409.
+ * meanwhile), so the new rank (last rank + 1) is computed while no other status writer can run,
+ * and increments the workflow version. A name already used in the project (ignoring case) and a
+ * full workflow (StatusRules::MAX_STATUSES) are 409.
  */
 final class CreateStatus
 {
+    /**
+     * @return ProjectStatus with its locked `project` loaded, carrying the new workflow version
+     */
     public function handle(Project $project, User $actor, string $name, StatusCategory $category, ?string $color = null): ProjectStatus
     {
         try {
             return DB::transaction(function () use ($project, $actor, $name, $category, $color): ProjectStatus {
-                $locked = ProjectWriteLock::project($project, $actor, 'update');
-                $count = $locked->statuses()->count();
+                $locked = ProjectWriteLock::project($project, $actor, 'manageWorkflow');
 
-                if ($count >= StatusRules::MAX_STATUSES) {
+                if ($locked->statuses()->count() >= StatusRules::MAX_STATUSES) {
                     throw new DomainConflictException('The project has the maximum number of statuses.');
                 }
+
+                $next = $locked->statuses()->toBase()->selectRaw('coalesce(max(position) + 1, 0) as next')->value('next');
 
                 $status = new ProjectStatus;
                 $status->forceFill([
@@ -40,9 +46,11 @@ final class CreateStatus
                     'name' => $name,
                     'category' => $category,
                     'color' => $color,
-                    'position' => $count,
+                    'position' => is_numeric($next) ? (int) $next : 0,
                     'is_default' => false,
                 ])->save();
+
+                WorkflowVersion::bump($locked);
 
                 Log::info('workflow.status_created', [
                     'team_id' => $locked->team_id,
@@ -52,7 +60,7 @@ final class CreateStatus
                     'category' => $category->value,
                 ]);
 
-                return $status->refresh();
+                return $status->refresh()->setRelation('project', $locked);
             });
         } catch (UniqueConstraintViolationException $e) {
             throw StatusRules::duplicateName($e);

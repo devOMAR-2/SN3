@@ -7,6 +7,7 @@ use App\Domain\Workflows\Actions\DeleteStatus;
 use App\Domain\Workflows\Actions\ReorderStatuses;
 use App\Domain\Workflows\Actions\UpdateStatus;
 use App\Domain\Workflows\StatusCategory;
+use App\Domain\Workflows\WorkflowVersion;
 use App\Http\Concurrency\IfMatch;
 use App\Http\Controllers\Controller;
 use App\Http\Pagination\CursorPagination;
@@ -32,8 +33,11 @@ use Illuminate\Support\Str;
  *
  * `{project}` resolves through AccessibleProjects, so a hidden project's statuses are a 404 like the
  * project itself. `{status}` must belong to that project, else 404. Reading needs only access to the
- * project; changing the workflow needs `update` on it (Owner, project manager, or a Team Admin on
- * a team-visible project), so a Team Viewer is read-only.
+ * project; changing the workflow needs `manageWorkflow` (the Owner or a project manager; never a
+ * Team Viewer).
+ *
+ * Every response carries the project's workflow version as `meta.workflow_version` and as an
+ * `ETag` (`"<n>"`); `PUT /statuses/order` requires it in `If-Match` (ADR-021 §3).
  */
 class ProjectStatusController extends Controller
 {
@@ -43,7 +47,13 @@ class ProjectStatusController extends Controller
 
         $query = $project->statuses()->getQuery()->orderBy('position')->orderBy('id');
 
-        return CursorPagination::respond($request, $query, fn (ProjectStatus $status): array => ProjectStatusResource::make($status));
+        // The version was read with the project (route binding), before the statuses: a change
+        // committed in between can only make it older than the list, so the client's next reorder
+        // gets a 412 and reloads, never a silent overwrite.
+        $version = $project->workflow_version;
+        $response = CursorPagination::respond($request, $query, fn (ProjectStatus $status): array => ProjectStatusResource::make($status), ['workflow_version' => $version]);
+
+        return self::withEtag($response, $version);
     }
 
     public function store(StoreStatusRequest $request, Project $project, CreateStatus $createStatus): JsonResponse
@@ -55,7 +65,7 @@ class ProjectStatusController extends Controller
 
         $status = $createStatus->handle($project, $user, $input['name'], StatusCategory::from($input['category']), $input['color'] ?? null);
 
-        return ApiResponse::data(ProjectStatusResource::make($status), 201);
+        return self::respond($status, 201);
     }
 
     public function update(UpdateStatusRequest $request, Project $project, string $status, UpdateStatus $updateStatus): JsonResponse
@@ -67,7 +77,7 @@ class ProjectStatusController extends Controller
 
         $updated = $updateStatus->handle($project, self::status($project, $status), $user, IfMatch::version($request), $changes);
 
-        return ApiResponse::data(ProjectStatusResource::make($updated));
+        return self::respond($updated);
     }
 
     public function destroy(DestroyStatusRequest $request, Project $project, string $status, DeleteStatus $deleteStatus): Response
@@ -75,9 +85,9 @@ class ProjectStatusController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $deleteStatus->handle($project, self::status($project, $status), $user, IfMatch::version($request), $request->replacementId());
+        $version = $deleteStatus->handle($project, self::status($project, $status), $user, IfMatch::version($request), $request->replacementId());
 
-        return response()->noContent();
+        return response()->noContent()->withHeaders(['ETag' => WorkflowVersion::etag($version)]);
     }
 
     public function reorder(ReorderStatusesRequest $request, Project $project, ReorderStatuses $reorderStatuses): JsonResponse
@@ -85,9 +95,30 @@ class ProjectStatusController extends Controller
         /** @var User $user */
         $user = $request->user();
 
-        $statuses = $reorderStatuses->handle($project, $user, $request->statusIds());
+        $statuses = $reorderStatuses->handle($project, $user, IfMatch::version($request), $request->statusIds());
+        $version = $statuses->first()?->project->workflow_version ?? $project->workflow_version;
 
-        return ApiResponse::data($statuses->map(fn (ProjectStatus $status): array => ProjectStatusResource::make($status))->values()->all());
+        return self::withEtag(ApiResponse::data(
+            $statuses->map(fn (ProjectStatus $status): array => ProjectStatusResource::make($status))->values()->all(),
+            meta: ['workflow_version' => $version],
+        ), $version);
+    }
+
+    /**
+     * A single status, with the workflow version of the locked project the action loaded.
+     */
+    private static function respond(ProjectStatus $status, int $code = 200): JsonResponse
+    {
+        $version = $status->project->workflow_version;
+
+        return self::withEtag(ApiResponse::data(ProjectStatusResource::make($status), $code, meta: ['workflow_version' => $version]), $version);
+    }
+
+    private static function withEtag(JsonResponse $response, int $version): JsonResponse
+    {
+        $response->headers->set('ETag', WorkflowVersion::etag($version));
+
+        return $response;
     }
 
     /**
