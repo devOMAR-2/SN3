@@ -2,6 +2,7 @@
 
 namespace App\Exceptions;
 
+use App\Http\Middleware\SetLocale;
 use App\Http\Responses\ApiResponse;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
@@ -47,6 +48,11 @@ final class ApiExceptionRenderer
     {
         if (! self::handles($request)) {
             return null;
+        }
+
+        // No route matched (e.g. an unknown path), so the web group and SetLocale never ran.
+        if ($request->route() === null) {
+            app()->setLocale(app(SetLocale::class)->resolve($request)->value);
         }
 
         if ($e instanceof ValidationException) {
