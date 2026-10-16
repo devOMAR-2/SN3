@@ -36,3 +36,8 @@ compose.yaml
 .DS_Store
 Thumbs.db
 *.log
+
+# Test and static-analysis configuration (FND-003) is not needed in the image.
+resources/js/**/*.test.ts
+vitest.config.ts
+phpstan.neon
