@@ -52,6 +52,7 @@ The build tooling lives in `devDependencies`. If `NODE_ENV=production` is set in
 | Production build | `npm run build` |
 | PHP static analysis (Larastan, PHPStan level 9) | `composer analyse` |
 | Frontend tests (Vitest) | `npm run test` |
+| End-to-end (Playwright, seeded tenants) | `npm run e2e` (see [docs/TESTING.md](docs/TESTING.md); resets the `sn3_e2e` database) |
 | Dependency advisories | `composer audit --locked` · `npm audit --omit=dev --audit-level=high` |
 
 CI runs all of these on every pull request to `dev` and `main`, together with migrations up/down/up and a Docker image smoke test. A pull request can only merge when every check is green: see [ADR-013](docs/adr/ADR-013-continuous-integration.md).

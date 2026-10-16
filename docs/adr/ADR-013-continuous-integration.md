@@ -11,7 +11,7 @@ ARCHITECTURE.md §12 lists the CI gates: formatter/linter, static analysis, unit
 
 ## Decision
 
-### 1. One workflow, five jobs
+### 1. One workflow, six jobs
 
 `.github/workflows/ci.yml` runs on `pull_request` and `push` for `dev` and `main`. The job names are the required checks:
 
@@ -19,6 +19,7 @@ ARCHITECTURE.md §12 lists the CI gates: formatter/linter, static analysis, unit
 |---|---|
 | `PHP (Pint, Larastan, migrations, Pest)` | PHP 8.3 (`shivammathur/setup-php`, `intl`, `mbstring`, `pdo_pgsql`); `composer validate --strict`; `composer install` from the lock; `pint --test`; PHPStan/Larastan; `migrate`, `migrate:rollback`, `migrate` again; Pest against a `postgres:16.15-trixie` service container |
 | `Frontend (ESLint, Prettier, vue-tsc, Vitest, build)` | Node from `.nvmrc` (22); `npm ci`; `npm run lint`, `format:check`, `typecheck`, `test`, `build` |
+| `E2E (Playwright, seeded tenants)` | Added by FND-008 (`docs/TESTING.md`). PHP 8.3 and Node 22; `npm run build`; Playwright's Chromium; `npm run e2e` against a `postgres:16.15-trixie` service: `migrate:fresh` plus `E2ETenantSeeder`, `php artisan serve`, desktop and mobile projects. The HTML report is uploaded only when the job fails |
 | `Dependency audit (Composer, npm)` | `composer audit --locked`; `npm audit --omit=dev --audit-level=high` (blocking); full `npm audit` (report only, see §4) |
 | `Dependency review` | `actions/dependency-review-action` on pull requests only: fails if the PR adds or changes a runtime dependency with a known vulnerability of any severity |
 | `Docker image (build, health smoke test)` | Buildx build of `deploy/docker/Dockerfile` (not pushed, GitHub Actions layer cache), then `docker run` without a database: `/health/live` must return `200 {"status":"ok"}` and `/health/ready` must return `503 {"status":"unavailable"}` |
@@ -57,7 +58,7 @@ The jobs run in parallel. PHP tests do not need `npm run build` (`Tests\TestCase
 
 The repository ruleset **"CI required (dev, main)"** (`refs/heads/dev`, `refs/heads/main`, enforcement active) enforces:
 
-- **Required status checks:** the five job names above, with GitHub Actions as the source (`integration_id` 15368, so another app cannot satisfy a check by posting a status with the same name). A PR cannot merge until each check has passed on its head commit. Failed, cancelled and pending checks all block. Dependency review runs only for PRs, which is the only way into these branches.
+- **Required status checks:** the job names above, with GitHub Actions as the source (`integration_id` 15368, so another app cannot satisfy a check by posting a status with the same name). A PR cannot merge until each check has passed on its head commit. Failed, cancelled and pending checks all block. Dependency review runs only for PRs, which is the only way into these branches.
 - **Pull request required, zero approvals.** Changes reach `dev`/`main` only through a PR, so the checks always run before a merge. No review is required: the maintainer opens and merges PRs from a single account, so a required approval could never be given. "Extra approval for unattributed changes" is off for the same reason.
 - **Not strict (no "require branches to be up to date").** Several task PRs are open against `dev` at the same time. With strict checks, every merge would force all other PRs to be rebased and re-run before they could merge, which serialises parallel work. The cost is that a PR is validated against the `dev` it was based on, not the newest `dev`. The `push` trigger re-runs the full pipeline on every commit that lands on `dev`/`main`, so a semantic conflict between two individually green PRs shows up immediately on the branch.
 - **Block force pushes and branch deletion** on `dev` and `main`.
@@ -71,4 +72,4 @@ The pre-existing "Protect main" ruleset (default branch: PR with one approval, r
 - New PHP code must pass PHPStan level 9 without a baseline. Configuration code that passes `env()` values into typed functions needs an explicit cast.
 - Frontend tests are `*.test.ts` files under `resources/js/`. Pages that use Inertia's `<Head>` need the `$headManager` mock shown in `Welcome.test.ts`.
 - The Docker job builds the image on every PR, but nothing is published. Image publishing is GH-008.
-- E2E (Playwright, FND-008) and the clean Compose install/backup/restore smoke test (ARCHITECTURE.md §12, deployment row) are not part of this pipeline yet. They should be added as further required checks when those tasks land.
+- E2E (Playwright) joined the pipeline with FND-008 and becomes a required check once the ruleset lists it. The clean Compose install/backup/restore smoke test (ARCHITECTURE.md §12, deployment row) is not part of this pipeline yet; it should be added as a further required check when that task lands.
