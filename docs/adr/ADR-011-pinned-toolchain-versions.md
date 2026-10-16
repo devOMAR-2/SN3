@@ -15,7 +15,7 @@ DECIDED-010 fixes the major lines — Laravel 12.x, PHP 8.3+, Vue 3.x, TypeScrip
 2. `composer.lock` and `package-lock.json` are committed and are the source of truth for installed versions. `package.json` also uses exact versions (`.npmrc` sets `save-exact=true`), so a manifest diff always shows the exact version change.
 3. `composer.json` sets `config.platform.php = 8.3.0`. The lock is therefore resolved for the lowest supported PHP, so `composer install` works on any PHP ≥ 8.3 without re-resolving.
 4. `package.json` `engines.node` is `^22.12.0` and `.nvmrc` is `22`.
-5. Dependabot (Composer, npm, GitHub Actions) opens weekly update PRs against `dev`. Each one is reviewed and must pass CI (FND-003). Dependabot ignores major updates of the DECIDED-010 components (Laravel, Inertia, Vue, TypeScript), because changing a major line requires a new ADR.
+5. Dependabot (Composer, npm, GitHub Actions) opens weekly update PRs against `dev`. Each one is reviewed and must pass CI (FND-003). Dependabot ignores major updates of the DECIDED-010 components (Laravel, Inertia, Vue, TypeScript, and the Node.js 22 runtime: the Docker `node` image and `@types/node`), and minor or major updates of the PHP 8.3 image, because changing a major line requires a new ADR.
 
 ### Locked versions at initialization
 

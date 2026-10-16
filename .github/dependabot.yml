@@ -34,6 +34,10 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # Type definitions follow the Node.js 22 runtime (DECIDED-010, package.json engines, .nvmrc);
+      # newer majors describe APIs that Node 22 does not have.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "docker"
     directory: "/deploy/docker"
