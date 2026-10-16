@@ -1,0 +1,164 @@
+/*
+ * SN3 semantic design tokens — DESIGN_SYSTEM.md §2.1, §2.2, §11 and §15 are the source of truth.
+ * Components use these through the Tailwind aliases below (e.g. `bg-surface`, `text-text-muted`,
+ * `border-border-control`, `rounded-control`, `text-body`). Never hard-code palette hex values in views.
+ *
+ * `data-theme` on <html> is always `light` or `dark`; it is set before first paint by the inline script in
+ * resources/views/app.blade.php and kept in sync by resources/js/Composables/useTheme.ts.
+ */
+
+:root {
+  color-scheme: light;
+
+  --bg: #f6faf7;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --surface-hover: #e8f3eb;
+  --text: #0f172a;
+  --text-muted: #475569;
+  --text-subtle: #64748b;
+  --border: #dce3ec;
+  --primary: #145a38;
+  --primary-hover: #0b422a;
+  --primary-on: #ffffff;
+  --focus: #29845a;
+  --success: #166534;
+  --warning: #92400e;
+  --danger: #b91c1c;
+  --info: #236b53;
+  --overlay: rgba(15, 23, 42, 0.56);
+  --shadow-panel-value: 0 2px 8px rgba(15, 23, 42, 0.05);
+
+  /* Text on a solid danger button. Light: white (6.47:1 on #B91C1C); dark: the dark on-primary ink. */
+  --danger-on: #ffffff;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #0c1712;
+  --surface: #15241c;
+  --surface-muted: #20352a;
+  --surface-hover: #253d32;
+  --text: #f1f5f9;
+  --text-muted: #a7b6c9;
+  --text-subtle: #94a3b8;
+  --border: #334155;
+  --primary: #6bd6a0;
+  --primary-hover: #9ae9bc;
+  --primary-on: #08291b;
+  --focus: #9ae9bc;
+  --success: #86efac;
+  --warning: #fcd34d;
+  --danger: #fca5a5;
+  --info: #9ae9bc;
+  --overlay: rgba(0, 0, 0, 0.7);
+  --shadow-panel-value: 0 4px 16px rgba(0, 0, 0, 0.18);
+  --danger-on: #08291b;
+}
+
+:root {
+  /*
+   * Derived tokens (DESIGN_SYSTEM.md §2.1 allows adjusting for WCAG on real pairings).
+   * - `--border` is a divider colour (1.29:1 light / 1.56:1 dark on surface), too faint to identify a form
+   *   control (WCAG 1.4.11 needs 3:1). Control outlines mix it with `--text-subtle`: ≥3.3:1 in both themes.
+   * - Status backgrounds are 10% of the status colour over the surface: pale in light mode, a dark tint in
+   *   dark mode. Status text on them stays ≥5.4:1.
+   */
+  --border-control: color-mix(in srgb, var(--text-subtle) 80%, var(--border));
+  --info-subtle: color-mix(in srgb, var(--info) 10%, var(--surface));
+  --success-subtle: color-mix(in srgb, var(--success) 10%, var(--surface));
+  --warning-subtle: color-mix(in srgb, var(--warning) 10%, var(--surface));
+  --danger-subtle: color-mix(in srgb, var(--danger) 10%, var(--surface));
+
+  /* Motion (DESIGN_SYSTEM.md §2.2): 120ms hover, 180ms panels, 220ms dialogs, ease-out. */
+  --motion-hover: 120ms;
+  --motion-panel: 180ms;
+  --motion-dialog: 220ms;
+  --motion-ease: cubic-bezier(0, 0, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-hover: 0ms;
+    --motion-panel: 0ms;
+    --motion-dialog: 0ms;
+  }
+
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Tailwind aliases. `inline` makes utilities read the runtime variables, so a theme switch needs no rebuild. */
+@theme inline {
+  --color-*: initial;
+  --color-transparent: transparent;
+  --color-current: currentColor;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --color-border: var(--border);
+  --color-border-control: var(--border-control);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-on: var(--primary-on);
+  --color-focus: var(--focus);
+  --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
+  --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
+  --color-danger-on: var(--danger-on);
+  --color-info: var(--info);
+  --color-info-subtle: var(--info-subtle);
+  --color-overlay: var(--overlay);
+
+  --shadow-*: initial;
+  --shadow-panel: var(--shadow-panel-value);
+}
+
+@theme {
+  --font-sans: 'Space Grotesk Variable', 'IBM Plex Sans Arabic', ui-sans-serif, system-ui, sans-serif;
+  --font-arabic: 'IBM Plex Sans Arabic', 'Space Grotesk Variable', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Radii: tiny 4, controls 8, cards 12, dialogs 16; pill only for chips and avatars. */
+  --radius-*: initial;
+  --radius-tiny: 0.25rem;
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --radius-dialog: 1rem;
+  --radius-pill: 999px;
+
+  /* Type scale (size/line-height): caption 12/18, small 13/20, body 14/22, heading 18/26, title 24/32, display 30/38. */
+  --text-*: initial;
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.125rem;
+  --text-small: 0.8125rem;
+  --text-small--line-height: 1.25rem;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.375rem;
+  --text-heading: 1.125rem;
+  --text-heading--line-height: 1.625rem;
+  --text-title: 1.5rem;
+  --text-title--line-height: 2rem;
+  --text-display: 1.875rem;
+  --text-display--line-height: 2.375rem;
+
+  /* Layout: topbar 56, sidebar 248 / rail 64, reading width 1120 (DESIGN_SYSTEM.md §2.2). */
+  --spacing-topbar: 3.5rem;
+  --spacing-sidebar: 15.5rem;
+  --spacing-rail: 4rem;
+  --container-reading: 70rem;
+}

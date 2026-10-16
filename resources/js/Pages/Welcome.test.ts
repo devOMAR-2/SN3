@@ -1,7 +1,27 @@
-import { cleanup, render, screen } from '@testing-library/vue';
-import { afterEach, describe, expect, it } from 'vitest';
+import { cleanup, render, screen, within } from '@testing-library/vue';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import Welcome from './Welcome.vue';
+
+// jsdom has no matchMedia; the theme composable listens to prefers-color-scheme.
+window.matchMedia ??= (query: string) =>
+  ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+    addListener: () => undefined,
+    removeListener: () => undefined,
+    dispatchEvent: () => false,
+  }) as MediaQueryList;
+
+// The page reads the shared `locale` prop (useI18n) and the layout's switcher uses the router.
+vi.mock('@inertiajs/vue3', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@inertiajs/vue3')>()),
+  usePage: () => ({ props: { locale: 'en', dir: 'ltr', auth: { user: null }, flash: { status: null } } }),
+  router: { visit: vi.fn() },
+}));
 
 // Inertia's <Head> needs the head manager that createInertiaApp installs; a no-op provider stands in for it.
 const headManager = { createProvider: () => ({ update: () => undefined, disconnect: () => undefined }) };
@@ -16,11 +36,9 @@ describe('Welcome page', () => {
     renderWelcome();
 
     const heading = screen.getByRole('heading', { level: 1 });
-    const arabic = screen.getByText('سنع');
-    const english = screen.getByText('SN3');
+    const arabic = within(heading).getByText('سنع');
+    const english = within(heading).getByText('SN3');
 
-    expect(heading.contains(arabic)).toBe(true);
-    expect(heading.contains(english)).toBe(true);
     expect(arabic.getAttribute('lang')).toBe('ar');
     expect(arabic.getAttribute('dir')).toBe('rtl');
     expect(english.getAttribute('lang')).toBe('en');
@@ -30,7 +48,7 @@ describe('Welcome page', () => {
   it('hides the decorative separator from assistive technology', () => {
     renderWelcome();
 
-    const separator = screen.getByText('·');
+    const separator = within(screen.getByRole('heading', { level: 1 })).getByText('·');
 
     expect(separator.getAttribute('aria-hidden')).toBe('true');
   });

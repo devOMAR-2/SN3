@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\Locale;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
 
@@ -37,6 +38,14 @@ class HandleInertiaRequests extends Middleware
     {
         return [
             ...parent::share($request),
+            // Resolved lazily so the value reflects SetLocale regardless of middleware order.
+            'locale' => fn (): string => $this->locale()->value,
+            'dir' => fn (): string => $this->locale()->direction(),
         ];
+    }
+
+    private function locale(): Locale
+    {
+        return Locale::fromValue(app()->getLocale()) ?? Locale::DEFAULT;
     }
 }
