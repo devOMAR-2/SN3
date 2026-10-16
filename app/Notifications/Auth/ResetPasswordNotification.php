@@ -20,8 +20,8 @@ class ResetPasswordNotification extends ResetPassword implements ShouldQueue
      */
     protected function buildMailMessage($url): MailMessage
     {
-        $broker = (string) config('auth.defaults.passwords');
-        $minutes = (int) config("auth.passwords.{$broker}.expire");
+        $broker = config()->string('auth.defaults.passwords');
+        $minutes = config()->integer("auth.passwords.{$broker}.expire");
 
         return (new MailMessage)
             ->subject(__('notifications.reset_password.subject'))

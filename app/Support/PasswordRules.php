@@ -16,7 +16,7 @@ final class PasswordRules
      */
     public static function rules(): array
     {
-        $rules = ['string', 'min:'.(int) config('sn3.passwords.min'), 'max:'.(int) config('sn3.passwords.max')];
+        $rules = ['string', 'min:'.config()->integer('sn3.passwords.min'), 'max:'.config()->integer('sn3.passwords.max')];
 
         if (config('sn3.passwords.check_breached')) {
             $rules[] = Password::min(1)->uncompromised();

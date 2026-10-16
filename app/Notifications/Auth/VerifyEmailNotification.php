@@ -4,10 +4,13 @@ namespace App\Notifications\Auth;
 
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Notifications\Messages\MailMessage;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\URL;
+use InvalidArgumentException;
 
 /**
  * Queued, localized verification email. The link targets
@@ -22,9 +25,13 @@ class VerifyEmailNotification extends VerifyEmail implements ShouldQueue
      */
     protected function verificationUrl($notifiable): string
     {
+        if (! $notifiable instanceof Model || ! $notifiable instanceof MustVerifyEmail) {
+            throw new InvalidArgumentException('Email verification needs a model that implements MustVerifyEmail.');
+        }
+
         return URL::temporarySignedRoute(
             'api.auth.verification.verify',
-            Carbon::now()->addMinutes((int) config('sn3.verification.expire_minutes')),
+            Carbon::now()->addMinutes(config()->integer('sn3.verification.expire_minutes')),
             [
                 'id' => $notifiable->getKey(),
                 'hash' => hash('sha256', $notifiable->getEmailForVerification()),
@@ -37,7 +44,7 @@ class VerifyEmailNotification extends VerifyEmail implements ShouldQueue
      */
     protected function buildMailMessage($url): MailMessage
     {
-        $minutes = (int) config('sn3.verification.expire_minutes');
+        $minutes = config()->integer('sn3.verification.expire_minutes');
 
         return (new MailMessage)
             ->subject(__('notifications.verify_email.subject'))

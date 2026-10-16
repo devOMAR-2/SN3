@@ -52,7 +52,7 @@ class LoginRequest extends FormRequest
 
     private function ensureIsNotRateLimited(): void
     {
-        $max = (int) config('sn3.rate_limits.login_per_minute');
+        $max = config()->integer('sn3.rate_limits.login_per_minute');
 
         if ($max <= 0 || ! RateLimiter::tooManyAttempts($this->throttleKey(), $max)) {
             return;

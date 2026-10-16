@@ -65,14 +65,14 @@ class IdentityServiceProvider extends ServiceProvider
      */
     private static function perMinute(string $configKey, string $by, int $multiplier = 1): ?Limit
     {
-        $max = (int) config($configKey) * $multiplier;
+        $max = config()->integer($configKey) * $multiplier;
 
         return $max > 0 ? Limit::perMinute($max)->by($by) : null;
     }
 
     private static function perSecond(string $configKey, string $by): ?Limit
     {
-        $max = (int) config($configKey);
+        $max = config()->integer($configKey);
 
         return $max > 0 ? Limit::perSecond($max)->by($by) : null;
     }

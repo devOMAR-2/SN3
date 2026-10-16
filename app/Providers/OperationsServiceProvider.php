@@ -16,7 +16,6 @@ use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
-use Psr\Log\LoggerInterface;
 use Symfony\Component\Mailer\Transport\TransportInterface;
 
 /**
@@ -54,11 +53,8 @@ class OperationsServiceProvider extends ServiceProvider
 
         $this->callAfterResolving('mail.manager', function (MailManager $mail): void {
             $mail->extend('log', function (array $config): TransportInterface {
-                $logger = $this->app->make(LoggerInterface::class);
-
-                if ($logger instanceof LogManager) {
-                    $logger = $logger->channel($config['channel'] ?? $this->app['config']->get('mail.log_channel'));
-                }
+                $channel = $config['channel'] ?? config('mail.log_channel');
+                $logger = $this->app->make(LogManager::class)->channel(is_string($channel) ? $channel : null);
 
                 return ($config['include_body'] ?? false) === true
                     ? new LogTransport($logger)

@@ -82,7 +82,7 @@ final class ApiExceptionRenderer
 
         foreach ($e->errors() as $field => $messages) {
             $codes = isset($failed[$field])
-                ? array_map(self::ruleCode(...), array_keys($failed[$field]))
+                ? array_map(fn (int|string $rule): string => self::ruleCode((string) $rule), array_keys($failed[$field]))
                 : array_values($messages);
 
             $fields[$field] = array_values(array_unique($codes));
