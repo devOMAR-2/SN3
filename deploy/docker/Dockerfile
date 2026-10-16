@@ -33,6 +33,8 @@ RUN set -eux; \
 FROM php-base AS vendor
 
 ENV COMPOSER_ALLOW_SUPERUSER=1
+# Composer needs unzip to extract dist archives; this stage is discarded.
+RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 COPY --from=composer-bin /usr/bin/composer /usr/bin/composer
 WORKDIR /app
 COPY composer.json composer.lock ./
