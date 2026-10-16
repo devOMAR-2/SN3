@@ -9,6 +9,7 @@ FROM composer:2.10.3 AS composer-bin
 
 # ---------------------------------------------------------------------------
 # PHP runtime base: required extensions only, build toolchain removed afterwards.
+# pcntl lets the queue worker stop gracefully on SIGTERM and enforce job timeouts (ADR-015).
 # ---------------------------------------------------------------------------
 FROM php:8.3.35-apache-trixie AS php-base
 
@@ -16,7 +17,7 @@ RUN set -eux; \
     savedAptMark="$(apt-mark showmanual)"; \
     apt-get update; \
     apt-get install -y --no-install-recommends libicu-dev libpq-dev; \
-    docker-php-ext-install -j"$(nproc)" intl opcache pdo_pgsql; \
+    docker-php-ext-install -j"$(nproc)" intl opcache pcntl pdo_pgsql; \
     apt-mark auto '.*' > /dev/null; \
     [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
     find /usr/local -type f -executable -exec ldd '{}' ';' \
@@ -25,7 +26,8 @@ RUN set -eux; \
     apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
     rm -rf /var/lib/apt/lists/*; \
     php -m | grep -qi '^pdo_pgsql$'; \
-    php -m | grep -qi '^intl$'
+    php -m | grep -qi '^intl$'; \
+    php -m | grep -qi '^pcntl$'
 
 # ---------------------------------------------------------------------------
 # PHP dependencies (production only), resolved from composer.lock.
@@ -90,6 +92,7 @@ USER www-data
 
 EXPOSE 8080
 
+# Web probe. docker-compose.yml overrides it for the worker and scheduler services.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8080/health/live > /dev/null || exit 1
 

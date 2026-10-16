@@ -2,15 +2,20 @@
 
 namespace App\Providers;
 
+use App\Support\Heartbeat;
 use App\Support\Logging\ScrubbedContextLogProcessor;
+use Illuminate\Console\Events\CommandFinished;
+use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Contracts\Log\ContextLogProcessor;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\Looping;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 /**
- * Runtime operations (FND-007, ADR-015): log scrubbing and correlation IDs, queue job context.
+ * Runtime operations (FND-007, ADR-015): log scrubbing and correlation IDs, queue job
+ * context and worker/scheduler heartbeats.
  */
 class OperationsServiceProvider extends ServiceProvider
 {
@@ -30,6 +35,15 @@ class OperationsServiceProvider extends ServiceProvider
                 'job_name' => $event->job->resolveName(),
                 'job_attempt' => $event->job->attempts(),
             ]);
+        });
+
+        Event::listen(fn (Looping $event) => Heartbeat::beat(Heartbeat::QUEUE_WORKER));
+
+        Event::listen(function (CommandStarting|CommandFinished $event): void {
+            if (($event instanceof CommandStarting && $event->command === 'schedule:work')
+                || ($event instanceof CommandFinished && $event->command === 'schedule:run')) {
+                Heartbeat::beat(Heartbeat::SCHEDULER);
+            }
         });
     }
 }
