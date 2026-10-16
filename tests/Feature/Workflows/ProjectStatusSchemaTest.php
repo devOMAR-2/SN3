@@ -121,8 +121,14 @@ it('has the keys and indexes DATABASE.md §5 requires', function () {
 });
 
 it('gives every existing project the default workflow on upgrade, in its creator\'s language', function () {
-    // Back to the schema before CORE-004, with projects created then.
-    Artisan::call('migrate:rollback', ['--step' => 3, '--force' => true]);
+    // Back to the schema before CORE-004 (only its migrations, whatever later tasks added), with
+    // projects created then.
+    $core004 = [
+        'database/migrations/2026_10_19_000100_create_project_statuses_table.php',
+        'database/migrations/2026_10_19_000110_add_workflow_version_to_projects.php',
+        'database/migrations/2026_10_19_000120_guard_project_task_numbering.php',
+    ];
+    Artisan::call('migrate:rollback', ['--path' => $core004, '--force' => true]);
 
     // Raw rows: the current Project model already knows columns that did not exist then.
     $legacyRow = function (Team $team, string $key, bool $trashed = false): Project {
@@ -148,7 +154,10 @@ it('gives every existing project the default workflow on upgrade, in its creator
     $trashed = $legacyRow($team, 'GONE', trashed: true);
     $arabic = $legacyRow($this->team, 'QDM');
 
-    Artisan::call('migrate', ['--force' => true]);
+    // Run the deferred team-owner checks now: PostgreSQL refuses DDL on a table with pending
+    // trigger events, which the upgrade's ALTER TABLE would otherwise hit inside this transaction.
+    DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
+    Artisan::call('migrate', ['--path' => $core004, '--force' => true]);
 
     $board = fn (Project $project) => ProjectStatus::query()->where('project_id', $project->id)->orderBy('position')
         ->get()->map(fn (ProjectStatus $s) => [$s->name, $s->category->value, $s->position, $s->is_default, $s->team_id])->all();
