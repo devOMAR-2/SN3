@@ -58,6 +58,15 @@ final class ProjectWriteLock
             throw new ResourceLockedException('Archived projects are read-only.');
         }
 
+        self::assertAllowed($locked, $lockedTeam, $actor, $ability);
+    }
+
+    /**
+     * The access re-checks of assertWritable() without the archived-project check, for the writers
+     * that act on an archived project itself (archive, unarchive; ADR-022).
+     */
+    public static function assertAllowed(Project $locked, Team $lockedTeam, User $actor, string $ability): void
+    {
         $locked->setRelation('team', $lockedTeam);
 
         $gate = Gate::forUser($actor);

@@ -88,6 +88,29 @@ class ProjectPolicy
         };
     }
 
+    /**
+     * POST /projects/{project}/archive and /restore (unarchive). Lifecycle abilities follow API_SPEC.md
+     * §4 and DECIDED-011 literally, "Owner or Project Manager": the Team Admin exception for a
+     * team-visible project's settings (§17) does not extend to them (ADR-022 §3), and a Team Viewer
+     * stays read-only whatever project role they hold. The same rule as project membership.
+     */
+    public function archive(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
+    }
+
+    /** DELETE /projects/{project}: move to the 30-day trash. */
+    public function delete(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
+    }
+
+    /** POST /projects/{project}/restore-deleted: recover from the trash within 30 days. */
+    public function restoreDeleted(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
+    }
+
     private function manages(User $user, Project $project): bool
     {
         if (! $this->view($user, $project)) {
