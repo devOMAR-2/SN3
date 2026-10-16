@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Foundation\Application;
@@ -17,6 +18,9 @@ return Application::configure(basePath: dirname(__DIR__))
         },
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        // Global and first, so health probes, 404s and errors are correlated too (ADR-015).
+        $middleware->prepend(AssignRequestId::class);
+
         $middleware->web(append: [
             SetLocale::class,
             HandleInertiaRequests::class,

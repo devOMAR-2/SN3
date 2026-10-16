@@ -69,7 +69,8 @@ return [
             'driver' => 'daily',
             'path' => storage_path('logs/laravel.log'),
             'level' => env('LOG_LEVEL', 'debug'),
-            'days' => env('LOG_DAILY_DAYS', 14),
+            // Operational logs are kept 30 days (DECIDED-004).
+            'days' => (int) env('LOG_DAILY_DAYS', 30),
             'replace_placeholders' => true,
         ],
 
@@ -102,6 +103,8 @@ return [
                 'stream' => 'php://stderr',
             ],
             'formatter' => env('LOG_STDERR_FORMATTER'),
+            // Applies only when LOG_STDERR_FORMATTER is set (JSON in Docker); frames are file:line only.
+            'formatter_with' => ['includeStacktraces' => true],
             'processors' => [PsrLogMessageProcessor::class],
         ],
 
