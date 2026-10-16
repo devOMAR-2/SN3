@@ -1,0 +1,55 @@
+/*
+ * Self-hosted brand fonts (DESIGN_SYSTEM.md §2, §11; DS-ACC-012). Both are SIL OFL-1.1, bundled by Vite;
+ * nothing is fetched from a third-party CDN at runtime.
+ *
+ * - Space Grotesk (variable, wght 300–700) covers Latin. The package ships latin, latin-ext and
+ *   vietnamese subsets with unicode-range, so a browser downloads only the subsets a page uses.
+ * - IBM Plex Sans Arabic is declared here for the Arabic subset only, so Latin characters on Arabic
+ *   pages (task keys, "SN3", URLs) always fall through to Space Grotesk.
+ *   Weights: 400 body, 500 controls, 600 headings, 700 rare emphasis (DESIGN_SYSTEM.md §2.2).
+ */
+@import '@fontsource-variable/space-grotesk/wght.css';
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-400-normal.woff2') format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F,
+    U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-500-normal.woff2') format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F,
+    U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 600;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-600-normal.woff2') format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F,
+    U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Arabic';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 700;
+  src: url('@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-700-normal.woff2') format('woff2');
+  unicode-range:
+    U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E, U+2010-2011, U+204F,
+    U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
