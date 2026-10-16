@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Resources\MeResource;
+use App\Models\User;
 use App\Support\Locale;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -41,6 +43,14 @@ class HandleInertiaRequests extends Middleware
             // Resolved lazily so the value reflects SetLocale regardless of middleware order.
             'locale' => fn (): string => $this->locale()->value,
             'dir' => fn (): string => $this->locale()->direction(),
+            // FND-004: the signed-in user's own profile (never other users' data or secrets).
+            'auth' => function () use ($request): array {
+                $user = $request->user();
+
+                return ['user' => $user instanceof User ? MeResource::make($user) : null];
+            },
+            'flash' => fn (): array => ['status' => is_string($status = $request->session()->get('status')) ? $status : null],
+            'features' => fn (): array => ['registration' => (bool) config('sn3.registration.enabled')],
         ];
     }
 

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { Menu, X } from '@lucide/vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AppBrand from '@/Components/AppBrand.vue';
 import SkipLink from '@/Components/SkipLink.vue';
@@ -8,7 +8,9 @@ import AppButton from '@/Components/ui/AppButton.vue';
 import LocaleSwitcher from '@/Components/ui/LocaleSwitcher.vue';
 import ThemeToggle from '@/Components/ui/ThemeToggle.vue';
 import { useMediaQuery } from '@/Composables/useMediaQuery';
+import type { ThemePreference } from '@/Composables/useTheme';
 import { useI18n } from '@/i18n';
+import { api } from '@/lib/api';
 
 /**
  * Authenticated application shell (DESIGN_SYSTEM.md §3):
@@ -29,6 +31,18 @@ withDefaults(
 );
 
 const { t } = useI18n();
+const page = usePage();
+
+/** Saves a signed-in user's theme to their profile (PATCH /me); the change is already applied locally. */
+function saveThemePreference(theme: ThemePreference): void {
+  if (page.props.auth.user === null) {
+    return;
+  }
+
+  api.patch('/me', { theme }).catch(() => {
+    // Offline or signed out: the theme still applies on this device and is retried on the next change.
+  });
+}
 
 const isTabletUp = useMediaQuery('(min-width: 48rem)');
 const isDesktop = useMediaQuery('(min-width: 64rem)');
@@ -99,7 +113,7 @@ onBeforeUnmount(() => stopListening?.());
         <slot name="header" />
         <div class="hidden items-center gap-2 md:flex">
           <LocaleSwitcher />
-          <ThemeToggle />
+          <ThemeToggle @change="saveThemePreference" />
         </div>
         <slot name="user-menu" />
       </div>
@@ -143,7 +157,7 @@ onBeforeUnmount(() => stopListening?.());
           <p class="text-caption font-medium text-text-muted">{{ t('layout.preferences') }}</p>
           <div class="flex flex-wrap items-center gap-2">
             <LocaleSwitcher />
-            <ThemeToggle />
+            <ThemeToggle @change="saveThemePreference" />
           </div>
         </div>
       </div>

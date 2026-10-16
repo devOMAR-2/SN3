@@ -1,6 +1,7 @@
 @php($locale = \App\Support\Locale::fromValue(app()->getLocale()) ?? \App\Support\Locale::DEFAULT)
 <!DOCTYPE html>
-<html lang="{{ $locale->value }}" dir="{{ $locale->direction() }}">
+@php($themeAttribute = auth()->user() instanceof \App\Models\User ? ' data-theme-preference="'.e(auth()->user()->theme()).'"' : '')
+<html lang="{{ $locale->value }}" dir="{{ $locale->direction() }}"{!! $themeAttribute !!}>
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">

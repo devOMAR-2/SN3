@@ -7,16 +7,19 @@ use App\Support\Locale;
 use Illuminate\Http\RedirectResponse;
 
 /**
- * Stores a guest's interface language in the session (`PUT /locale`).
+ * Switches the interface language (`PUT /locale`).
  *
- * Signed-in users persist their language through `PATCH /me` (FND-004); their saved
- * preference takes precedence over this session value in SetLocale.
+ * Guests: stored in the session. Signed-in users: also saved to their profile (`users.locale`,
+ * the same field `PATCH /me` writes), because SetLocale gives the saved preference precedence.
  */
 class LocaleController extends Controller
 {
     public function update(UpdateLocaleRequest $request): RedirectResponse
     {
-        $request->session()->put(Locale::SESSION_KEY, $request->locale()->value);
+        $locale = $request->locale();
+
+        $request->session()->put(Locale::SESSION_KEY, $locale->value);
+        $request->user()?->forceFill(['locale' => $locale->value])->save();
 
         return back();
     }
