@@ -43,6 +43,7 @@ It works without an active session, because it is opened from a mail client. Bro
 
 ### 6. Password reset
 - **Request:** `forgot` always answers 202, whether the email is unknown, disabled or throttled by the broker.
+- **Reset link:** `/reset-password#token=…&email=…`. The token and email sit in the URL fragment, which browsers never send to a server, so they cannot reach access logs, proxy logs or `Referer` headers. The page reads them, removes the fragment from the address bar and history, and posts them to the API. *Changed during the R0 release review; originally `/reset-password/{token}?email=…`.*
 - **Reset:** sets the password, rotates `remember_token` and **deletes every stored session** of the user. Revocation applies to the database session driver, the supported default; other drivers keep their sessions until expiry.
 - **Bad input:** a bad token and an unknown email both return `{"token": ["invalid_token"]}`.
 - **Token lifetime:** tokens expire after 60 minutes, and `auth:clear-resets` is scheduled daily.

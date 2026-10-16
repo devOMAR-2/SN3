@@ -4,7 +4,17 @@ import vue from 'eslint-plugin-vue';
 
 export default defineConfigWithVueTs(
   {
-    ignores: ['vendor/**', 'node_modules/**', 'public/**', 'storage/**', 'bootstrap/**'],
+    ignores: [
+      'vendor/**',
+      'node_modules/**',
+      'public/**',
+      'storage/**',
+      'bootstrap/**',
+      // Playwright output (git-ignored)
+      'playwright-report/**',
+      'test-results/**',
+      'blob-report/**',
+    ],
   },
   vue.configs['flat/recommended'],
   vueTsConfigs.recommended,

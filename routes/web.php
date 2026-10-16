@@ -17,7 +17,7 @@ Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthPageController::class, 'login'])->name('login');
     Route::get('/register', [AuthPageController::class, 'register'])->name('register');
     Route::get('/forgot-password', [AuthPageController::class, 'forgotPassword'])->name('password.request');
-    Route::get('/reset-password/{token}', [AuthPageController::class, 'resetPassword'])->name('password.reset');
+    Route::get('/reset-password', [AuthPageController::class, 'resetPassword'])->name('password.reset');
 });
 
 Route::middleware('auth')->group(function (): void {

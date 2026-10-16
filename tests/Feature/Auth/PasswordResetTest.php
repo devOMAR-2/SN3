@@ -30,8 +30,8 @@ it('queues a localized reset email pointing at the reset page', function () {
     Notification::assertSentTo($this->user, ResetPasswordNotification::class, function (ResetPasswordNotification $notification) {
         $mail = $notification->toMail($this->user);
 
-        return str_starts_with($mail->actionUrl, url('/reset-password/'.$notification->token))
-            && str_contains($mail->actionUrl, 'email=omar%40example.com');
+        // Token and email only in the fragment, which browsers never send to the server.
+        return $mail->actionUrl === url('/reset-password').'#token='.rawurlencode($notification->token).'&email=omar%40example.com';
     });
 });
 

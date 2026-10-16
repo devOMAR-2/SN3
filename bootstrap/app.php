@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\ApiExceptionRenderer;
+use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforceIdempotency;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -31,6 +32,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Global and first, so health probes, 404s and errors are correlated too (ADR-015).
         $middleware->prepend(AssignRequestId::class);
+        $middleware->append(AddSecurityHeaders::class);
 
         $middleware->web(append: [
             SetLocale::class,

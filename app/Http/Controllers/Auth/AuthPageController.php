@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -30,14 +29,13 @@ class AuthPageController extends Controller
         return Inertia::render('Auth/ForgotPassword');
     }
 
-    public function resetPassword(Request $request, string $token): Response
+    /**
+     * The token and email stay in the URL fragment (ResetPasswordNotification), so the server never
+     * receives them and they cannot reach access or proxy logs. The page reads them client-side.
+     */
+    public function resetPassword(): Response
     {
-        $email = $request->query('email');
-
-        return Inertia::render('Auth/ResetPassword', [
-            'token' => $token,
-            'email' => is_string($email) ? $email : '',
-        ]);
+        return Inertia::render('Auth/ResetPassword');
     }
 
     public function verifyEmail(): Response
