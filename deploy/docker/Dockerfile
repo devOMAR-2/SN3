@@ -89,6 +89,8 @@ RUN set -eux; \
     chmod +x /usr/local/bin/sn3-entrypoint
 
 USER www-data
+# www-data's home (/var/www) is read-only: let `php artisan tinker` keep its config and history in /tmp.
+ENV XDG_CONFIG_HOME=/tmp/.config
 
 EXPOSE 8080
 
