@@ -7,6 +7,10 @@ import { defineConfig } from 'vitest/config';
 // imports (its page glob matches `.vue` files), so test files never reach public/build.
 export default defineConfig({
   plugins: [vue()],
+  resolve: {
+    // Same `@` alias laravel-vite-plugin provides for the app build.
+    alias: { '@': decodeURIComponent(new URL('./resources/js', import.meta.url).pathname) },
+  },
   test: {
     environment: 'jsdom',
     include: ['resources/js/**/*.test.ts'],
