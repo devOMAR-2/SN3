@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\ApiIdempotencyRecord;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
@@ -26,4 +27,9 @@ Schedule::command('queue:prune-batches', ['--hours' => 48, '--unfinished' => 72,
 // Expired password-reset tokens (FND-004).
 Schedule::command('auth:clear-resets')
     ->dailyAt('03:20')
+    ->onOneServer();
+
+// Idempotency-Key results are kept for 24 hours (FND-005, API_SPEC.md §1.4).
+Schedule::command('model:prune', ['--model' => [ApiIdempotencyRecord::class]])
+    ->dailyAt('03:30')
     ->onOneServer();

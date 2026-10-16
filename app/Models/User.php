@@ -9,8 +9,10 @@ use Database\Factories\UserFactory;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Contracts\Translation\HasLocalePreference;
 use Illuminate\Database\Eloquent\Casts\Attribute;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -29,6 +31,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  * @property-read UserPreference|null $preferences
+ * @property-read Collection<int, TeamMembership> $teamMemberships
  */
 class User extends Authenticatable implements HasLocalePreference, MustVerifyEmail
 {
@@ -67,7 +70,8 @@ class User extends Authenticatable implements HasLocalePreference, MustVerifyEma
     }
 
     /**
-     * Emails are stored normalised so equality and the lower(email) unique index agree.
+     * Emails are stored normalised (trimmed, lowercased); the citext column also compares
+     * case-insensitively, so uniqueness holds even for rows written outside the application.
      */
     public static function normalizeEmail(string $email): string
     {
@@ -88,6 +92,16 @@ class User extends Authenticatable implements HasLocalePreference, MustVerifyEma
     public function preferences(): HasOne
     {
         return $this->hasOne(UserPreference::class);
+    }
+
+    /**
+     * Memberships across every team; reach a team itself through AccessibleTeams.
+     *
+     * @return HasMany<TeamMembership, $this>
+     */
+    public function teamMemberships(): HasMany
+    {
+        return $this->hasMany(TeamMembership::class);
     }
 
     public function theme(): string

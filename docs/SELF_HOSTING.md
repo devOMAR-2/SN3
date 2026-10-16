@@ -8,6 +8,7 @@ Self-hosted SN3 has the same features as Cloud. Nothing here needs a proprietary
 
 - Linux host (amd64 or arm64) with Docker Engine 24+ and the Docker Compose v2 plugin
 - About 1 GB RAM free for the application and PostgreSQL
+- Using your own PostgreSQL 16+ instead of the bundled one: the database user must own the database (or have `CREATE` on it) so migrations can enable the bundled `citext` extension
 - To use the HTTPS proxy example: a DNS name pointing at the host, with ports 80 and 443 reachable
 
 ## What runs
@@ -186,4 +187,5 @@ docker compose down                                # stop (data volumes are kept
 | App healthy but pages return 500 on first visit | Migrations were not run. See step 2. |
 | `worker` or `scheduler` is `unhealthy` | Check `docker compose logs worker` (or `scheduler`). Usually the database is unreachable, migrations were not run, or `APP_KEY` is missing. |
 | Mail never arrives | `MAIL_MAILER` is still `log` (look for "Mail was not delivered" in `docker compose logs worker`), or SMTP fails (`docker compose exec worker php artisan queue:failed`). |
+| `permission denied to create extension "citext"` during `migrate` | Only with an external PostgreSQL: let the application's role own the database, or have an administrator run `CREATE EXTENSION citext;` in it once. |
 | `password authentication failed` after changing `DB_PASSWORD` | PostgreSQL keeps the password it was first initialised with. Change it inside the database (`ALTER ROLE`), or recreate the volume (destroys data). |

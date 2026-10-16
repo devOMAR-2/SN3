@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\TeamController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -46,4 +47,9 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
 Route::middleware('auth')->group(function (): void {
     Route::get('me', [MeController::class, 'show'])->name('me.show');
     Route::patch('me', [MeController::class, 'update'])->name('me.update');
+    Route::get('me/teams', [TeamController::class, 'index'])->name('me.teams');
+
+    // `{team}` resolves only to the caller's own teams (TenancyServiceProvider); anything else is 404.
+    Route::get('teams', [TeamController::class, 'index'])->name('teams.index');
+    Route::get('teams/{team}', [TeamController::class, 'show'])->name('teams.show');
 });

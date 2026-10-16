@@ -43,13 +43,23 @@ it('schedules daily pruning of job batches', function () {
         ->and($event->onOneServer)->toBeTrue();
 });
 
+it('schedules daily pruning of expired idempotency records', function () {
+    $event = scheduledCommand('model:prune');
+
+    expect($event)->not->toBeNull()
+        ->and($event->command)->toContain('ApiIdempotencyRecord')
+        ->and($event->expression)->toBe('30 3 * * *')
+        ->and($event->onOneServer)->toBeTrue();
+});
+
 it('lists only the operational tasks', function () {
-    expect(app(Schedule::class)->events())->toHaveCount(3);
+    expect(app(Schedule::class)->events())->toHaveCount(4);
 
     $this->artisan('schedule:list')
         ->expectsOutputToContain('queue:prune-failed --hours=720')
         ->expectsOutputToContain('queue:prune-batches --hours=48 --unfinished=72 --cancelled=72')
         ->expectsOutputToContain('auth:clear-resets')
+        ->expectsOutputToContain('model:prune')
         ->assertSuccessful();
 });
 
