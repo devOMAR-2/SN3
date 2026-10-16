@@ -33,8 +33,9 @@ use Illuminate\Validation\ValidationException;
  *
  * Tasks do not exist yet. CORE-005 adds, at step 4: move every task of the status to the
  * replacement in this transaction, and refuse (409) when the status still has tasks and no
- * replacement was given. Its `(status_id, project_id)` foreign key must not cascade, so the
- * database refuses to delete a status still in use whatever the code does.
+ * replacement was given. Its `(status_id, project_id)` foreign key must be DEFERRABLE NO ACTION
+ * (never CASCADE or RESTRICT, ADR-022 §5): the database still refuses to delete a status in use
+ * whatever the code does, and the trash purge can delete a project's tasks and statuses together.
  */
 final class DeleteStatus
 {

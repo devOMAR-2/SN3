@@ -154,8 +154,8 @@ it('gives every existing project the default workflow on upgrade, in its creator
     $trashed = $legacyRow($team, 'GONE', trashed: true);
     $arabic = $legacyRow($this->team, 'QDM');
 
-    // Run the deferred team-owner checks now: PostgreSQL refuses DDL on a table with pending
-    // trigger events, which the upgrade's ALTER TABLE would otherwise hit inside this transaction.
+    // Safeguard: flush deferred team-owner checks so no later DDL in the upgrade path meets pending
+    // trigger events inside this test's transaction.
     DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
     Artisan::call('migrate', ['--path' => $core004, '--force' => true]);
 

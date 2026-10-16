@@ -91,7 +91,7 @@ API_SPEC §5 gives the paths. All of them sit under the `auth` group of `/api/v1
   `tasks` does not exist yet, so every status is empty today. **CORE-005 adds the task step** (step 4):
   - move every task of the deleted status to the replacement, in the same transaction;
   - answer 409 when the status still has tasks and no replacement was given;
-  - leave its `(status_id, project_id)` foreign key without ON DELETE CASCADE, so the database itself refuses to delete a status that is still in use.
+  - make its `(status_id, project_id)` foreign key `DEFERRABLE` NO ACTION (never CASCADE or RESTRICT, ADR-022 §5): the database still refuses, at the end of the statement, to delete a status that tasks use, while a purge that removes the project's tasks and statuses together passes.
 - **Transitions.** Neither the specs nor the data model restrict which status a task may move to, so any status of the same project is a valid next status. There is no transition table and no transition endpoint. ARCHITECTURE §6.1 "valid transitions" therefore means: the target status belongs to the task's project, which the composite key enforces (DB-T04), and the move is an authorised write (CORE-005/CORE-007). A `done`-category status is what completion and GitHub mapping key on (DECIDED-005; API_SPEC §10–§11).
 
 ### 5. Task numbers and the key freeze
@@ -147,7 +147,7 @@ Each event also carries `team_id`, `project_id`, `actor_id`, and `status_id` whe
 
 - **CORE-005:**
   - creates tasks through `ProjectWriteLock::project(…, 'contribute')` + `TaskNumbers::allocate()` in the insert transaction;
-  - references `project_statuses(project_id, id)` from `tasks(project_id, status_id)` without cascade;
+  - references `project_statuses(project_id, id)` from `tasks(project_id, status_id)` as `DEFERRABLE` NO ACTION, never CASCADE or RESTRICT (ADR-022 §5);
   - starts new tasks in the `is_default` status;
   - adds the task move and the "non-empty status needs a replacement" 409 to `DeleteStatus` (WF-01).
 - **CORE-007** drives task movement between any statuses of the project; there are no transition rules to consult.
