@@ -158,6 +158,7 @@ assert b"$2y$" not in content, "a password hash reached the export"
 PY
 [ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" "$BASE/api/v1/teams/$TEAM_ID/exports/$EXPORT_ID/download")" = 403 ] \
   || fail "an unsigned export download was not refused"
+echo "::notice title=Team export::built by the worker and downloaded ($(wc -c < export.zip) bytes, $(python3 -c 'import zipfile; print(len(zipfile.ZipFile("export.zip").namelist()))') entries)"
 
 # --- Encrypted backup and restore drill (CORE-012, docs/BACKUP_RESTORE.md) ----------------------
 openssl rand -base64 32 > backup-passphrase
@@ -168,7 +169,7 @@ in_backup() { docker compose --profile backup run --rm -T --entrypoint bash back
 docker compose exec -T app sh -c 'mkdir -p storage/app/private/smoke && echo marker > storage/app/private/smoke/marker.txt'
 
 backup run || fail "the backup failed"
-backup list
+echo "::notice title=Backup::$(backup list | tr '\t' ' ')"
 backup verify latest || fail "the backup does not verify"
 
 # Encrypted at rest: no readable dump, no plaintext email, and a wrong passphrase cannot open it.
@@ -181,7 +182,9 @@ fi
 
 # Restore into a fresh database and compare it with the live one.
 backup restore latest --database sn3_restore_drill || fail "the restore failed"
-backup compare sn3 sn3_restore_drill || fail "the restored database differs from the live one"
+compare="$(backup compare sn3 sn3_restore_drill)" || { echo "$compare"; fail "the restored database differs from the live one"; }
+echo "$compare"
+echo "::notice title=Restore drill::$(grep -c '^ok ' <<< "$compare") tables with identical row counts; users=$(awk '$2 == "users" {print $3}' <<< "$compare"), teams=$(awk '$2 == "teams" {print $3}' <<< "$compare"), projects=$(awk '$2 == "projects" {print $3}' <<< "$compare"), team_exports=$(awk '$2 == "team_exports" {print $3}' <<< "$compare")"
 migrations="$(docker compose run --rm --no-deps -T -e DB_DATABASE=sn3_restore_drill app php artisan migrate:status)"
 grep -q 'Ran' <<< "$migrations" || fail "migrate:status shows no migrations in the restored database"
 if grep -q 'Pending' <<< "$migrations"; then fail "the restored database has pending migrations"; fi
