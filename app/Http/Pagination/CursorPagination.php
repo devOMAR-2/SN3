@@ -81,10 +81,15 @@ final class CursorPagination
         }
 
         $data = json_decode((string) self::base64UrlDecode($parts[0]), true);
-        $encoded = is_array($data) ? ($data['c'] ?? null) : null;
-        $expires = is_array($data) ? ($data['e'] ?? null) : null;
 
-        if (! is_string($encoded) || ! is_int($expires) || ! is_array($data) || ($data['s'] ?? null) !== $scope) {
+        if (! is_array($data)) {
+            throw new BadRequestHttpException('Invalid cursor.');
+        }
+
+        $encoded = $data['c'] ?? null;
+        $expires = $data['e'] ?? null;
+
+        if (! is_string($encoded) || ! is_int($expires) || ($data['s'] ?? null) !== $scope) {
             throw new BadRequestHttpException('Invalid cursor.');
         }
 
