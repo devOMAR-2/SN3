@@ -85,7 +85,8 @@ services:
     restart: unless-stopped
     # Forwards SIGTERM (schedule:work installs no handler) and reaps schedule:run children.
     init: true
-    command: ["php", "artisan", "schedule:work"]
+    # --whisper: no "No scheduled commands are ready to run" line every minute.
+    command: ["php", "artisan", "schedule:work", "--whisper"]
     stop_signal: SIGTERM
     env_file: *app-env-file
     environment: *app-environment

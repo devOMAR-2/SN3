@@ -102,7 +102,7 @@ The `worker` runs `queue:work --tries=3 --backoff=10,60,300 --timeout=60 --max-t
 - `docker compose stop worker` (or a restart or upgrade) sends SIGTERM: the worker finishes the job in progress, then exits. Compose waits up to 75 s.
 - The worker exits after an hour (`--max-time`) and Compose starts a fresh one, which keeps memory use flat.
 
-The `scheduler` runs `schedule:work`, which evaluates `routes/console.php` every minute. Current tasks:
+The `scheduler` runs `schedule:work --whisper`, which evaluates `routes/console.php` every minute. Current tasks:
 
 | Task | When |
 |---|---|
