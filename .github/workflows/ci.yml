@@ -1,0 +1,253 @@
+# SN3 (سنع) continuous integration. Design and branch-protection rules: docs/adr/ADR-013-continuous-integration.md
+#
+# The job names below are the required status checks on `dev` and `main`. Renaming a job
+# renames its check, so update the repository ruleset in the same change.
+#
+# No repository secrets are used. Every third-party action is pinned to a full commit SHA
+# (version in the trailing comment); Dependabot's github-actions ecosystem proposes updates.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  # Superseded PR runs are cancelled; pushes to dev/main always run to completion.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  php:
+    name: PHP (Pint, Larastan, migrations, Pest)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    services:
+      postgres:
+        # Same image as docker-compose.yml. The container is private to this job and
+        # discarded afterwards, so trust authentication avoids inventing a password.
+        image: postgres:16.15-trixie
+        env:
+          POSTGRES_DB: sn3_testing
+          POSTGRES_USER: sn3
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sn3 -d sn3_testing"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Real environment variables take precedence over .env and phpunit.xml.
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: '5432'
+      DB_DATABASE: sn3_testing
+      DB_USERNAME: sn3
+      DB_PASSWORD: ''
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          extensions: intl, mbstring, pdo_pgsql
+          coverage: none
+          tools: composer:v2
+
+      - name: Locate the Composer cache
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Composer downloads
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: composer-${{ runner.os }}-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-${{ runner.os }}-
+
+      - name: Validate composer.json and composer.lock
+        run: composer validate --strict --no-check-publish
+
+      - name: Install PHP dependencies from composer.lock
+        run: composer install --no-interaction --no-progress --prefer-dist
+
+      - name: Prepare the application environment
+        # key:generate writes the key into .env and prints only a confirmation, never the key.
+        run: |
+          cp .env.example .env
+          php artisan key:generate --no-interaction
+
+      - name: Pint (code style)
+        run: vendor/bin/pint --test
+
+      - name: Larastan (static analysis)
+        run: vendor/bin/phpstan analyse --no-progress --memory-limit=1G --error-format=github
+
+      - name: Migrations (up, down, up)
+        run: |
+          php artisan migrate --force --no-interaction
+          php artisan migrate:rollback --force --no-interaction
+          php artisan migrate --force --no-interaction
+
+      - name: Pest
+        run: vendor/bin/pest
+
+  frontend:
+    name: Frontend (ESLint, Prettier, vue-tsc, Vitest, build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install JS dependencies from package-lock.json
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: Type check (vue-tsc)
+        run: npm run typecheck
+
+      - name: Vitest
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+  audit:
+    name: Dependency audit (Composer, npm)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP 8.3
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Set up Node.js 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Composer audit (all locked packages)
+        run: composer audit --locked --no-interaction
+
+      - name: npm audit (production dependencies, high and above)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: npm audit (development dependencies, report only)
+        # Dev-only advisories do not fail the build: they never reach the shipped bundle or image,
+        # and accepted ones are recorded in docs/adr/ (ADR-011: braces via ESLint tooling).
+        # New vulnerable packages in a PR are still blocked by the Dependency review job.
+        run: |
+          if ! npm audit --audit-level=high; then
+            echo "::warning title=npm audit::Development-only advisories are present. Check them against the accepted list in docs/adr/ADR-011 and ADR-013."
+          fi
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          # Any known vulnerability in a runtime dependency added or changed by the PR fails it.
+          fail-on-severity: low
+          fail-on-scopes: runtime
+
+  docker:
+    name: Docker image (build, health smoke test)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the application image (not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/docker/Dockerfile
+          push: false
+          load: true
+          tags: sn3-app:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test /health/live and /health/ready without a database
+        run: |
+          # Throwaway key for this container only. It is masked and passed by name (-e APP_KEY),
+          # so it never appears in the log or in the docker command line.
+          APP_KEY="base64:$(openssl rand -base64 32)"
+          echo "::add-mask::$APP_KEY"
+          export APP_KEY
+
+          docker run -d --name sn3-smoke -e APP_KEY -p 127.0.0.1:18080:8080 sn3-app:ci > /dev/null
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://127.0.0.1:18080/health/live; then
+              break
+            fi
+            if [ "$attempt" = 30 ]; then
+              echo "::error::/health/live did not answer within 30 seconds"
+              docker logs sn3-smoke
+              exit 1
+            fi
+            sleep 1
+          done
+
+          live="$(curl -fsS http://127.0.0.1:18080/health/live)"
+          test "$live" = '{"status":"ok"}' || { echo "::error::unexpected /health/live body: $live"; exit 1; }
+
+          # No database is attached, so readiness must fail closed without leaking details.
+          ready_code="$(curl -sS -o ready.json -w '%{http_code}' http://127.0.0.1:18080/health/ready)"
+          test "$ready_code" = 503 || { echo "::error::expected 503 from /health/ready, got $ready_code"; exit 1; }
+          test "$(cat ready.json)" = '{"status":"unavailable"}' || { echo "::error::unexpected /health/ready body"; exit 1; }
+
+          echo "Image serves /health/live (200) and /health/ready fails closed (503) without a database."
+
+      - name: Remove the smoke-test container
+        if: always()
+        run: docker rm -f sn3-smoke > /dev/null 2>&1 || true
