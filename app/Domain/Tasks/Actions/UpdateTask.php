@@ -122,7 +122,7 @@ final class UpdateTask
     /**
      * IDs and field names only: titles and descriptions may be private (ADR-020 §9).
      *
-     * @param  array{status_id?: string, assignee_user_id?: string|null}  $before
+     * @param  array<string, string|null>  $before
      */
     private static function log(Task $task, User $actor, array $before, bool $labelsChanged): void
     {
