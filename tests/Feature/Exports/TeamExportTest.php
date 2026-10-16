@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Exports\Actions\RequestTeamExport;
 use App\Domain\Exports\Sections\StatusesSection;
 use App\Domain\Exports\TeamExportContext;
 use App\Domain\Exports\TeamExportFormat;
@@ -15,7 +16,9 @@ use App\Models\Team;
 use App\Models\TeamExport;
 use App\Models\TeamMembership;
 use App\Models\User;
+use App\Support\Exceptions\DomainConflictException;
 use App\Support\Tenancy\AccessibleProjects;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -315,6 +318,24 @@ it('answers 404 for a team in the trash', function () {
 
     requestExport($this->owner, $this->team)->assertNotFound();
     expect(TeamExport::query()->count())->toBe(0);
+});
+
+it('re-checks membership and ownership on the locked team row', function () {
+    Queue::fake();
+    $admin = $this->members['admin'];
+
+    // A former Owner (after a transfer) still sees the team but lost the right: 409.
+    $this->team->memberships()->where('user_id', $this->owner->id)->update(['role' => TeamRole::Admin->value]);
+    $this->team->memberships()->where('user_id', $admin->id)->update(['role' => TeamRole::Owner->value]);
+    $this->team->forceFill(['owner_user_id' => $admin->id])->save();
+
+    expect(fn () => app(RequestTeamExport::class)->handle($this->team, $this->owner))->toThrow(DomainConflictException::class)
+        ->and(fn () => app(RequestTeamExport::class)->handle($this->team, $this->outsider))->toThrow(ModelNotFoundException::class);
+
+    $this->team->delete();
+    expect(fn () => app(RequestTeamExport::class)->handle($this->team, $admin))->toThrow(ModelNotFoundException::class)
+        ->and(TeamExport::query()->count())->toBe(0);
+    Queue::assertNothingPushed();
 });
 
 // --- Idempotency, safe GET, one export in flight, rate limit ------------------------------------

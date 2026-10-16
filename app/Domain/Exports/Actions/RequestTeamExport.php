@@ -10,6 +10,7 @@ use App\Models\TeamExport;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
@@ -22,8 +23,8 @@ use Illuminate\Support\Facades\Log;
  *   caller no longer belongs to, or that went to the trash meanwhile, is 404; a lost ownership 409.
  * - An archived team can be exported: an export reads the team and changes nothing in it
  *   (ADR-024 §3), and DECIDED-011 asks for exports before deletion.
- * - At most one export per team is in flight: another request meanwhile is 409 (the partial unique
- *   index `team_exports_one_in_flight_unique` backs this up).
+ * - At most one export per team is in flight: another request meanwhile is 409. The partial unique
+ *   index `team_exports_one_in_flight_unique` backs this up, with the same 409.
  * - The job is dispatched after the commit, so it never runs against an uncommitted row.
  */
 final class RequestTeamExport
@@ -57,7 +58,14 @@ final class RequestTeamExport
                 'status' => TeamExportStatus::Pending,
                 'format_version' => TeamExportFormat::VERSION,
                 'expires_at' => now()->addHours(TeamExport::TTL_HOURS),
-            ])->save();
+            ]);
+
+            try {
+                $export->save();
+            } catch (UniqueConstraintViolationException) {
+                // team_exports_one_in_flight_unique: the same answer as the check above.
+                throw new DomainConflictException('An export of this team is already in progress.');
+            }
 
             BuildTeamExport::dispatch($export->id)->afterCommit();
 
