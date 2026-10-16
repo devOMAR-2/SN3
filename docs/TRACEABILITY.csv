@@ -10,24 +10,24 @@ FR-TEAM-002,CORE-002,Teams,R1,TEST-FR-TEAM-002,Planned; not executed
 FR-TEAM-003,CORE-002,Teams,R1,TEST-FR-TEAM-003,Planned; not executed
 FR-TEAM-004,CORE-001,Teams,R1,TEST-FR-TEAM-004,"Automated: tests/Feature/Teams/{TeamManagementTest,TeamPolicyTest}.php"
 FR-TEAM-005,CORE-001,Teams,R1,TEST-FR-TEAM-005,"Automated: tests/Feature/Teams/{TeamManagementTest,OwnershipTransferConcurrencyTest,TeamSchemaTest}.php"
-FR-TEAM-006,CORE-001,Teams,R1,TEST-FR-TEAM-006,"Partially automated: team access revocation in tests/Feature/Teams/TeamManagementTest.php; project access revocation in tests/Feature/Projects/{ProjectManagementTest,ProjectConcurrencyTest}.php; notifications (CORE-009) pending"
+FR-TEAM-006,CORE-001,Teams,R1,TEST-FR-TEAM-006,"Partially automated: team access revocation in tests/Feature/Teams/TeamManagementTest.php; project access revocation in tests/Feature/Projects/{ProjectManagementTest,ProjectConcurrencyTest}.php; task assignments released in tests/Feature/Tasks/{AssignmentRevocationTest,TaskConcurrencyTest}.php; notifications (CORE-009) pending"
 FR-TEAM-007,CORE-001,Teams,R1,TEST-FR-TEAM-007,"Automated: tests/Feature/Teams/{TeamManagementTest,TeamAccessTest}.php, tests/Feature/Tenancy/SeededTenantIsolationTest.php"
 FR-PROJ-001,CORE-003,Projects,R1,TEST-FR-PROJ-001,"Partially automated: name, key and description in tests/Feature/Projects/ProjectManagementTest.php; icon/color are not in DATABASE.md section 4 and templates follow with FLEX-004 (ADR-020)"
 FR-PROJ-002,CORE-003,Projects,R1,TEST-FR-PROJ-002,"Automated: tests/Feature/Projects/{ProjectManagementTest,ProjectAccessMatrixTest,ProjectSchemaTest}.php"
 FR-PROJ-003,CORE-003,Projects,R1,TEST-FR-PROJ-003,"Automated: tests/Feature/Projects/ProjectAccessMatrixTest.php (team role x visibility x project role matrix)"
-FR-PROJ-004,CORE-003,Projects,R1,TEST-FR-PROJ-004,"Partially automated: project detail, list and members in tests/Feature/Projects/{ProjectAccessMatrixTest,ProjectManagementTest}.php; tasks, files, search and notifications follow with CORE-005/008/009"
-FR-PROJ-005,CORE-003,Projects,R1,TEST-FR-PROJ-005,"Partially automated: project detail, list, members and self-add in tests/Feature/Projects/ProjectAccessMatrixTest.php; tasks, files, search and notifications follow with CORE-005/008/009"
+FR-PROJ-004,CORE-003,Projects,R1,TEST-FR-PROJ-004,"Partially automated: project detail, list and members in tests/Feature/Projects/{ProjectAccessMatrixTest,ProjectManagementTest}.php; tasks, labels and checklists in tests/Feature/Tasks/TaskAccessMatrixTest.php; files, search and notifications follow with CORE-008/009"
+FR-PROJ-005,CORE-003,Projects,R1,TEST-FR-PROJ-005,"Partially automated: project detail, list, members and self-add in tests/Feature/Projects/ProjectAccessMatrixTest.php; tasks, labels and checklists in tests/Feature/Tasks/TaskAccessMatrixTest.php; files, search and notifications follow with CORE-008/009"
 FR-PROJ-006,CORE-003,Projects,R1,TEST-FR-PROJ-006,"Automated: tests/Feature/Projects/{ProjectManagementTest,ProjectAccessMatrixTest,ProjectConcurrencyTest}.php"
 FR-PROJ-007,CORE-003,Projects,R1,TEST-FR-PROJ-007,"Partially automated: visibility changes re-evaluated for project detail, list and members in tests/Feature/Projects/ProjectManagementTest.php; search, files, notifications and GitHub content follow with CORE-008/009 and GH-*"
 FR-PROJ-008,CORE-010,Projects,R1,TEST-FR-PROJ-008,"Partially automated: API in tests/Feature/Projects/ProjectLifecycleTest.php, tests/Feature/Teams/TeamLifecycleTest.php, tests/Feature/Trash/{TrashPurgeTest,PurgeCommitTest,RecoverableResourcesTest,LifecycleConcurrencyTest}.php; UI follows in CORE-006"
-FR-TASK-001,CORE-005,Tasks,R1,TEST-FR-TASK-001,Planned; not executed
-FR-TASK-002,CORE-005,Tasks,R1,TEST-FR-TASK-002,Planned; not executed
-FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,Partially automated: task-number allocation and project key freeze in tests/Feature/Projects/ProjectSettingsAndTaskKeyTest.php and tests/Feature/Workflows/TaskNumberConcurrencyTest.php (CORE-004); task keys on tasks follow with CORE-005
-FR-TASK-004,CORE-005,Tasks,R1,TEST-FR-TASK-004,Planned; not executed
+FR-TASK-001,CORE-005,Tasks,R1,TEST-FR-TASK-001,"Automated: tests/Feature/Tasks/{TaskManagementTest,LabelManagementTest,TaskSchemaTest}.php (one task model; optional labels); custom fields follow with FLEX-001"
+FR-TASK-002,CORE-005,Tasks,R1,TEST-FR-TASK-002,"Automated: tests/Feature/Tasks/{TaskManagementTest,TaskSchemaTest}.php"
+FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,"Automated: tests/Feature/Projects/ProjectSettingsAndTaskKeyTest.php, tests/Feature/Workflows/TaskNumberConcurrencyTest.php, tests/Feature/Tasks/{TaskManagementTest,TaskConcurrencyTest}.php"
+FR-TASK-004,CORE-005,Tasks,R1,TEST-FR-TASK-004,"Partially automated: create, edit, assign, status changes (complete = a done status) and delete/restore in tests/Feature/Tasks/{TaskManagementTest,TaskAccessMatrixTest,AssignmentRevocationTest,TaskConcurrencyTest}.php; ordered moves follow with CORE-007"
 FR-TASK-005,CORE-007,Tasks,R1,TEST-FR-TASK-005,Planned; not executed
-FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,Planned; not executed
-FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,Planned; not executed
-FR-TASK-008,CORE-005,Tasks,R1,TEST-FR-TASK-008,Planned; not executed
+FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,"Partially automated: structured task audit events with IDs only in tests/Feature/Tasks/{TaskManagementTest,AssignmentRevocationTest}.php; comments and the activity model follow with CORE-008"
+FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,"Partially automated: subtasks and checklists in tests/Feature/Tasks/{SubtaskTest,ChecklistTest}.php; attachments and mentions follow with CORE-008; task dependencies (API_SPEC section 19) are not yet implemented"
+FR-TASK-008,CORE-005,Tasks,R1,TEST-FR-TASK-008,"Partially automated: task detail, project task list, filters, title/key search and my tasks scoped by AccessibleProjects in tests/Feature/Tasks/{TaskAccessMatrixTest,TaskListTest}.php; cross-project search and deep links follow with CORE-006/CORE-009"
 FR-TASK-009,CORE-005,Tasks,R1,TEST-FR-TASK-009,Planned; not executed
 FR-CUST-001,CORE-004,Custom fields,R1,TEST-FR-CUST-001,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest,TaskNumberConcurrencyTest}.php"
 FR-CUST-002,CORE-004,Custom fields,R1,TEST-FR-CUST-002,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest}.php"

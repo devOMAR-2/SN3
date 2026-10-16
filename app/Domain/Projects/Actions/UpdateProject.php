@@ -4,6 +4,7 @@ namespace App\Domain\Projects\Actions;
 
 use App\Domain\Projects\ProjectVisibility;
 use App\Domain\Projects\ProjectWriteLock;
+use App\Domain\Tasks\TaskAssignments;
 use App\Models\Project;
 use App\Models\User;
 use App\Support\Concurrency\OptimisticLock;
@@ -74,6 +75,9 @@ final class UpdateProject
                         'from' => $previous->value,
                         'to' => $updated->visibility->value,
                     ]);
+
+                    // Made private: assignees without a project membership lose access (ADR-023 §5).
+                    TaskAssignments::releaseIneligible($updated->team_id, null, $updated->id, 'project_visibility_changed');
                 }
 
                 return $updated;

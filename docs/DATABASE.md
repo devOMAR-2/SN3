@@ -118,7 +118,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
   - **Order:** `UNIQUE(project_id, position)` replaces the plain `(project_id, position)` index. It is `DEFERRABLE INITIALLY IMMEDIATE`, so it is checked at the end of each statement and a reorder can rewrite every rank in one UPDATE. Ranks are kept dense (`0..n-1`), so the stored rank is also the 0-based ordinal the API returns.
   - **CHECK constraints:** category, a non-blank name, `color` `^#[0-9A-F]{6}$` or NULL, `position >= 0`, `version > 0`, and `NOT is_default OR category = 'todo'` (new tasks start in the default, so it is never a done status).
   - **Workflow version:** `projects.workflow_version bigint NOT NULL DEFAULT 1 CHECK (> 0)` versions the workflow as a whole (API_SPEC §1.4 "workflow configuration"). Every status create, update, delete and reorder increments it under the project lock; the reorder requires it in `If-Match`. It is separate from `projects.version`.
-  - **Workflow rules (transactional, under the project lock):** every project keeps at least one `todo` and one `done` status; at most 50 statuses per project; when the default leaves `todo` (category change, or deletion with a non-todo or no replacement), the flag moves to the first remaining `todo` status by position. Moving the tasks of a deleted status to `replacement_status_id` arrives with the `tasks` table (CORE-005), whose `(status_id, project_id)` key must be `DEFERRABLE` NO ACTION, never CASCADE or RESTRICT (ADR-022 §5).
+  - **Workflow rules (transactional, under the project lock):** every project keeps at least one `todo` and one `done` status; at most 50 statuses per project; when the default leaves `todo` (category change, or deletion with a non-todo or no replacement), the flag moves to the first remaining `todo` status by position. Deleting a status that still has tasks (trashed ones included) needs `replacement_status_id` (409 otherwise); its tasks then move to the end of the replacement's column in the same transaction (CORE-005, ADR-023 §8). The tasks' `(project_id, status_id)` key is `DEFERRABLE` NO ACTION, never CASCADE or RESTRICT (ADR-022 §5).
   - **Defaults and upgrade:** every new project gets To do (default), In progress and Done, in the creator's language. The migration seeds the same workflow into existing projects (trashed ones too) with one set-based `INSERT … SELECT`, generating UUIDv7 IDs in SQL.
   - **Transitions:** none are restricted. Any status of the task's own project is a valid target; the composite key enforces the project match.
 
@@ -134,15 +134,26 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
   - **Key freeze:** "after the first task" means `next_task_number > 1`, so a number has been issued. Deleting tasks does not unfreeze the key. The API answers a frozen key change with 409.
   - **Trigger:** `projects_guard_task_numbering` refuses, on every path, a `project_key` change once `next_task_number > 1` and any decrease of `next_task_number`.
 - Parent tasks cannot point to themselves or form cycles; use a service-level recursive validation with concurrency tests (or trigger). **FINAL:** maximum nested depth is 3 below the root task; reject cycles transactionally.
+- **Implemented (CORE-005, ADR-023 §2):**
+  - **Keys (ADR-022 §5):** `(project_id, team_id) → projects(id, team_id)` ON DELETE CASCADE. `(project_id, status_id) → project_statuses(project_id, id)`, `(parent_task_id, project_id) → tasks(id, project_id)` and `(team_id, assignee_user_id) → team_memberships(team_id, user_id)` are `DEFERRABLE INITIALLY IMMEDIATE` NO ACTION, so the database refuses a status, parent or assignee from elsewhere (DB-T03, DB-T04) and a status or team membership still in use, while the purge passes at COMMIT. `created_by → users` RESTRICT. `UNIQUE(project_id, task_number)`, `UNIQUE(id, project_id)`.
+  - **Technical corrections:** `due_date date` replaces `due_at timestamptz` (API_SPEC §6.1 due dates are calendar dates without a time); `deleted_at` is added for the soft delete and restore of API_SPEC §6.1; `start_at`, `completed_at`, `archived_at` and `story_points` (§20) are left to the tasks that use them (FLEX-005, FLEX-007), as expand-only migrations.
+  - **Sort keys:** generated, stored `priority_rank smallint` (urgent 4 … none 0) and `due_sort date` (`COALESCE(due_date, 'infinity')`) let the list sort by priority and due date with keyset pagination, no due date last.
+  - **CHECK constraints:** priority values, non-blank title, `task_number > 0`, `version > 0`, `parent_task_id <> id`.
+  - **Indexes:** the four of this section with `due_date` for `due_at`, plus `(project_id, created_at DESC, id DESC)`, partial `(assignee_user_id, created_at DESC, id DESC)` for "my tasks", partial `(team_id, assignee_user_id)` and `(parent_task_id)`.
+  - **Assignee eligibility and revocation:** an assignee must be able to write tasks in the project (§19); when a membership, role or visibility change takes that away, the change unassigns them in its own transaction and moves the task's `version` (`App\Domain\Tasks\TaskAssignments`). Removing a team member unassigns them before their membership row is deleted.
+  - **Subtasks:** `TaskHierarchy` walks the tree under the project write lock (every task writer takes it first), trashed tasks included; depth > 3 or a cycle is 422. A task with live subtasks cannot be deleted (409).
+  - **Lifecycle:** deleting a task sets `deleted_at`; restoring clears it (Owner or project manager). Trashed tasks are kept until the project purge; their numbers are never reissued.
 
 ### `labels` and `task_labels`
 
 - `labels`: `id`, `team_id`, `project_id`, `name`, `color`, timestamps; `UNIQUE(project_id,lower(name))` via functional unique index; `UNIQUE(id,project_id)`.
 - `task_labels`: `task_id`, `project_id`, `label_id`, `created_at`; PK `(task_id,label_id)`; composite FK `(task_id,project_id) -> tasks(id,project_id)` and `(label_id,project_id) -> labels(id,project_id)`.
+- **Implemented (CORE-005, ADR-023 §6):** `labels.name varchar(50)` (1–50 at the API, like status names), `color varchar(16) NULL` with `^#[0-9A-F]{6}$`, a non-blank name CHECK; `(project_id, team_id) → projects` cascades; index `(team_id, project_id)`. Both `task_labels` keys cascade (deleting a label removes its associations; the purge removes them with their tasks); index `(label_id, task_id)` for the label filter. At most 100 labels per project and 20 per task (application rules).
 
 ### `task_checklist_items`
 
 - `id`, `task_id`, `content varchar(300)`, `is_done boolean`, `position numeric(20,10)`, `completed_by NULL`, `completed_at NULL`, timestamps. Index `(task_id,position)`.
+- **Implemented (CORE-005, ADR-023 §7):** `task_id → tasks` cascades; `completed_by → users` SET NULL. Ranks are dense (`0..n-1`): `UNIQUE(task_id, position)` `DEFERRABLE INITIALLY IMMEDIATE` replaces the plain index, so a move rewrites every rank in one statement. CHECKs: non-blank content, `position >= 0`, and `completed_at` / `completed_by` set only while `is_done`. At most 100 items per task (API_SPEC §6.2).
 
 ### `task_comments`
 

@@ -4,12 +4,16 @@ use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
+use App\Http\Controllers\Api\V1\LabelController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\MyTasksController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectLifecycleController;
 use App\Http\Controllers\Api\V1\ProjectMemberController;
 use App\Http\Controllers\Api\V1\ProjectSettingsController;
 use App\Http\Controllers\Api\V1\ProjectStatusController;
+use App\Http\Controllers\Api\V1\TaskChecklistController;
+use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamLifecycleController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
@@ -100,4 +104,25 @@ Route::middleware('auth')->group(function (): void {
     Route::post('projects/{project}/restore', [ProjectLifecycleController::class, 'unarchive'])->name('projects.restore');
     Route::delete('projects/{project}', [ProjectLifecycleController::class, 'destroy'])->name('projects.destroy');
     Route::post('projects/{trashedProject}/restore-deleted', [ProjectLifecycleController::class, 'restoreDeleted'])->name('projects.restore-deleted');
+
+    // Tasks, labels and checklists (API_SPEC.md §2, §5, §6.1, §6.2; CORE-005, ADR-023). `{task}` resolves
+    // only to live tasks of projects the caller can see (AccessibleTasks); anything else is 404.
+    Route::get('me/tasks', MyTasksController::class)->name('me.tasks');
+
+    Route::get('projects/{project}/tasks', [TaskController::class, 'index'])->name('projects.tasks.index');
+    Route::post('projects/{project}/tasks', [TaskController::class, 'store'])->middleware('idempotent')->name('projects.tasks.store');
+    Route::get('tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
+    Route::patch('tasks/{task}', [TaskController::class, 'update'])->name('tasks.update');
+    Route::delete('tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy');
+    Route::post('tasks/{trashedTask}/restore', [TaskController::class, 'restore'])->name('tasks.restore');
+
+    Route::get('projects/{project}/labels', [LabelController::class, 'index'])->name('projects.labels.index');
+    Route::post('projects/{project}/labels', [LabelController::class, 'store'])->name('projects.labels.store');
+    Route::patch('projects/{project}/labels/{label}', [LabelController::class, 'update'])->name('projects.labels.update');
+    Route::delete('projects/{project}/labels/{label}', [LabelController::class, 'destroy'])->name('projects.labels.destroy');
+
+    Route::get('tasks/{task}/checklist', [TaskChecklistController::class, 'index'])->name('tasks.checklist.index');
+    Route::post('tasks/{task}/checklist', [TaskChecklistController::class, 'store'])->name('tasks.checklist.store');
+    Route::patch('tasks/{task}/checklist/{item}', [TaskChecklistController::class, 'update'])->name('tasks.checklist.update');
+    Route::delete('tasks/{task}/checklist/{item}', [TaskChecklistController::class, 'destroy'])->name('tasks.checklist.destroy');
 });

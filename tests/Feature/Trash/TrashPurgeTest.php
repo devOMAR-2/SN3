@@ -293,6 +293,8 @@ it('reaches every descendant by cascade, and no key can block the purge (ADR-022
 
     // The walk finds today's subtree, including tables without a team_id column if any.
     expect(purgeSubtree($keys))->toContain('team_memberships', 'project_memberships', 'api_idempotency_records')
+        // CORE-005 (ADR-023 §2): tasks and everything below them.
+        ->and(purgeSubtree($keys))->toContain('project_statuses', 'tasks', 'labels', 'task_labels', 'task_checklist_items')
         ->and(purgeBlockingKeys($keys))->toBe([]);
 });
 

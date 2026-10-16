@@ -40,6 +40,8 @@ use Illuminate\Support\Carbon;
  * @property-read User $creator
  * @property-read Collection<int, ProjectMembership> $memberships
  * @property-read Collection<int, ProjectStatus> $statuses
+ * @property-read Collection<int, Task> $tasks
+ * @property-read Collection<int, Label> $labels
  */
 class Project extends Model
 {
@@ -153,6 +155,26 @@ class Project extends Model
     public function statuses(): HasMany
     {
         return $this->hasMany(ProjectStatus::class);
+    }
+
+    /**
+     * Tasks (CORE-005); live ones only unless `withTrashed()`.
+     *
+     * @return HasMany<Task, $this>
+     */
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(Task::class);
+    }
+
+    /**
+     * Project labels (CORE-005).
+     *
+     * @return HasMany<Label, $this>
+     */
+    public function labels(): HasMany
+    {
+        return $this->hasMany(Label::class);
     }
 
     /**

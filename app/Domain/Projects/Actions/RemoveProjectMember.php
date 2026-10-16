@@ -3,6 +3,7 @@
 namespace App\Domain\Projects\Actions;
 
 use App\Domain\Projects\ProjectWriteLock;
+use App\Domain\Tasks\TaskAssignments;
 use App\Models\Project;
 use App\Models\ProjectMembership;
 use App\Models\User;
@@ -32,6 +33,9 @@ final class RemoveProjectMember
                 ->firstOrFail();
 
             $membership->delete();
+
+            // Without the membership they may no longer write in a private project (ADR-023 §5).
+            TaskAssignments::releaseIneligible($locked->team_id, $userId, $locked->id, 'project_member_removed');
 
             Log::info('project.member_removed', [
                 'team_id' => $locked->team_id,

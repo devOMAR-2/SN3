@@ -3,9 +3,11 @@
 namespace App\Providers;
 
 use App\Models\Project;
+use App\Models\Task;
 use App\Models\Team;
 use App\Models\User;
 use App\Support\Tenancy\AccessibleProjects;
+use App\Support\Tenancy\AccessibleTasks;
 use App\Support\Tenancy\AccessibleTeams;
 use App\Support\Tenancy\RecoverableResources;
 use Illuminate\Auth\AuthenticationException;
@@ -26,6 +28,7 @@ class TenancyServiceProvider extends ServiceProvider
     {
         $this->app->singleton(AccessibleTeams::class);
         $this->app->singleton(AccessibleProjects::class);
+        $this->app->singleton(AccessibleTasks::class);
         $this->app->singleton(RecoverableResources::class);
     }
 
@@ -39,6 +42,16 @@ class TenancyServiceProvider extends ServiceProvider
         // is a 404 for everyone but its explicit members and the Team Owner (ADR-020).
         Route::bind('project', function (string $value): Project {
             return $this->app->make(AccessibleProjects::class)->findOrFail($this->user(), $value);
+        });
+
+        // `{task}` resolves only to live tasks of projects the user can see (CORE-005, ADR-023 §3);
+        // `{trashedTask}` (POST /tasks/{id}/restore) only to trashed ones the user may restore.
+        Route::bind('task', function (string $value): Task {
+            return $this->app->make(AccessibleTasks::class)->findOrFail($this->user(), $value);
+        });
+
+        Route::bind('trashedTask', function (string $value): Task {
+            return $this->app->make(AccessibleTasks::class)->findTrashedOrFail($this->user(), $value);
         });
 
         // Only `POST …/restore-deleted` reaches the trash (CORE-010, ADR-022 §4): a trashed team for its

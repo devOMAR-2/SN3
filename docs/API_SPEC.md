@@ -98,6 +98,8 @@ Do not return a 403 that confirms the existence of an inaccessible private proje
 | GET | `/me/teams` | Teams visible to current user | Authenticated |
 | GET | `/me/tasks` | Authorized assigned tasks across teams | Authenticated |
 
+`GET /me/tasks` (CORE-005, ADR-023 §3): the caller's assigned, live tasks in every project they can see at the time of the request, across teams, filtered by the AccessibleProjects rule before sorting and pagination. `sort` is `created_at` (default), `updated_at`, `due_date` or `priority`, as for the project task list (§6.1).
+
 Registration: `name` 1–100 chars, `email` valid unique normalized address, `password` min 12 chars, maximum 128 chars, breached/common password validation if available without third-party mandatory service. Auth endpoints are throttled, use generic responses for password reset/email existence, and never return session tokens in JSON. Verified email required to create/join a team and redeem invitations. Preferences: `locale` (`ar`/`en`), `theme` (`system`/`light`/`dark`), `timezone` valid IANA name. Default `locale=ar`, `theme=system`, `timezone=UTC` until user selects.
 
 ## 3. Teams and memberships (P0)
@@ -234,6 +236,14 @@ Status: `name` 1–50, `color` hex RGB, `category` one of `todo`, `in_progress`,
   - Status writes and the reorder are "Owner/Project Manager" as the table says: the Team Owner, or an explicit project `manager` who is a Team Admin or Member (the membership rule, §12 note). `PATCH /settings` needs the right to `PATCH /projects/{project_id}`, which a Team Admin also has on a team-visible project. Everyone else who can see the project gets `403` whatever the body; a hidden project is `404` for every endpoint here.
   - An archived team or project is `423` on every write, before `If-Match`.
 
+**Implementation contract (CORE-005, ADR-023 §6): labels.**
+
+- **Representation:** `id`, `project_id`, `name`, `color` (`#RRGGBB` or `null`), `created_at`, `updated_at`. `GET /labels` is in name order (`name`, then `id`), cursor-paginated.
+- **`POST`:** `{ "name", "color" }`. `name` is trimmed, 1–50 characters and unique in the project ignoring case (`409 conflict`); `color` is optional, trimmed and upper-cased, `#RRGGBB` only (`regex`). A project holds at most 100 labels (`409`).
+- **`PATCH`:** `name` and/or `color` (`null` clears it). Labels are not among the versioned resources of §1.4: no `If-Match`, no `version`.
+- **`DELETE`:** `204`. The label's task associations go with it, and every task that carried it gets a new `version` (its `label_ids` changed).
+- **Who:** writes are "Owner/Project Manager", the workflow rule (§12 note): the Team Owner, or an explicit project `manager` who is a Team Admin or Member. Attaching and detaching labels is a task edit (`label_ids`, §6.1), open to every project writer. A `{label_id}` of another project is `404`.
+
 
 ## 6. Tasks, checklist, comments, attachments (P0)
 
@@ -278,6 +288,20 @@ Create body:
 - `GET /projects/{id}/tasks` supports `q`, `status_id[]`, `assignee_user_id`, `priority[]`, `label_id[]`, `sprint_id`, `due_before`, `due_after`, `sort` (`created_at`, `updated_at`, `due_date`, `priority`, `position`). Full-text search must not leak private projects.
 - `POST /tasks/{id}/move`: `{ "status_id":"uuid", "before_task_id":null, "after_task_id":"uuid" }`; at most one of before/after non-null; both anchors must be in same target status and project. Server chooses stable fractional/order rank and periodically rebalances.
 
+**Implementation contract (CORE-005, ADR-023).** These points settle details §6.1 leaves open:
+
+- **Representation:** `id`, `project_id`, `key` (`{project_key}-{number}`), `number`, `title`, `description`, `status_id`, `priority`, `assignee_user_id`, `due_date` (`YYYY-MM-DD` or `null`), `label_ids` (sorted), `parent_task_id`, `created_by`, `version`, `created_at`, `updated_at`. Single-task responses carry `ETag: "<version>"`. `sprint_id` and `story_points` join it with FLEX-005, the board `position` with `/move` (CORE-007).
+- **Create:** requires `Idempotency-Key` (§1.4); missing or malformed is `400 bad_request`. `status_id` is optional: without it (or `null`) the task starts in the project's default status (§5). `title` is trimmed; a blank `description` is `null`. `due_date` must be a real date, not before `1000-01-01`. `label_ids` is a list of at most 20 distinct label IDs. `sprint_id` and `story_points` accept only `null` until FLEX-005 (`prohibited`). `key` and any other field are `unknown_field`. A new task goes to the end of its status column.
+- **References:** a status, label or parent of another (or hidden) project and an ineligible assignee are all `422` with `exists` on the field, exactly like a random ID. Eligible assignees are those who may write tasks in the project (§12): the Team Owner; a Team Admin or Member on a team-visible project; on a private project, a Team Admin or Member with an explicit membership. A Team Viewer, another team's user or a disabled account never is.
+- **Subtasks:** a parent inside the task's own subtree (or the task itself) is `422 cycle`; a tree deeper than three levels below its root is `422 max_depth`.
+- **`PATCH`:** requires `If-Match` (`428` / `412`, no write); `423` (archived) wins over `412`. `label_ids` replaces the whole set. A task whose `status_id` changes goes to the end of its new column. A real change, a label-set change included, increments `version`; a no-op keeps it.
+- **`DELETE`:** any project writer, as the table says; requires `If-Match`; `204`. A task with live subtasks is `409 conflict`. The task leaves every list and detail route; its number is never reissued and the project key stays frozen (§5).
+- **`POST /tasks/{task_id}/restore`:** Owner or project manager (an Admin needs the `manager` role; a Viewer never qualifies). No body, no `If-Match`; increments `version`; `200` with the task. Anyone else, and any task that is not in the trash, gets `404`. A subtask whose parent is still deleted is `409`. Deleted tasks are kept until their project is purged.
+- **Losing access (§12 "revoking team membership immediately invalidates project access"):** an assignee who can no longer write tasks in the project is unassigned in the same transaction as the change: team removal or leaving, demotion to Viewer, ownership transfer (former Owner, private projects without membership), removal from a private project, or the project made private. The task's `version` moves.
+- **List (`GET /projects/{project_id}/tasks`):** `q` matches the title as a case-insensitive literal substring, or the number or key exactly (`104`, `WEB-104`); several values of one key are alternatives, different keys must all hold; `due_after` and `due_before` are inclusive and leave out tasks without a due date (`due_before` earlier than `due_after` is `422 after_or_equal`). `sort`: `created_at` (default, newest first), `updated_at` (newest first), `due_date` (soonest first, none last), `priority` (urgent first), `position` (board order); ties by `id`. `sprint_id` is `prohibited` until FLEX-005.
+- **Status codes:** an archived team or project is `423` on every task, label and checklist write; a trashed one, or a task the caller cannot see, is `404`. A caller who can see the project but may not write gets `403` whatever the body. One who lost access while the request waited gets `404`, one who lost the right `409`.
+- **Not yet implemented:** `/move` (CORE-007), `/activity` (CORE-008), `/watchers` (CORE-009), dependencies (§19).
+
 ### 6.2 Comments and checklist
 
 | Method | Path | Operation | Permission |
@@ -290,6 +314,8 @@ Create body:
 | POST | `/tasks/{task_id}/checklist` | Create checklist item | Project writer |
 | PATCH | `/tasks/{task_id}/checklist/{item_id}` | Edit text, checked, position | Project writer |
 | DELETE | `/tasks/{task_id}/checklist/{item_id}` | Delete item | Project writer |
+
+**Implementation contract (CORE-005, ADR-023 §7): checklist.** Items are `{ "id", "task_id", "text", "checked", "position", "completed_by", "completed_at", "created_at", "updated_at" }`, listed in checklist order. `POST` takes `{ "text" }` (trimmed, 1–300) and appends the item; the 101st item of a task is `409`. `PATCH` takes `text`, `checked` (strict boolean; `true` records who completed it and when, `false` clears both; re-sending the current state changes nothing) and `position` (the 0-based index to move to; past the last item is `422 max`). `DELETE` is `204`. Checklist items are not versioned (§1.4 versions the Task; the checklist is not part of its representation), so they take no `If-Match` and do not change the task's `version`; locks serialise concurrent edits. **Technical reading of §18:** the `tasks.version` column there names the endpoint family's concurrency control; it applies to the task itself. An `{item_id}` of another task is `404`.
 
 Comment body `{ "body":"Please review @..." }`, max 10,000 Markdown chars; mention IDs must be explicit server-validated eligible users, not arbitrary free-text matches. Checklist text max 300; maximum 100 checklist items per task. Comment edits keep edit timestamp and audit record; deleted comments become tombstones in activity logs without exposing content to unauthorized users.
 

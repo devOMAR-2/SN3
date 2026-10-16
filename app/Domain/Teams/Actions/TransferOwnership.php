@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -66,6 +67,9 @@ final class TransferOwnership
 
             $locked->owner_user_id = $newOwnerId;
             $locked->save();
+
+            // The former Owner, now an Admin, keeps only explicit private memberships (ADR-023 §5).
+            TaskAssignments::releaseIneligible($locked->id, $currentOwner->id, null, 'ownership_transferred');
 
             Log::info('team.ownership_transferred', [
                 'team_id' => $locked->id,

@@ -3,14 +3,17 @@
 namespace App\Domain\Workflows\Actions;
 
 use App\Domain\Projects\ProjectWriteLock;
+use App\Domain\Tasks\TaskOrder;
 use App\Domain\Workflows\StatusCategory;
 use App\Domain\Workflows\StatusOrder;
 use App\Domain\Workflows\StatusRules;
 use App\Domain\Workflows\WorkflowVersion;
 use App\Models\Project;
 use App\Models\ProjectStatus;
+use App\Models\Task;
 use App\Models\User;
 use App\Support\Concurrency\StaleVersionException;
+use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -31,11 +34,12 @@ use Illuminate\Validation\ValidationException;
  * 5. The remaining ranks are rewritten densely, in their current order, and the workflow version
  *    is incremented.
  *
- * Tasks do not exist yet. CORE-005 adds, at step 4: move every task of the status to the
- * replacement in this transaction, and refuse (409) when the status still has tasks and no
- * replacement was given. Its `(status_id, project_id)` foreign key must be DEFERRABLE NO ACTION
- * (never CASCADE or RESTRICT, ADR-022 §5): the database still refuses to delete a status in use
- * whatever the code does, and the trash purge can delete a project's tasks and statuses together.
+ * Tasks (CORE-005, ADR-023 §8), at step 4: a status that still has tasks, trashed ones included,
+ * needs a replacement (409 without one, WF-01); with one, every task of the status moves to the end
+ * of the replacement's column in this transaction, keeping its relative order, and gets a new
+ * `version`. The tasks' `(project_id, status_id)` foreign key is DEFERRABLE NO ACTION (never CASCADE
+ * or RESTRICT, ADR-022 §5): the database still refuses to delete a status in use whatever the code
+ * does, and the trash purge can delete a project's tasks and statuses together.
  */
 final class DeleteStatus
 {
@@ -71,6 +75,16 @@ final class DeleteStatus
 
             StatusRules::assertRequiredCategories($remaining);
 
+            $tasks = Task::withTrashed()->where('project_id', $lockedProject->id)->where('status_id', $locked->id)->count();
+
+            if ($tasks > 0) {
+                if ($replacement === null) {
+                    throw new DomainConflictException('The status still has tasks; choose a replacement status.');
+                }
+
+                TaskOrder::moveAll($lockedProject->id, $locked->id, $replacement->id);
+            }
+
             $locked->delete();
 
             if ($locked->is_default) {
@@ -91,6 +105,7 @@ final class DeleteStatus
                 'status_id' => $locked->id,
                 'actor_id' => $actor->id,
                 'replacement_status_id' => $replacement?->id,
+                'tasks_moved' => $tasks,
             ]);
 
             return $lockedProject->workflow_version;

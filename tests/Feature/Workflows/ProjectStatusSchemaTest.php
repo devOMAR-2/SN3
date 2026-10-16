@@ -128,6 +128,13 @@ it('gives every existing project the default workflow on upgrade, in its creator
         'database/migrations/2026_10_19_000110_add_workflow_version_to_projects.php',
         'database/migrations/2026_10_19_000120_guard_project_task_numbering.php',
     ];
+    // Later tables that reference project_statuses (tasks, CORE-005) go first, and come back last.
+    $dependents = [
+        'database/migrations/2026_10_20_000100_create_tasks_table.php',
+        'database/migrations/2026_10_20_000110_create_labels_tables.php',
+        'database/migrations/2026_10_20_000120_create_task_checklist_items_table.php',
+    ];
+    Artisan::call('migrate:rollback', ['--path' => $dependents, '--force' => true]);
     Artisan::call('migrate:rollback', ['--path' => $core004, '--force' => true]);
 
     // Raw rows: the current Project model already knows columns that did not exist then.
@@ -158,6 +165,7 @@ it('gives every existing project the default workflow on upgrade, in its creator
     // trigger events inside this test's transaction.
     DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
     Artisan::call('migrate', ['--path' => $core004, '--force' => true]);
+    Artisan::call('migrate', ['--path' => $dependents, '--force' => true]);
 
     $board = fn (Project $project) => ProjectStatus::query()->where('project_id', $project->id)->orderBy('position')
         ->get()->map(fn (ProjectStatus $s) => [$s->name, $s->category->value, $s->position, $s->is_default, $s->team_id])->all();

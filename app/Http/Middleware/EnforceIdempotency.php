@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use App\Http\Responses\ApiResponse;
 use App\Models\ApiIdempotencyRecord;
+use App\Models\Project;
 use App\Models\Team;
 use App\Models\User;
 use Closure;
@@ -147,6 +148,13 @@ final class EnforceIdempotency
     {
         $team = $request->route('team');
 
-        return $team instanceof Team ? $team->id : null;
+        if ($team instanceof Team) {
+            return $team->id;
+        }
+
+        // Project-scoped creates (tasks, CORE-005): the record goes with the project's team.
+        $project = $request->route('project');
+
+        return $project instanceof Project ? $project->team_id : null;
     }
 }

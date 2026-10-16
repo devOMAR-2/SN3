@@ -74,6 +74,24 @@ class ProjectPolicy
         return $this->manageMembers($user, $project);
     }
 
+    /**
+     * Label create, update and delete (API_SPEC.md §5 "Owner/Project Manager"; ADR-023 §6): the same
+     * rule as the workflow. Attaching labels to a task is a task write (`contribute`).
+     */
+    public function manageLabels(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
+    }
+
+    /**
+     * POST /tasks/{task}/restore (API_SPEC.md §6.1 "Project Manager/Owner"; ADR-023 §4). Deleting a
+     * task is a task write (`contribute`), restoring one is reserved to the Owner and managers.
+     */
+    public function restoreTasks(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
+    }
+
     /** Write access to project content: tasks, comments and ordinary collaboration (CORE-005+). */
     public function contribute(User $user, Project $project): bool
     {
