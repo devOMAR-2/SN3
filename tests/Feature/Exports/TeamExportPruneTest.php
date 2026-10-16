@@ -77,12 +77,14 @@ it('deletes archives whose export row is gone, e.g. after the trash purge, and n
     Storage::disk('exports')->put("archives/{$this->team->id}/{$orphanId}.zip", 'orphan');
     // Outside the `archives/` prefix nothing is touched, not even a file that looks like an archive.
     Storage::disk('exports')->put('README.txt', 'not an export');
-    Storage::disk('exports')->put("{$this->team->id}/{$orphanId}.zip", 'someone else\'s file');
+    // Its own ID, so the sweep's per-ID bookkeeping cannot hide it behind the real orphan.
+    $decoyId = (string) Str::uuid7();
+    Storage::disk('exports')->put("{$this->team->id}/{$decoyId}.zip", 'someone else\'s file');
 
     expect(app(PruneTeamExports::class)->handle())->toBe(['exports' => 0, 'orphans' => 1, 'work_dirs' => 0])
         ->and(Storage::disk('exports')->allFiles())->toEqualCanonicalizing([
             'README.txt',
-            "{$this->team->id}/{$orphanId}.zip",
+            "{$this->team->id}/{$decoyId}.zip",
             "archives/{$kept->team_id}/{$kept->id}.zip",
         ]);
 });

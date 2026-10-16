@@ -20,6 +20,7 @@ use Illuminate\Support\Carbon;
  * @property string $request_digest
  * @property int $response_status
  * @property array<array-key, mixed> $response_json
+ * @property array<string, string>|null $response_headers
  * @property Carbon $expires_at
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
@@ -43,6 +44,7 @@ class ApiIdempotencyRecord extends Model
         return [
             'response_status' => 'integer',
             'response_json' => 'array',
+            'response_headers' => 'array',
             'expires_at' => 'datetime',
         ];
     }

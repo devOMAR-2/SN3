@@ -2,19 +2,23 @@
 
 namespace App\Domain\Exports;
 
+use App\Domain\Exports\Sections\LabelsSection;
 use App\Domain\Exports\Sections\MembersSection;
 use App\Domain\Exports\Sections\ProjectMembersSection;
 use App\Domain\Exports\Sections\ProjectsSection;
 use App\Domain\Exports\Sections\StatusesSection;
+use App\Domain\Exports\Sections\TaskChecklistItemsSection;
+use App\Domain\Exports\Sections\TaskLabelsSection;
+use App\Domain\Exports\Sections\TasksSection;
 use App\Domain\Exports\Sections\TeamSection;
 
 /**
  * The versioned team export format (DATABASE.md §13 "versioned JSON manifests", ADR-024 §2).
  *
  * A zip archive with `manifest.json` and one `data/<section>.json` file per section, in this order.
- * Later tasks append their sections here (CORE-005: tasks; CORE-007: comments, checklist items,
- * attachment manifests; …). Appending a section or a field is backwards compatible and keeps
- * VERSION; anything else bumps it.
+ * Later tasks append their sections here (CORE-005: labels, tasks, task labels, checklist items;
+ * CORE-008: comments, attachment manifests; …). Appending a section or a field is backwards
+ * compatible and keeps VERSION; anything else bumps it.
  */
 final class TeamExportFormat
 {
@@ -31,5 +35,10 @@ final class TeamExportFormat
         ProjectsSection::class,
         ProjectMembersSection::class,
         StatusesSection::class,
+        // CORE-005 (ADR-023 §11): live tasks of the exported projects, their labels and checklists.
+        LabelsSection::class,
+        TasksSection::class,
+        TaskLabelsSection::class,
+        TaskChecklistItemsSection::class,
     ];
 }

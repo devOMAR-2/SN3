@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\Cursor;
 use Illuminate\Support\Facades\Validator;
 use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+use UnexpectedValueException;
 
 /**
  * Cursor pagination for /api/v1 lists (API_SPEC.md §1.1, §1.4): `limit` 1–100 (default 25),
@@ -33,8 +34,10 @@ final class CursorPagination
      * @param  Builder<TModel>  $query
      * @param  Closure(TModel): mixed  $transform
      * @param  array<string, mixed>  $meta  extra collection meta, e.g. a version the list was read at
+     * @param  string|null  $scope  what else the cursor is bound to besides the endpoint path, e.g. the
+     *                              list's sort order: a cursor only fits the order it was issued for
      */
-    public static function respond(Request $request, Builder $query, Closure $transform, array $meta = []): JsonResponse
+    public static function respond(Request $request, Builder $query, Closure $transform, array $meta = [], ?string $scope = null): JsonResponse
     {
         Validator::make($request->query(), [
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.self::MAX_LIMIT],
@@ -42,11 +45,20 @@ final class CursorPagination
         ])->validate();
 
         $limit = $request->integer('limit', self::DEFAULT_LIMIT);
-        $scope = $request->path();
+        $scope = $scope === null ? $request->path() : $request->path().'|'.$scope;
         $token = $request->query('cursor');
         $cursor = is_string($token) ? self::decode($token, $scope) : null;
 
-        $page = $query->cursorPaginate($limit, ['*'], 'cursor', $cursor);
+        try {
+            $page = $query->cursorPaginate($limit, ['*'], 'cursor', $cursor);
+        } catch (UnexpectedValueException $e) {
+            // A validly signed cursor whose keys do not fit this query's order: a client error, not a 500.
+            if ($cursor === null) {
+                throw $e;
+            }
+
+            throw new BadRequestHttpException('Invalid cursor.', $e);
+        }
         $next = $page->nextCursor();
 
         return ApiResponse::collection(

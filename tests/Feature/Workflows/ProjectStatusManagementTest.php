@@ -479,6 +479,8 @@ it('deletes a status and closes the gap in the order', function () {
         'status_id' => $doing->id,
         'actor_id' => $this->owner->id,
         'replacement_status_id' => null,
+        // CORE-005 (ADR-023 §8): how many tasks moved to the replacement.
+        'tasks_moved' => 0,
     ])->once();
 });
 

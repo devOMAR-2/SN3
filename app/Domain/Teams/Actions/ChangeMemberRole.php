@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
 use App\Models\TeamMembership;
@@ -52,6 +53,9 @@ final class ChangeMemberRole
             $from = $locked->role;
             $locked->role = $role;
             $locked->save();
+
+            // A Team Viewer cannot be an assignee (API_SPEC.md §6.1, ADR-023 §5).
+            TaskAssignments::releaseIneligible($team->id, $locked->user_id, null, 'team_role_changed');
 
             Log::info('team.member_role_changed', [
                 'team_id' => $team->id,

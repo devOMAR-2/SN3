@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\ProjectMembership;
 use App\Models\Team;
@@ -53,6 +54,9 @@ final class RemoveMember
                 ->where('team_id', $team->id)
                 ->where('user_id', $locked->user_id)
                 ->delete();
+
+            // Before the membership row: the tasks' assignee key refuses a removal that leaves one.
+            TaskAssignments::releaseUser($team->id, $locked->user_id, 'team_member_removed');
 
             $locked->delete();
 
