@@ -27,3 +27,10 @@ Schedule::command('auth:clear-resets')
 Schedule::command('model:prune', ['--model' => [ApiIdempotencyRecord::class]])
     ->dailyAt('03:30')
     ->onOneServer();
+
+// Teams and projects trashed more than 30 days ago are purged for good (CORE-010, DECIDED-011,
+// ADR-022). Idempotent and local only: it never deletes anything on GitHub.
+Schedule::command('trash:purge')
+    ->dailyAt('03:40')
+    ->onOneServer()
+    ->withoutOverlapping();
