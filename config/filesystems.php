@@ -47,6 +47,17 @@ return [
             'report' => false,
         ],
 
+        // Team export archives (CORE-012, ADR-024 §4). Outside the served `local` root and never
+        // served by URL: the only way out is the signed, Owner-only download route.
+        'exports' => [
+            'driver' => 'local',
+            'root' => storage_path('app/exports'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => true,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
