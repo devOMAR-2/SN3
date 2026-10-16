@@ -61,6 +61,7 @@ Build a lightweight, intuitive, customizable project-management web application 
 | DEC-015 | Team Owner may access/manage private projects; Admin has no implicit access to private project content | CONFIRMED |
 | DEC-016 | Team-visible projects are visible to team members subject to their permissions | CONFIRMED |
 | DEC-017 | New projects default to Team-visible, with Private selectable | CONFIRMED |
+| DEC-018 | Project keys are approved team-level metadata: they are unique per team, so a create or key change may answer 409 for a key held by a private or trashed project. The 409 names no project; project writes are rate-limited per user and key conflicts are audit-logged (ADR-020 §10) | CONFIRMED (product owner, 2026-10-16) |
 
 ## 3. Scope and Release Boundaries
 
@@ -233,7 +234,7 @@ Deployment (Cloud or Self-Hosted)
 
 `*` Subject to project membership and project-level permissions. **FINAL** project roles: `manager` and `contributor` only. Team Viewer is read-only regardless of project membership. Team Owner has implicit manager authority. Team Admin without explicit membership cannot discover a private project or add themselves.
 
-**Authorization test invariant:** A user who is not Team Owner and is not an explicit member of a private project must receive no content, count, filename, search snippet, notification payload, or linked GitHub metadata revealing that project, except for deliberately public team-level metadata explicitly approved later.
+**Authorization test invariant:** A user who is not Team Owner and is not an explicit member of a private project must receive no content, count, filename, search snippet, notification payload, or linked GitHub metadata revealing that project, except for deliberately public team-level metadata explicitly approved later (approved so far: project keys, DEC-018).
 
 ## 8. Core Workflows and Acceptance Criteria
 

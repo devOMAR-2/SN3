@@ -47,6 +47,13 @@ class IdentityServiceProvider extends ServiceProvider
             'password:'.$request->ip(),
         ) ?? Limit::none());
 
+        // Project create and PATCH: a taken key answers 409 even when the project holding it is
+        // private, so key probing is slowed per user (ADR-020 §10).
+        RateLimiter::for('project-writes', fn (Request $request): Limit => self::perMinute(
+            'sn3.rate_limits.project_writes_per_minute',
+            'project-writes:'.self::actorKey($request),
+        ) ?? Limit::none());
+
         RateLimiter::for('auth-verification', fn (Request $request): Limit => self::perMinute(
             'sn3.rate_limits.verification_per_minute',
             'verification:'.self::actorKey($request),

@@ -169,7 +169,7 @@ An error here shows the SMTP problem directly. Use an address you control.
 - **Registration** is open by default. Set `SN3_REGISTRATION_ENABLED=false` to close public sign-up; existing users can still sign in and reset passwords. Invitations (CORE-002) will remain the way to add people.
 - **Email is required for account flows.** Verification and password-reset links are sent by the queue worker. Configure SMTP (see [Mail](#mail)) before inviting users; with the default `log` mailer no one receives the links.
 - **HTTPS:** set `SESSION_SECURE_COOKIE=true` and an `https://` `APP_URL`. Signed verification links are checked against the URL the browser used, so `APP_URL`, the proxy's `X-Forwarded-*` headers and `TRUSTED_PROXIES` must agree.
-- **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset and verification. A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
+- **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset, verification and project create/update (20/minute per user). A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
 - **Sessions** live in the `sessions` table (`SESSION_DRIVER=database`). Signing out deletes the session, and a password reset revokes every stored session of that user.
 
 ## Day-to-day commands

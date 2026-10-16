@@ -30,6 +30,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $deleted_at
  * @property-read User $owner
  * @property-read Collection<int, TeamMembership> $memberships
+ * @property-read Collection<int, Project> $projects
  */
 class Team extends Model
 {
@@ -78,6 +79,17 @@ class Team extends Model
     public function memberships(): HasMany
     {
         return $this->hasMany(TeamMembership::class);
+    }
+
+    /**
+     * Every project of the team, private ones included. Never list these for a user directly; go
+     * through App\Support\Tenancy\AccessibleProjects.
+     *
+     * @return HasMany<Project, $this>
+     */
+    public function projects(): HasMany
+    {
+        return $this->hasMany(Project::class);
     }
 
     /**

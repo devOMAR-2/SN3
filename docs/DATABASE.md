@@ -91,6 +91,15 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 - `id uuid PK`; `project_id uuid NOT NULL`; `team_id uuid NOT NULL`; `user_id uuid NOT NULL`; `project_role varchar(24) NOT NULL CHECK IN ('manager','contributor')`; `added_by uuid NOT NULL`; `created_at`, `updated_at`.
 - `UNIQUE(project_id,user_id)`; composite FK `(project_id,team_id) -> projects(id,team_id)` and `(team_id,user_id) -> team_memberships(team_id,user_id)`; indexes `(user_id,project_id)` and `(team_id,project_id)`.
 - **DECIDED-003:** Team Owner can access every project. Team Admin without explicit private-project membership cannot discover its existence, name, counts, or content through any UI, API, search, notification, export, attachment, or GitHub metadata. Private project roles are manager and contributor; creator is manager; Team Owner has implicit manager authority. Team Viewer remains read-only even if assigned a project role.
+- **Implemented (CORE-003, ADR-020):**
+  - **CHECK constraints:** `visibility`, `project_role`, key format `^[A-Z][A-Z0-9]{1,9}$`, non-blank `name`, `next_task_number > 0` and `version > 0`.
+  - **Keys and the trash:** `UNIQUE(team_id, project_key)` includes trashed projects, so a key stays reserved during the 30-day recovery window.
+  - **Foreign-key actions:**
+    - `projects.team_id` and `(project_id, team_id)` cascade. Only the trash purge deletes.
+    - `created_by` and `added_by` are `RESTRICT`.
+    - `(team_id, user_id) → team_memberships` has no ON DELETE action. Removing a team member deletes their project memberships in the same transaction, and the database refuses a team membership delete that would leave any behind.
+    - That key is `DEFERRABLE INITIALLY IMMEDIATE`. The team purge (CORE-010) must `SET CONSTRAINTS project_memberships_team_id_user_id_foreign DEFERRED`, or delete project memberships first, because PostgreSQL checks it during the cascade to `team_memberships`, before the cascade to `projects`.
+  - **`AccessibleProjects` (§10.2):** `App\Support\Tenancy\AccessibleProjects` implements the single authorization query; later resources use its `constrain()`.
 
 ### `project_templates` and `project_views` — public v1.0
 
