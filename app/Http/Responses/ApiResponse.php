@@ -25,6 +25,17 @@ final class ApiResponse
     }
 
     /**
+     * Collection envelope; `$meta` carries pagination (`next_cursor`, `has_more`, `limit`).
+     *
+     * @param  list<mixed>  $items
+     * @param  array<string, mixed>  $meta
+     */
+    public static function collection(array $items, array $meta): JsonResponse
+    {
+        return new JsonResponse(['data' => $items, 'meta' => [...$meta, 'request_id' => self::requestId()]]);
+    }
+
+    /**
      * @param  array<string, list<string>>|null  $fields
      * @param  array<string, mixed>  $headers
      */

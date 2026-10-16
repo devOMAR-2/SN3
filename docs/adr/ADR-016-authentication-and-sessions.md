@@ -60,7 +60,7 @@ Health probes are outside the `web` group and are not limited. Auth endpoints ha
 
 ### 8. Identity schema
 - **`users`:** follows DATABASE.md §3 now rather than waiting for FND-005, to avoid rewriting the table twice: UUIDv7 primary key (`HasUuids`), `name varchar(160)`, `locale` (check `ar|en`, default `ar`), `timezone` (default `UTC`), `avatar_path`, `disabled_at`, and `timestamptz` everywhere.
-- **Email:** stored normalised (trimmed, lowercased). A plain unique index serves lookups, and a unique index on `lower(email)` enforces case-insensitive uniqueness.
+- **Email:** stored normalised (trimmed, lowercased). A plain unique index serves lookups, and a unique index on `lower(email)` enforces case-insensitive uniqueness. *Superseded by ADR-017 §9 (FND-005): the column is now `citext` with one unique index.*
 - **`sessions.user_id`:** a UUID FK with cascade delete.
 - **`user_preferences` (DATABASE.md §8):** created for `theme`; the notification flags are for CORE-009.
 

@@ -11,6 +11,7 @@ return [
         'method_not_allowed' => 'This action is not supported here.',
         'conflict' => 'The request conflicts with the current state.',
         'expired' => 'This link or item has expired.',
+        'idempotency_key_reused' => 'This request key was already used for a different request. Use a new key.',
         'version_mismatch' => 'This item was changed by someone else. Reload and try again.',
         'payload_too_large' => 'The upload is too large.',
         'csrf_invalid' => 'Your session has expired. Reload the page and try again.',

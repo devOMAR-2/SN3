@@ -2,6 +2,7 @@
 
 use App\Exceptions\ApiExceptionRenderer;
 use App\Http\Middleware\AssignRequestId;
+use App\Http\Middleware\EnforceIdempotency;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SetLocale;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
@@ -10,6 +11,7 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
@@ -40,6 +42,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Resolve the language before auth can reject a request, so 401/403 messages are localized too.
         $middleware->prependToPriorityList(AuthenticatesRequests::class, SetLocale::class);
+
+        // Idempotency-Key for retry-safe creates (API_SPEC.md §1.4). After bindings, so the stored
+        // record knows its team; route throttles listed before it count retries too.
+        $middleware->alias(['idempotent' => EnforceIdempotency::class]);
+        $middleware->appendToPriorityList(SubstituteBindings::class, EnforceIdempotency::class);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // /api/v1 always answers with the API_SPEC.md §1.2 error envelope.

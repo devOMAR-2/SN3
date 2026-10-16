@@ -4,6 +4,7 @@ namespace App\Exceptions;
 
 use App\Http\Middleware\SetLocale;
 use App\Http\Responses\ApiResponse;
+use App\Support\Concurrency\StaleVersionException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -57,6 +58,10 @@ final class ApiExceptionRenderer
 
         if ($e instanceof ValidationException) {
             return ApiResponse::error('validation_failed', 422, self::fields($e));
+        }
+
+        if ($e instanceof StaleVersionException) {
+            return ApiResponse::error('version_mismatch', 412);
         }
 
         if ($e instanceof AuthenticationException) {
