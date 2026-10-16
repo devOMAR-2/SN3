@@ -22,12 +22,13 @@ beforeEach(function () {
     Artisan::call('migrate', ['--force' => true]);
 
     $this->teams = [];
+    $this->users = [];
 });
 
 afterEach(function () {
     $teamIds = array_map(fn (Team $team) => $team->id, $this->teams);
     $userIds = TeamMembership::query()->whereIn('team_id', $teamIds)->pluck('user_id')
-        ->merge(array_map(fn (Team $team) => $team->owner_user_id, $this->teams))->unique()->all();
+        ->merge(array_map(fn (Team $team) => $team->owner_user_id, $this->teams))->merge($this->users)->unique()->all();
 
     DB::transaction(function () use ($teamIds): void {
         DB::statement('SET CONSTRAINTS ALL DEFERRED');
@@ -47,6 +48,8 @@ function committedTaskTeam(object $test): array
     $team = Team::factory()->create();
     $test->teams[] = $team;
     $member = taskTeamMember($team);
+    // Tracked here: once the team is purged, its memberships no longer name its users.
+    $test->users[] = $member->id;
     $project = taskProject($team);
     $label = Label::factory()->for($project)->create();
 
