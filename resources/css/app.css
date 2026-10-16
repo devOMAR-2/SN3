@@ -1,7 +1,78 @@
 @import 'tailwindcss';
+@import './fonts.css';
+@import './tokens.css';
 
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
 @source '../**/*.vue';
 @source '../**/*.ts';
+
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    background-color: var(--bg);
+    color: var(--text);
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  /*
+   * Language switches happen on elements carrying `lang` (the root, or an inline `<span lang="…">`); the
+   * rest inherits. Arabic glyphs come from IBM Plex Sans Arabic and Arabic copy gets more line height
+   * (up to 1.65, DESIGN_SYSTEM.md §2.2). Matching only `[lang]` keeps `code` and friends on the mono stack.
+   */
+  [lang]:lang(ar) {
+    font-family: var(--font-arabic);
+    --text-caption--line-height: 1.65;
+    --text-small--line-height: 1.65;
+    --text-body--line-height: 1.65;
+  }
+
+  [lang]:lang(en) {
+    font-family: var(--font-sans);
+    --text-caption--line-height: 1.125rem;
+    --text-small--line-height: 1.25rem;
+    --text-body--line-height: 1.375rem;
+  }
+
+  body {
+    min-height: 100dvh;
+    font-size: var(--text-body);
+    line-height: var(--text-body--line-height);
+  }
+
+  *,
+  ::before,
+  ::after {
+    border-color: var(--border);
+  }
+
+  /* Visible focus for every control: 2px, ≥3:1 against the page in both themes (DESIGN_SYSTEM.md §8). */
+  :focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+
+  /* Technical identifiers stay LTR inside Arabic text (DESIGN_SYSTEM.md §7, §11). */
+  code,
+  kbd,
+  pre,
+  samp,
+  [data-technical-id] {
+    direction: ltr;
+    unicode-bidi: isolate;
+  }
+
+  code,
+  kbd,
+  pre,
+  samp {
+    font-family: var(--font-mono);
+  }
+
+  /* A modal dialog (e.g. the mobile navigation drawer) keeps the page behind it from scrolling. */
+  :root:has(dialog[open]:modal) {
+    overflow: hidden;
+  }
+}

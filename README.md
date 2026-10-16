@@ -56,6 +56,14 @@ The build tooling lives in `devDependencies`. If `NODE_ENV=production` is set in
 
 CI runs all of these on every pull request to `dev` and `main`, together with migrations up/down/up and a Docker image smoke test. A pull request can only merge when every check is green: see [ADR-013](docs/adr/ADR-013-continuous-integration.md).
 
+### UI, localization and theme
+- Design tokens follow `docs/DESIGN_SYSTEM.md` and live in `resources/css/tokens.css`. Use the semantic Tailwind classes (`bg-surface`, `text-text-muted`, `rounded-control`, `text-body`, …). The default Tailwind palette is turned off.
+- Use logical utilities only (`ms-`/`me-`/`ps-`/`pe-`/`start-`/`end-`/`text-start`), so layouts mirror in Arabic.
+- UI strings live in `resources/js/i18n/locales/{en,ar}/<namespace>.ts` and are read with `useI18n().t('namespace.key')`. A missing Arabic key fails `npm run typecheck`. Server-side strings live in `lang/{en,ar}`.
+- Fonts (Space Grotesk, IBM Plex Sans Arabic) are bundled from npm. Pages make no third-party font or CDN requests.
+
+Details and rationale: [ADR-014](docs/adr/ADR-014-design-foundation-i18n-theme.md).
+
 ## Roadmap
 | Phase | Scope |
 | --- | --- |
