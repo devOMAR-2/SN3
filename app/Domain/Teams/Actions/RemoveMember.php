@@ -5,6 +5,7 @@ namespace App\Domain\Teams\Actions;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
 use App\Models\TeamMembership;
+use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Support\Facades\DB;
@@ -17,16 +18,21 @@ use Illuminate\Support\Facades\Log;
  * (409, acceptance scenario TEAM-01). Access ends with the membership row: every request
  * re-resolves the team through AccessibleTeams. Project memberships (CORE-003) must be removed
  * in the same transaction once they exist.
+ *
+ * The team row is locked first and the archived flag and the actor's right to remove someone else
+ * are re-checked on it (ADR-018 §4).
  */
 final class RemoveMember
 {
-    public function handle(Team $team, TeamMembership $membership): void
+    public function handle(Team $team, User $actor, TeamMembership $membership): void
     {
-        if ($team->isArchived()) {
-            throw new ResourceLockedException('Archived teams are read-only.');
-        }
+        DB::transaction(function () use ($team, $actor, $membership): void {
+            $lockedTeam = Team::query()->whereKey($team->id)->lockForUpdate()->firstOrFail();
 
-        DB::transaction(function () use ($team, $membership): void {
+            if ($lockedTeam->isArchived()) {
+                throw new ResourceLockedException('Archived teams are read-only.');
+            }
+
             $locked = TeamMembership::query()
                 ->whereKey($membership->id)
                 ->where('team_id', $team->id)
@@ -37,9 +43,17 @@ final class RemoveMember
                 throw new DomainConflictException('The Owner cannot leave or be removed without transferring ownership.');
             }
 
+            if ($locked->user_id !== $actor->id && $lockedTeam->owner_user_id !== $actor->id) {
+                throw new DomainConflictException('Team ownership changed; reload and try again.');
+            }
+
             $locked->delete();
 
-            Log::info('team.member_removed', ['team_id' => $team->id, 'user_id' => $locked->user_id]);
+            Log::info('team.member_removed', [
+                'team_id' => $team->id,
+                'user_id' => $locked->user_id,
+                'actor_id' => $actor->id,
+            ]);
         });
     }
 }

@@ -7,6 +7,7 @@ use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Updates a team's name, slug and description (API_SPEC.md §3). Archived teams are read-only (423);
@@ -19,34 +20,39 @@ final class UpdateTeam
      */
     public function handle(Team $team, array $changes): Team
     {
-        if ($team->isArchived()) {
-            throw new ResourceLockedException('Archived teams are read-only.');
-        }
-
         if (array_key_exists('description', $changes) && $changes['description'] === '') {
             $changes['description'] = null;
         }
 
-        $team->fill(Arr::only($changes, ['name', 'slug']));
+        return DB::transaction(function () use ($team, $changes): Team {
+            // Lock the row so an archive (CORE-010) cannot commit between the check and the write.
+            $locked = Team::query()->whereKey($team->id)->lockForUpdate()->firstOrFail();
 
-        if (array_key_exists('description', $changes)) {
-            $team->description = $changes['description'];
-        }
+            if ($locked->isArchived()) {
+                throw new ResourceLockedException('Archived teams are read-only.');
+            }
 
-        if (! $team->isDirty()) {
-            return $team;
-        }
+            $locked->fill(Arr::only($changes, ['name', 'slug']));
 
-        if ($team->isDirty('slug') && Team::withTrashed()->where('slug', $team->slug)->whereKeyNot($team->id)->exists()) {
-            throw new DomainConflictException('Team slug is already taken.');
-        }
+            if (array_key_exists('description', $changes)) {
+                $locked->description = $changes['description'];
+            }
 
-        try {
-            $team->save();
-        } catch (UniqueConstraintViolationException $e) {
-            throw new DomainConflictException('Team slug is already taken.', previous: $e);
-        }
+            if (! $locked->isDirty()) {
+                return $locked;
+            }
 
-        return $team;
+            if ($locked->isDirty('slug') && Team::withTrashed()->where('slug', $locked->slug)->whereKeyNot($locked->id)->exists()) {
+                throw new DomainConflictException('Team slug is already taken.');
+            }
+
+            try {
+                $locked->save();
+            } catch (UniqueConstraintViolationException $e) {
+                throw new DomainConflictException('Team slug is already taken.', previous: $e);
+            }
+
+            return $locked;
+        });
     }
 }

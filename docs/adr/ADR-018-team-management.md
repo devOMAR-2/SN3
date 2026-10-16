@@ -33,7 +33,7 @@ For role-restricted mutations, the Form Request authorises before it validates. 
 `DomainConflictException`, `ResourceLockedException` and `StaleVersionException` are expected outcomes, so they are not reported to the error log.
 
 ### 3. Slugs
-A requested slug must match `[a-z0-9-]{3,40}`. Without one, the slug is the ASCII form of the name, cut to 32 characters, or `team` when that leaves fewer than 3 characters (for example, an Arabic-only name). If that slug is taken, a 6-character random suffix is added. A concurrent insert of the same derived slug is retried up to five times. The slug is presentation only; the UUID is authoritative (API_SPEC §3).
+A requested slug must match `[a-z0-9-]{3,40}`. Without one, the slug is the ASCII form of the name, cut to 32 characters, or `team` when that leaves fewer than 3 characters (for example `A`, `!!!` or an emoji-only name). `Str::slug` transliterates Arabic, so `فريق التطوير` becomes `fryk-alttoyr`; whether an Arabic-first product prefers `team-xxxxxx` for non-Latin names is a product question left open for CORE-006 (the slug is cosmetic and editable). If that slug is taken, a 6-character random suffix is added. A concurrent insert of the same derived slug is retried up to five times. The slug is presentation only; the UUID is authoritative (API_SPEC §3).
 
 ### 4. Ownership transfer
 `TransferOwnership` runs in one transaction:
@@ -45,15 +45,18 @@ A requested slug must match `[a-z0-9-]{3,40}`. Without one, the slug is the ASCI
 
 The deferred triggers from ADR-017 re-check the result at COMMIT. API_SPEC does not say what the previous Owner becomes; Admin keeps them able to manage the team without Owner powers.
 
-Every writer locks the team row first, so concurrent transfers are serialised. `OwnershipTransferConcurrencyTest` races two real PHP processes on committed data (DB-T06): one wins, the other gets 409, and exactly one Owner remains.
+Every team writer (`UpdateTeam`, `ChangeMemberRole`, `RemoveMember`, `TransferOwnership`) locks the team row first, then any memberships, and re-checks the archived flag and, where it matters, the actor's ownership on the locked row. Concurrent writers are therefore serialised in one lock order (no deadlocks), a former Owner cannot act after a transfer commits (409), and a future archive (CORE-010) cannot interleave with a mutation. `OwnershipTransferConcurrencyTest` races two real PHP processes on committed data (DB-T06): both wait on an advisory-lock barrier and are released together; one wins, the other gets 409, and exactly one Owner remains.
 
 ### 5. Members list privacy
 Every member sees each member's name, role and join date. Email addresses are included only for the Owner and Admins, who need them to manage membership. Members and Viewers don't need other people's addresses (data minimisation; the spec leaves this open).
 
 ### 6. Removal
-Removing a member deletes the membership row in a transaction. Access ends on the next request, because every team route re-resolves the membership (FR-TEAM-006). When project memberships arrive (CORE-003), they must be removed in the same transaction. Notifications (CORE-009) must re-check membership.
+Removing a member deletes the membership row in a transaction. Access ends on the next request, because every team route re-resolves the membership (FR-TEAM-006). When project memberships arrive (CORE-003), they must be removed in the same transaction. Notifications (CORE-009) must re-check membership. An archived team is read-only for everyone (DECIDED-011), so leaving it also returns 423 until the Owner restores it; this is deliberate, and CORE-010 may revisit it.
 
 ### 7. Not in this task
 - **Team avatar:** API_SPEC §3 lists it, but it needs file storage. It comes with attachments (CORE-008). Only the `description` column is added now, through an expand-only migration.
-- **Audit:** role changes, removals and transfers are logged as structured `info` events (`team.member_removed`, `team.ownership_transferred`) until the activity/audit model arrives (CORE-008).
+- **Audit:** role changes, removals and transfers are logged as structured `info` events (`team.member_role_changed`, `team.member_removed`, `team.ownership_transferred`, each with `team_id`, `user_id` and the actor) until the activity/audit model arrives (CORE-008).
 - **UI:** team screens are part of navigation and settings (CORE-006).
+
+### 8. Supersedes
+The removal rule in ADR-017 §5 ("Anyone except the Owner may leave" at the policy level) is superseded by §6 here: the policy lets the Owner through so `RemoveMember` can answer 409 (TEAM-01) instead of 403.

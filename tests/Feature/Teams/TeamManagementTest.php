@@ -1,11 +1,15 @@
 <?php
 
+use App\Domain\Teams\Actions\ChangeMemberRole;
+use App\Domain\Teams\Actions\RemoveMember;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
+use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // CORE-001: team create/update, roles, member removal and ownership transfer.
@@ -61,7 +65,7 @@ it('derives a valid, unique slug when none is given', function (string $name) {
     expect($first)->toMatch('/^[a-z0-9-]{3,40}$/')
         ->and($second)->toMatch('/^[a-z0-9-]{3,40}$/')
         ->and($second)->not->toBe($first);
-})->with(['Website', 'فريق', 'A', str_repeat('Long name ', 9)]);
+})->with(['Website', 'فريق', 'A', '!!!', str_repeat('Long name ', 9)]);
 
 it('keeps a requested slug, and answers 409 when it is taken (trashed teams included)', function () {
     $user = User::factory()->create();
@@ -301,4 +305,89 @@ it('treats a user from another team as no member of this one', function () {
         ->assertNotFound();
     $this->actingAs($this->owner)->deleteJson("/api/v1/teams/{$this->team->id}/members/not-a-uuid")
         ->assertNotFound();
+});
+
+// --- Archived teams, authorisation order, re-checks under lock ---------------------------------------
+
+it('refuses role changes, removals and leaving on an archived team (423), with no mutation', function () {
+    $this->team->forceFill(['archived_at' => now()])->save();
+    $member = $this->members['member'];
+
+    $this->actingAs($this->owner)->patchJson("/api/v1/teams/{$this->team->id}/members/{$member->id}", ['role' => 'admin'])
+        ->assertStatus(423)
+        ->assertJsonPath('error.code', 'resource_locked');
+    $this->actingAs($this->owner)->deleteJson("/api/v1/teams/{$this->team->id}/members/{$member->id}")
+        ->assertStatus(423);
+    $this->actingAs($member)->deleteJson("/api/v1/teams/{$this->team->id}/members/{$member->id}")
+        ->assertStatus(423);
+
+    expect($this->team->roleOf($member))->toBe(TeamRole::Member);
+});
+
+it('answers 403 to a Viewer whatever the body, before validation (AUTH-04)', function (string $uri, array $body) {
+    $viewer = $this->members['viewer'];
+    $target = $this->members['member'];
+    $uri = str_replace(['{team}', '{member}'], [$this->team->id, $target->id], $uri);
+
+    $this->actingAs($viewer)->json(str_contains($uri, 'ownership') ? 'POST' : 'PATCH', $uri, $body)
+        ->assertForbidden()
+        ->assertJsonPath('error.code', 'forbidden');
+
+    expect($this->team->refresh()->owner_user_id)->toBe($this->owner->id)
+        ->and($this->team->roleOf($target))->toBe(TeamRole::Member);
+})->with([
+    'role change, invalid role' => ['/api/v1/teams/{team}/members/{member}', ['role' => 'owner', 'junk' => 1]],
+    'role change, empty body' => ['/api/v1/teams/{team}/members/{member}', []],
+    'transfer, invalid id' => ['/api/v1/teams/{team}/ownership-transfer', ['new_owner_user_id' => 'nope']],
+]);
+
+it('rejects unknown body fields but ignores query-string parameters', function () {
+    $this->actingAs($this->owner)->patchJson("/api/v1/teams/{$this->team->id}?_=123", ['name' => 'Renamed'])
+        ->assertOk()
+        ->assertJsonPath('data.name', 'Renamed');
+
+    $this->actingAs($this->owner)->patchJson("/api/v1/teams/{$this->team->id}", ['name' => 'Again', 'owner_user_id' => $this->outsider->id])
+        ->assertUnprocessable()
+        ->assertJsonPath('error.fields.owner_user_id.0', 'unknown_field');
+});
+
+it('logs role changes as a structured audit event', function () {
+    Log::spy();
+    $member = $this->members['member'];
+
+    $this->actingAs($this->owner)->patchJson("/api/v1/teams/{$this->team->id}/members/{$member->id}", ['role' => 'viewer'])
+        ->assertOk();
+
+    Log::shouldHaveReceived('info')->with('team.member_role_changed', [
+        'team_id' => $this->team->id,
+        'user_id' => $member->id,
+        'actor_id' => $this->owner->id,
+        'from' => 'member',
+        'to' => 'viewer',
+    ])->once();
+});
+
+it('re-checks ownership on the locked team row, so a former Owner cannot act after a transfer', function () {
+    $admin = $this->members['admin'];
+    $member = $this->members['member'];
+    $staleTeam = $this->team->fresh();
+    $membership = $this->team->memberships()->where('user_id', $member->id)->firstOrFail();
+
+    // The transfer commits after the former Owner's request passed its policy check.
+    $this->actingAs($this->owner)->postJson("/api/v1/teams/{$this->team->id}/ownership-transfer", ['new_owner_user_id' => $admin->id])
+        ->assertOk();
+
+    expect(fn () => app(ChangeMemberRole::class)->handle($staleTeam, $this->owner, $membership, TeamRole::Viewer))
+        ->toThrow(DomainConflictException::class)
+        ->and(fn () => app(RemoveMember::class)->handle($staleTeam, $this->owner, $membership))
+        ->toThrow(DomainConflictException::class)
+        ->and($this->team->roleOf($member))->toBe(TeamRole::Member);
+});
+
+it('never changes the Owner membership, even when called without the policy', function () {
+    $ownerMembership = $this->team->memberships()->where('user_id', $this->owner->id)->firstOrFail();
+
+    expect(fn () => app(ChangeMemberRole::class)->handle($this->team, $this->owner, $ownerMembership, TeamRole::Admin))
+        ->toThrow(DomainConflictException::class)
+        ->and(ownerMembershipsOf($this->team))->toBe([$this->owner->id]);
 });

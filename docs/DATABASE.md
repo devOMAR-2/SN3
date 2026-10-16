@@ -65,7 +65,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 ### `teams`
 
-- `id uuid PK`; `name varchar(160) NOT NULL`; `slug varchar(100) NOT NULL UNIQUE` (deployment-wide unique); `owner_user_id uuid NOT NULL FK users(id)`; `created_at`, `updated_at`; `archived_at NULL` (30-day trash and purge policy).
+- `id uuid PK`; `name varchar(160) NOT NULL`; `slug varchar(100) NOT NULL UNIQUE` (deployment-wide unique); `description varchar(1000) NULL` (CORE-001); `owner_user_id uuid NOT NULL FK users(id)`; `created_at`, `updated_at`; `archived_at NULL` (30-day trash and purge policy).
 - Owner must also have exactly one membership with role `owner`. This is a cross-table invariant; enforce ownership transfer in one transaction with row locks, plus integrity verification. Consider a deferrable trigger if required for strict DB-level enforcement.
 
 ### `team_memberships`

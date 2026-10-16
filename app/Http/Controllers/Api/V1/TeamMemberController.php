@@ -51,18 +51,20 @@ class TeamMemberController extends Controller
 
         Gate::authorize('changeMemberRole', [$team, $membership->user]);
 
-        $updated = $changeRole->handle($team, $membership, TeamRole::from($request->string('role')->toString()));
+        $updated = $changeRole->handle($team, $user, $membership, TeamRole::from($request->string('role')->toString()));
 
         return ApiResponse::data(TeamMemberResource::make($updated, $team->roleOf($user)?->managesTeam() ?? false));
     }
 
     public function destroy(Request $request, Team $team, string $member, RemoveMember $removeMember): Response
     {
+        /** @var User $user */
+        $user = $request->user();
         $membership = $this->membership($team, $member);
 
         Gate::authorize('removeMember', [$team, $membership->user]);
 
-        $removeMember->handle($team, $membership);
+        $removeMember->handle($team, $user, $membership);
 
         return response()->noContent();
     }
