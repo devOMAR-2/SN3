@@ -27,7 +27,7 @@ final class RemoveMember
     public function handle(Team $team, User $actor, TeamMembership $membership): void
     {
         DB::transaction(function () use ($team, $actor, $membership): void {
-            $lockedTeam = Team::query()->whereKey($team->id)->lockForUpdate()->firstOrFail();
+            $lockedTeam = Team::query()->whereKey($team->id)->lock(Team::WRITE_LOCK)->firstOrFail();
 
             if ($lockedTeam->isArchived()) {
                 throw new ResourceLockedException('Archived teams are read-only.');

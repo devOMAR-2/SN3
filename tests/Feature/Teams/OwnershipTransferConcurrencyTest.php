@@ -73,7 +73,7 @@ it('serialises concurrent transfers: one wins, the other is refused, one Owner r
         ])->start();
 
         $deadline = microtime(true) + 30;
-        while (DB::table('pg_locks')->where('locktype', 'advisory')->where('objid', TRANSFER_BARRIER_KEY)->where('granted', false)->count() < 2) {
+        while (DB::table('pg_locks')->where('locktype', 'advisory')->where('objid', TRANSFER_BARRIER_KEY)->where('objsubid', 1)->whereRaw('database = (select oid from pg_database where datname = current_database())')->where('granted', false)->count() < 2) {
             if (microtime(true) > $deadline) {
                 throw new RuntimeException('Both transfer processes did not reach the barrier within 30 seconds.');
             }

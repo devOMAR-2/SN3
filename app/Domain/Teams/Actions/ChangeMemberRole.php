@@ -29,7 +29,7 @@ final class ChangeMemberRole
         }
 
         return DB::transaction(function () use ($team, $actor, $membership, $role): TeamMembership {
-            $lockedTeam = Team::query()->whereKey($team->id)->lockForUpdate()->firstOrFail();
+            $lockedTeam = Team::query()->whereKey($team->id)->lock(Team::WRITE_LOCK)->firstOrFail();
 
             if ($lockedTeam->isArchived()) {
                 throw new ResourceLockedException('Archived teams are read-only.');

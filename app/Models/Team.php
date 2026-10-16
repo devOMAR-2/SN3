@@ -37,6 +37,13 @@ class Team extends Model
     use HasFactory, HasUuids, SoftDeletes;
 
     /**
+     * Row lock every team writer takes first (ADR-018 §4). NO KEY UPDATE serialises the writers
+     * like FOR UPDATE but does not block the KEY SHARE lock that inserting a membership takes for
+     * its foreign key (invitation acceptance, CORE-002).
+     */
+    public const WRITE_LOCK = 'for no key update';
+
+    /**
      * Ownership changes only through a transactional transfer, never mass assignment.
      *
      * @var list<string>

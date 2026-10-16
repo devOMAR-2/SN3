@@ -28,7 +28,7 @@ final class TransferOwnership
 
         return DB::transaction(function () use ($team, $currentOwner, $newOwnerId): Team {
             // Always lock the team first, then memberships: one order for every writer avoids deadlocks.
-            $locked = Team::query()->whereKey($team->id)->lockForUpdate()->firstOrFail();
+            $locked = Team::query()->whereKey($team->id)->lock(Team::WRITE_LOCK)->firstOrFail();
 
             if ($locked->isArchived()) {
                 throw new ResourceLockedException('Archived teams are read-only.');

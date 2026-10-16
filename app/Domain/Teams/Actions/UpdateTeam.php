@@ -26,7 +26,7 @@ final class UpdateTeam
 
         return DB::transaction(function () use ($team, $changes): Team {
             // Lock the row so an archive (CORE-010) cannot commit between the check and the write.
-            $locked = Team::query()->whereKey($team->id)->lockForUpdate()->firstOrFail();
+            $locked = Team::query()->whereKey($team->id)->lock(Team::WRITE_LOCK)->firstOrFail();
 
             if ($locked->isArchived()) {
                 throw new ResourceLockedException('Archived teams are read-only.');
