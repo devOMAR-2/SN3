@@ -1,0 +1,80 @@
+{
+  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments.",
+  "password": "sn3-e2e-password-not-a-secret",
+  "users": [
+    {
+      "key": "alpha_owner",
+      "id": "0192a000-0000-7000-8000-00000000a001",
+      "name": "مالك ألفا",
+      "email": "alpha.owner@sn3.test",
+      "locale": "ar"
+    },
+    {
+      "key": "alpha_admin",
+      "id": "0192a000-0000-7000-8000-00000000a002",
+      "name": "Alpha Admin",
+      "email": "alpha.admin@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "alpha_member",
+      "id": "0192a000-0000-7000-8000-00000000a003",
+      "name": "عضو ألفا",
+      "email": "alpha.member@sn3.test",
+      "locale": "ar"
+    },
+    {
+      "key": "alpha_viewer",
+      "id": "0192a000-0000-7000-8000-00000000a004",
+      "name": "Alpha Viewer",
+      "email": "alpha.viewer@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "beta_owner",
+      "id": "0192a000-0000-7000-8000-00000000b001",
+      "name": "Beta Owner",
+      "email": "beta.owner@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "beta_member",
+      "id": "0192a000-0000-7000-8000-00000000b003",
+      "name": "عضو بيتا",
+      "email": "beta.member@sn3.test",
+      "locale": "ar"
+    },
+    {
+      "key": "shared",
+      "id": "0192a000-0000-7000-8000-00000000c001",
+      "name": "Shared Member",
+      "email": "shared@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "outsider",
+      "id": "0192a000-0000-7000-8000-00000000d001",
+      "name": "Outsider",
+      "email": "outsider@sn3.test",
+      "locale": "en"
+    }
+  ],
+  "teams": [
+    {
+      "key": "alpha",
+      "id": "0192a000-0000-7000-8000-0000000a1000",
+      "name": "فريق ألفا",
+      "slug": "team-alpha",
+      "owner": "alpha_owner",
+      "members": { "alpha_admin": "admin", "alpha_member": "member", "alpha_viewer": "viewer", "shared": "viewer" }
+    },
+    {
+      "key": "beta",
+      "id": "0192a000-0000-7000-8000-0000000b1000",
+      "name": "Beta Studio",
+      "slug": "team-beta",
+      "owner": "beta_owner",
+      "members": { "beta_member": "member", "shared": "admin" }
+    }
+  ]
+}

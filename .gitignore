@@ -4,6 +4,10 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+/.fleet
+/.nova
+/.zed
+.phpactor.json
 
 # Environment and credentials
 .env
@@ -11,11 +15,25 @@ Thumbs.db
 !.env.example
 *.pem
 *.key
+/auth.json
 
-# Dependencies and build output (future app)
+# Dependencies and build output
 node_modules/
-vendor/
+/vendor/
 dist/
 build/
 coverage/
+/public/build
+/public/hot
+/public/storage
+
+# Runtime and test artifacts
+*.log
+/storage/*.key
 .phpunit.cache/
+.phpunit.result.cache
+
+# Playwright (E2E) output
+/playwright-report/
+/test-results/
+/blob-report/

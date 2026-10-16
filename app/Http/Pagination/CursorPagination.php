@@ -1,0 +1,119 @@
+<?php
+
+namespace App\Http\Pagination;
+
+use App\Http\Responses\ApiResponse;
+use Closure;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Pagination\Cursor;
+use Illuminate\Support\Facades\Validator;
+use Symfony\Component\HttpKernel\Exception\BadRequestHttpException;
+
+/**
+ * Cursor pagination for /api/v1 lists (API_SPEC.md §1.1, §1.4): `limit` 1–100 (default 25),
+ * opaque signed `cursor` valid for 24 hours and bound to the endpoint path.
+ *
+ * The caller's query must already be authorization-scoped and ordered with a unique final key
+ * (e.g. `created_at desc, id desc`), so pages are stable.
+ */
+final class CursorPagination
+{
+    public const DEFAULT_LIMIT = 25;
+
+    public const MAX_LIMIT = 100;
+
+    public const TTL_SECONDS = 86_400;
+
+    /**
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @param  Closure(TModel): mixed  $transform
+     */
+    public static function respond(Request $request, Builder $query, Closure $transform): JsonResponse
+    {
+        Validator::make($request->query(), [
+            'limit' => ['sometimes', 'integer', 'min:1', 'max:'.self::MAX_LIMIT],
+            'cursor' => ['sometimes', 'string', 'max:2048'],
+        ])->validate();
+
+        $limit = $request->integer('limit', self::DEFAULT_LIMIT);
+        $scope = $request->path();
+        $token = $request->query('cursor');
+        $cursor = is_string($token) ? self::decode($token, $scope) : null;
+
+        $page = $query->cursorPaginate($limit, ['*'], 'cursor', $cursor);
+        $next = $page->nextCursor();
+
+        return ApiResponse::collection(
+            array_values(array_map($transform, $page->items())),
+            [
+                'next_cursor' => $next === null ? null : self::encode($next, $scope),
+                'has_more' => $page->hasMorePages(),
+                'limit' => $limit,
+            ],
+        );
+    }
+
+    public static function encode(Cursor $cursor, string $scope, ?int $now = null): string
+    {
+        $payload = self::base64UrlEncode((string) json_encode([
+            'c' => $cursor->encode(),
+            'e' => ($now ?? time()) + self::TTL_SECONDS,
+            's' => $scope,
+        ]));
+
+        return $payload.'.'.self::signature($payload);
+    }
+
+    /**
+     * @throws BadRequestHttpException for a tampered, expired, foreign or malformed cursor
+     */
+    public static function decode(string $token, string $scope, ?int $now = null): Cursor
+    {
+        $parts = explode('.', $token);
+
+        if (count($parts) !== 2 || ! hash_equals(self::signature($parts[0]), $parts[1])) {
+            throw new BadRequestHttpException('Invalid cursor.');
+        }
+
+        $data = json_decode((string) self::base64UrlDecode($parts[0]), true);
+
+        if (! is_array($data)) {
+            throw new BadRequestHttpException('Invalid cursor.');
+        }
+
+        $encoded = $data['c'] ?? null;
+        $expires = $data['e'] ?? null;
+
+        if (! is_string($encoded) || ! is_int($expires) || ($data['s'] ?? null) !== $scope) {
+            throw new BadRequestHttpException('Invalid cursor.');
+        }
+
+        if ($expires < ($now ?? time())) {
+            throw new BadRequestHttpException('Expired cursor.');
+        }
+
+        return Cursor::fromEncoded($encoded) ?? throw new BadRequestHttpException('Invalid cursor.');
+    }
+
+    private static function signature(string $payload): string
+    {
+        $key = config()->string('app.key');
+
+        return self::base64UrlEncode(hash_hmac('sha256', 'sn3.cursor|'.$payload, $key, true));
+    }
+
+    private static function base64UrlEncode(string $value): string
+    {
+        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
+    }
+
+    private static function base64UrlDecode(string $value): string|false
+    {
+        return base64_decode(strtr($value, '-_', '+/'), true);
+    }
+}

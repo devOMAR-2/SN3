@@ -2,17 +2,59 @@ version: 2
 updates:
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
-  # Enable these after composer.json and package.json exist in the repository root:
-  # - package-ecosystem: "composer"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #   open-pull-requests-limit: 5
-  # - package-ecosystem: "npm"
-  #   directory: "/"
-  #   schedule:
-  #     interval: "weekly"
-  #   open-pull-requests-limit: 5
+
+  - package-ecosystem: "composer"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      # Major lines are fixed by DECIDED-010; changing them requires a new ADR (docs/adr/ADR-011).
+      - dependency-name: "laravel/framework"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "inertiajs/inertia-laravel"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      # Major lines are fixed by DECIDED-010; changing them requires a new ADR (docs/adr/ADR-011).
+      - dependency-name: "vue"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@inertiajs/vue3"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "docker"
+    directory: "/deploy/docker"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      # DECIDED-010 fixes PHP 8.3 and Node.js 22: PHP gets patch updates only, Node.js stays on 22.x.
+      - dependency-name: "php"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    target-branch: "dev"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    ignore:
+      # PostgreSQL 16 line; a major upgrade needs a data migration plan.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]

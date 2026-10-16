@@ -1,0 +1,9 @@
+# Example reverse proxy for SN3 (enabled with `docker compose --profile proxy up -d`).
+# Caddy obtains and renews a TLS certificate for SN3_DOMAIN automatically when the domain's
+# DNS points at this host and ports 80/443 are reachable. For `localhost` it uses a local CA.
+
+{$SN3_DOMAIN} {
+	encode zstd gzip
+
+	reverse_proxy app:8080
+}

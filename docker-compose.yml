@@ -1,0 +1,144 @@
+# SN3 (سنع) self-hosted stack: application, queue worker, scheduler and PostgreSQL, with an optional Caddy reverse proxy.
+# Setup and operations: docs/SELF_HOSTING.md
+#
+#   docker compose build
+#   docker compose run --rm app php artisan migrate --force
+#   docker compose up -d                      # app on http://127.0.0.1:8080, plus worker and scheduler
+#   docker compose --profile proxy up -d      # adds HTTPS via Caddy on :80/:443
+#
+# Configuration comes from .env (copied from .env.example). Values under `environment:`
+# describe this container topology and override .env.
+
+name: sn3
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+    image: sn3-app:local
+    restart: unless-stopped
+    env_file: &app-env-file
+      - path: .env
+        required: true
+    environment: &app-environment
+      APP_ENV: production
+      APP_DEBUG: "false"
+      DB_CONNECTION: pgsql
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env (see docs/SELF_HOSTING.md)}
+      LOG_CHANNEL: stderr
+      # .env.example's LOG_LEVEL=debug is for development; containers default to info.
+      LOG_LEVEL: ${SN3_LOG_LEVEL:-info}
+      # One JSON object per line, with request_id / job_id in "extra" (ADR-015).
+      LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
+      # The log mailer never writes message bodies (sign-in and reset links) in containers.
+      MAIL_LOG_BODY: "false"
+      # The app port is only published on the host's loopback by default, so the private
+      # ranges below can only be the Docker network (the proxy) or the host itself.
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16}
+    ports:
+      - "${SN3_HTTP_BIND:-127.0.0.1}:${SN3_HTTP_PORT:-8080}:8080"
+    volumes: &app-volumes
+      - app-storage:/var/www/html/storage/app
+    depends_on: &app-depends-on
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:8080/health/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Queue worker: same image and configuration as `app`, no published ports (ADR-015).
+  # Bounded retries with backoff; a job that still fails lands in `failed_jobs`
+  # (`php artisan queue:failed`). --timeout must stay below the queue's retry_after
+  # (DB_QUEUE_RETRY_AFTER, 90 s). --max-time recycles the process hourly.
+  worker:
+    image: sn3-app:local
+    pull_policy: never
+    restart: unless-stopped
+    init: true
+    # --json: per-job status lines on stdout are JSON too.
+    command: ["php", "artisan", "queue:work", "--tries=3", "--backoff=10,60,300", "--timeout=60", "--sleep=3", "--max-time=3600", "--json"]
+    # The base image's STOPSIGNAL is Apache's SIGWINCH. The worker needs SIGTERM to finish
+    # the job in progress and exit (pcntl); allow longer than --timeout.
+    stop_signal: SIGTERM
+    stop_grace_period: 75s
+    env_file: *app-env-file
+    environment: *app-environment
+    volumes: *app-volumes
+    depends_on: *app-depends-on
+    # The image probe targets Apache, which does not run here. The worker touches this
+    # file on every loop (at least every few seconds while idle, or after each job).
+    healthcheck:
+      test: ["CMD-SHELL", "find /var/www/html/storage/framework/queue-worker.heartbeat -mmin -3 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  # Scheduler: runs routes/console.php tasks every minute (`schedule:work`).
+  scheduler:
+    image: sn3-app:local
+    pull_policy: never
+    restart: unless-stopped
+    # Forwards SIGTERM (schedule:work installs no handler) and reaps schedule:run children.
+    init: true
+    # --whisper: no "No scheduled commands are ready to run" line every minute.
+    command: ["php", "artisan", "schedule:work", "--whisper"]
+    stop_signal: SIGTERM
+    env_file: *app-env-file
+    environment: *app-environment
+    volumes: *app-volumes
+    depends_on: *app-depends-on
+    # Touched when schedule:work starts and after every minute's schedule:run.
+    healthcheck:
+      test: ["CMD-SHELL", "find /var/www/html/storage/framework/scheduler.heartbeat -mmin -3 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  postgres:
+    image: postgres:16.15-trixie
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-sn3}
+      POSTGRES_USER: ${DB_USERNAME:-sn3}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env (see docs/SELF_HOSTING.md)}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # Not published on the host; only the app reaches it over the internal network.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  proxy:
+    image: caddy:2.11.7-alpine
+    profiles: ["proxy"]
+    restart: unless-stopped
+    environment:
+      SN3_DOMAIN: ${SN3_DOMAIN:-localhost}
+    ports:
+      - "${SN3_PROXY_HTTP_PORT:-80}:80"
+      - "${SN3_PROXY_HTTPS_PORT:-443}:443"
+      - "${SN3_PROXY_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  app-storage:
+  caddy-data:
+  caddy-config:
