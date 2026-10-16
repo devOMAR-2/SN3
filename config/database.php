@@ -97,6 +97,9 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // Laravel writes zone-less timestamps; pin the session to UTC so timestamptz columns
+            // store what the app means regardless of the server's timezone setting (DATABASE.md §1).
+            'timezone' => 'UTC',
         ],
 
         'sqlsrv' => [
