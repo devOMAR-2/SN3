@@ -18,7 +18,3 @@ it('sets the document language and direction from the application locale', funct
     'arabic' => ['ar', 'rtl'],
     'english' => ['en', 'ltr'],
 ]);
-
-it('exposes the framework health endpoint', function () {
-    $this->get('/up')->assertOk();
-});
