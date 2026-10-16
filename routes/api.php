@@ -5,6 +5,8 @@ use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\MeController;
+use App\Http\Controllers\Api\V1\ProjectController;
+use App\Http\Controllers\Api\V1\ProjectMemberController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
 use App\Http\Controllers\Api\V1\TeamOwnershipController;
@@ -62,4 +64,15 @@ Route::middleware('auth')->group(function (): void {
     Route::patch('teams/{team}/members/{member}', [TeamMemberController::class, 'update'])->name('teams.members.update');
     Route::delete('teams/{team}/members/{member}', [TeamMemberController::class, 'destroy'])->name('teams.members.destroy');
     Route::post('teams/{team}/ownership-transfer', TeamOwnershipController::class)->name('teams.ownership.transfer');
+
+    // Projects (API_SPEC.md §4, ADR-020). `{project}` resolves only to projects the caller can see
+    // (AccessibleProjects): a private project is a 404 for everyone but its members and the Owner.
+    Route::get('teams/{team}/projects', [ProjectController::class, 'index'])->name('teams.projects.index');
+    Route::post('teams/{team}/projects', [ProjectController::class, 'store'])->name('teams.projects.store');
+    Route::get('projects/{project}', [ProjectController::class, 'show'])->name('projects.show');
+    Route::patch('projects/{project}', [ProjectController::class, 'update'])->name('projects.update');
+
+    Route::get('projects/{project}/members', [ProjectMemberController::class, 'index'])->name('projects.members.index');
+    Route::put('projects/{project}/members/{member}', [ProjectMemberController::class, 'update'])->name('projects.members.update');
+    Route::delete('projects/{project}/members/{member}', [ProjectMemberController::class, 'destroy'])->name('projects.members.destroy');
 });

@@ -3,6 +3,7 @@
 namespace App\Domain\Teams\Actions;
 
 use App\Domain\Teams\TeamRole;
+use App\Models\ProjectMembership;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
@@ -16,8 +17,9 @@ use Illuminate\Support\Facades\Log;
  *
  * The Owner can never be removed and cannot leave without transferring ownership first
  * (409, acceptance scenario TEAM-01). Access ends with the membership row: every request
- * re-resolves the team through AccessibleTeams. Project memberships (CORE-003) must be removed
- * in the same transaction once they exist.
+ * re-resolves the team through AccessibleTeams. The member's project memberships in this team are
+ * deleted in the same transaction (ADR-018 §6, ADR-020 §6); the database refuses to delete a team
+ * membership that still has project memberships, so they can never outlive it.
  *
  * The team row is locked first and the archived flag and the actor's right to remove someone else
  * are re-checked on it (ADR-018 §4).
@@ -47,12 +49,18 @@ final class RemoveMember
                 throw new DomainConflictException('Team ownership changed; reload and try again.');
             }
 
+            $revoked = ProjectMembership::query()
+                ->where('team_id', $team->id)
+                ->where('user_id', $locked->user_id)
+                ->delete();
+
             $locked->delete();
 
             Log::info('team.member_removed', [
                 'team_id' => $team->id,
                 'user_id' => $locked->user_id,
                 'actor_id' => $actor->id,
+                'project_memberships_revoked' => $revoked,
             ]);
         });
     }
