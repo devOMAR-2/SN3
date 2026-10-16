@@ -140,6 +140,16 @@ Create team body: `name` (1–100), optional `slug` (`[a-z0-9-]{3,40}`, unique),
   - Recovering a team brings back its projects except those trashed on their own, which keep their own 30-day clock.
 - **Versions:** project archive, restore and `DELETE` require `If-Match` (`428`/`412`, 423 checked first) and increment `version` (§1.4). Restore-deleted needs no `If-Match`, because no read path exposes a trashed project's version, but it increments `version`. Teams are not versioned.
 - **Purge:** `trash:purge` runs daily and permanently deletes teams and projects trashed 30 or more days ago, with everything that belongs to them. It never deletes anything on GitHub (§13).
+- **Export before deletion (DECIDED-011, CORE-012):** clients offer `POST /teams/{team_id}/exports` before `DELETE /teams/{team_id}`. A team in the trash cannot be exported (`404`), and its pending exports are refused when their job runs.
+
+**Implementation contract (CORE-012, ADR-024): team exports.** These points settle details §3, §13 and §18 leave open:
+
+- **Who:** the Team Owner only (`403` for Admin, Member and Viewer whatever the body, checked before the export ID is looked up; `404` for non-members). An export is read and downloaded only by the Owner who requested it: after an ownership transfer the former Owner gets `403` and the new Owner `404`.
+- **`POST /teams/{team_id}/exports`:** no body (any field is `unknown_field`), `Idempotency-Key` required (`400` without it). Answers `202` with the export and `Location: /api/v1/teams/{team_id}/exports/{export_id}`. While another export of the team is `pending` or `processing`: `409 conflict`. Rate-limited per user (10 per hour by default; `429` with `Retry-After`). An archived team can be exported.
+- **Export representation:** `{ "id", "team_id", "requested_by", "status", "format": "sn3.team-export", "format_version": 1, "size_bytes", "sha256", "download_url", "created_at", "completed_at", "expires_at" }`. `status` is `pending`, `processing`, `ready`, `failed` or `expired`. `size_bytes`, `sha256` and `download_url` are `null` unless the export is `ready`.
+- **Download (technical settlement: the route behind the signed URL):** `GET /teams/{team_id}/exports/{export_id}/download?expires=…&signature=…` returns the zip (`application/zip`, attachment, `Cache-Control: no-store`). The signature expires with the export, 24 hours after it completed, and the request also needs the requesting Owner's session. Invalid or expired signature: `403`; export not ready: `404`; archive already removed: `410 expired`.
+- **Expiry:** the export and its archive are deleted within an hour after `expires_at` (24 hours after completion or failure; a request that is never processed expires 24 hours after it was made). Afterwards the export ID is `404`.
+- **Format:** a zip with `manifest.json` (format, version, IDs, generation time, and per section its file, record count and SHA-256) and one JSON array per section in `data/`: `team`, `members`, `projects`, `project_members`, `statuses` in version 1, more as later tasks add data. New sections and fields keep the version; anything else bumps it (ADR-024 §2). Secrets, password hashes, tokens and sessions are never included; projects are those the Owner can see, private ones included, trashed ones excluded.
 
 ### 3.1 Invitations
 

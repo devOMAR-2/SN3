@@ -5,6 +5,7 @@
 #   docker compose run --rm app php artisan migrate --force
 #   docker compose up -d                      # app on http://127.0.0.1:8080, plus worker and scheduler
 #   docker compose --profile proxy up -d      # adds HTTPS via Caddy on :80/:443
+#   docker compose --profile backup up -d backup   # encrypted daily backups (docs/BACKUP_RESTORE.md)
 #
 # Configuration comes from .env (copied from .env.example). Values under `environment:`
 # describe this container topology and override .env.
@@ -118,6 +119,44 @@ services:
       timeout: 5s
       retries: 10
       start_period: 20s
+
+  # Encrypted daily backups of PostgreSQL and the file storage, kept 14 days (CORE-012, ADR-024).
+  # Opt-in: `docker compose --profile backup up -d backup`. Runbook: docs/BACKUP_RESTORE.md.
+  # The PostgreSQL image already has pg_dump/pg_restore (same major as the server), gpg and tar.
+  backup:
+    image: postgres:16.15-trixie
+    profiles: ["backup"]
+    restart: unless-stopped
+    init: true
+    entrypoint: ["bash", "/opt/sn3-backup/sn3-backup"]
+    command: ["daemon"]
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: ${DB_DATABASE:-sn3}
+      PGUSER: ${DB_USERNAME:-sn3}
+      PGPASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env (see docs/SELF_HOSTING.md)}
+      SN3_BACKUP_DIR: /backups
+      SN3_BACKUP_PASSPHRASE_FILE: /run/secrets/sn3_backup_passphrase
+      SN3_BACKUP_RETENTION_DAYS: ${SN3_BACKUP_RETENTION_DAYS:-14}
+      SN3_BACKUP_AT: ${SN3_BACKUP_AT:-02:30}
+      SN3_BACKUP_STORAGE_DIR: /storage
+    volumes:
+      - ./deploy/backup:/opt/sn3-backup:ro
+      # Host directory for the encrypted sets; copy it off this host (docs/BACKUP_RESTORE.md §4).
+      - ${SN3_BACKUP_HOST_DIR:-./backups}:/backups
+      - ${SN3_BACKUP_PASSPHRASE_HOST_FILE:-./backup-passphrase}:/run/secrets/sn3_backup_passphrase:ro
+      - app-storage:/storage:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Healthy while the daemon runs (state touched every minute) and the last backup succeeded.
+    healthcheck:
+      test: ["CMD-SHELL", "grep -qx ok /tmp/sn3-backup.state && find /tmp/sn3-backup.state -mmin -3 | grep -q ."]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
 
   proxy:
     image: caddy:2.11.7-alpine

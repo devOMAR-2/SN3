@@ -16,6 +16,9 @@ Thumbs.db
 *.pem
 *.key
 /auth.json
+# Local backup sets and their passphrase (docs/BACKUP_RESTORE.md)
+/backups/
+/backup-passphrase
 
 # Dependencies and build output
 node_modules/
