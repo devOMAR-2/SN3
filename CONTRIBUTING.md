@@ -26,7 +26,7 @@ Use the GitHub Issue Forms for bugs, features, and development tasks. Planned ta
 Use conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`.
 
 ## Local checks
-Run the checks listed under **Local development** in the [README](README.md) (`composer lint`, `composer analyse`, `composer test`, `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test`, `npm run build`) before opening a PR.
+Run the checks listed under **Local development** in the [README](README.md) (`composer lint`, `composer analyse`, `composer test`, `npm run lint`, `npm run format:check`, `npm run typecheck`, `npm run test`, `npm run build`, `npm run e2e`) before opening a PR. [docs/TESTING.md](docs/TESTING.md) explains the test layers and the seeded tenants.
 
 ## Continuous integration
 Every pull request to `dev` or `main` runs the CI workflow (`.github/workflows/ci.yml`). A PR can be merged only when all required checks are green: PHP, Frontend, Dependency audit, Dependency review and Docker image. Fix a failing check in the PR; don't re-run it until it passes by chance, and don't ask for a bypass. Force pushes and deletion of `dev` and `main` are blocked. Design and rules: [ADR-013](docs/adr/ADR-013-continuous-integration.md).

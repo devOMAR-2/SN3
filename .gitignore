@@ -32,3 +32,8 @@ coverage/
 /storage/*.key
 .phpunit.cache/
 .phpunit.result.cache
+
+# Playwright (E2E) output
+/playwright-report/
+/test-results/
+/blob-report/

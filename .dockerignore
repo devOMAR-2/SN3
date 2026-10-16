@@ -23,6 +23,11 @@ storage/app/public/*
 !**/.gitignore
 
 tests
+e2e
+playwright.config.ts
+playwright-report
+test-results
+blob-report
 coverage
 .phpunit.cache
 .phpunit.result.cache
