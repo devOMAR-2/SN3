@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Str;
 use Inertia\Testing\AssertableInertia as Assert;
 
 // TEST-FR-I18N-001 / TEST-FR-I18N-003: the interface language is resolved per request on the server.
@@ -50,7 +51,7 @@ it('ignores an unsupported session value', function (mixed $value) {
 ]);
 
 it("prefers the signed-in user's saved locale over the session and browser", function () {
-    $user = (new User)->forceFill(['id' => 1, 'locale' => 'en']);
+    $user = (new User)->forceFill(['id' => (string) Str::uuid7(), 'name' => 'Test', 'email' => 'test@example.com', 'locale' => 'en'])->setRelation('preferences', null);
 
     $this->actingAs($user)
         ->withSession(['locale' => 'ar'])
@@ -60,7 +61,7 @@ it("prefers the signed-in user's saved locale over the session and browser", fun
 });
 
 it('falls through when the signed-in user has no valid locale', function (?string $value) {
-    $user = (new User)->forceFill(['id' => 1, 'locale' => $value]);
+    $user = (new User)->forceFill(['id' => (string) Str::uuid7(), 'name' => 'Test', 'email' => 'test@example.com', 'locale' => $value])->setRelation('preferences', null);
 
     $this->actingAs($user)
         ->withSession(['locale' => 'en'])

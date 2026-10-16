@@ -44,11 +44,12 @@ it('schedules daily pruning of job batches', function () {
 });
 
 it('lists only the operational tasks', function () {
-    expect(app(Schedule::class)->events())->toHaveCount(2);
+    expect(app(Schedule::class)->events())->toHaveCount(3);
 
     $this->artisan('schedule:list')
         ->expectsOutputToContain('queue:prune-failed --hours=720')
         ->expectsOutputToContain('queue:prune-batches --hours=48 --unfinished=72 --cancelled=72')
+        ->expectsOutputToContain('auth:clear-resets')
         ->assertSuccessful();
 });
 
