@@ -45,7 +45,8 @@ return [
             'port' => env('MAIL_PORT', 2525),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            // Fail fast (well inside the worker's job timeout) when SMTP is unreachable.
+            'timeout' => (int) env('MAIL_TIMEOUT', 10),
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
@@ -73,6 +74,9 @@ return [
         'log' => [
             'transport' => 'log',
             'channel' => env('MAIL_LOG_CHANNEL'),
+            // Full messages contain sign-in and reset links; outside local development only
+            // metadata is logged (App\Mail\Transport\MetadataLogTransport, ADR-015).
+            'include_body' => (bool) env('MAIL_LOG_BODY', env('APP_ENV') === 'local'),
         ],
 
         'array' => [
