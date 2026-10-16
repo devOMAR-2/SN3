@@ -22,3 +22,8 @@ Schedule::command('queue:prune-failed', ['--hours' => 720])
 Schedule::command('queue:prune-batches', ['--hours' => 48, '--unfinished' => 72, '--cancelled' => 72])
     ->dailyAt('03:10')
     ->onOneServer();
+
+// Expired password-reset tokens (FND-004).
+Schedule::command('auth:clear-resets')
+    ->dailyAt('03:20')
+    ->onOneServer();

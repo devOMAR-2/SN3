@@ -1,2 +1,4 @@
 *.blade.php
 *.php
+# Vendored copies of Laravel mail views; kept byte-close to upstream for easy updates.
+resources/views/vendor/

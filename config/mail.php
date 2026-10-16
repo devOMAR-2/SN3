@@ -119,4 +119,23 @@ return [
         'name' => env('MAIL_FROM_NAME', env('APP_NAME', 'Laravel')),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Markdown Mail (FND-004)
+    |--------------------------------------------------------------------------
+    |
+    | The "sn3" theme is Laravel's default theme with logical text alignment,
+    | and resources/views/vendor/mail/html/layout.blade.php adds lang/dir, so
+    | Arabic mail renders right-to-left.
+    |
+    */
+
+    'markdown' => [
+        'theme' => env('MAIL_MARKDOWN_THEME', 'sn3'),
+
+        'paths' => [
+            resource_path('views/vendor/mail'),
+        ],
+    ],
+
 ];

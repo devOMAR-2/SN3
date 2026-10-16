@@ -1,5 +1,19 @@
 import type { PageProps } from '@inertiajs/core';
+import type { ThemePreference } from '@/Composables/useTheme';
 import type { Direction, Locale } from '@/i18n';
+
+/** The signed-in user's own profile (App\Http\Resources\MeResource). */
+export interface AuthUser {
+  id: string;
+  name: string;
+  email: string;
+  email_verified: boolean;
+  email_verified_at: string | null;
+  locale: Locale;
+  timezone: string;
+  theme: ThemePreference;
+  created_at: string | null;
+}
 
 /**
  * Props shared with every Inertia page by App\Http\Middleware\HandleInertiaRequests::share().
@@ -8,6 +22,9 @@ import type { Direction, Locale } from '@/i18n';
 export interface SharedProps extends PageProps {
   locale: Locale;
   dir: Direction;
+  auth: { user: AuthUser | null };
+  flash: { status: string | null };
+  features: { registration: boolean };
 }
 
 declare module '@inertiajs/core' {

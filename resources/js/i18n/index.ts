@@ -46,6 +46,11 @@ function lookup(dictionary: Messages, key: string): unknown {
   return node;
 }
 
+/** True when `key` resolves to a message for `locale` (no missing-key warning). */
+export function hasTranslation(locale: Locale, key: string): boolean {
+  return typeof lookup(dictionaries[locale], key) === 'string';
+}
+
 /**
  * Looks up `key` (dot path, e.g. `layout.open_navigation`) and replaces `{name}` placeholders.
  * Numbers are formatted with `Intl.NumberFormat` for the locale. A missing key returns the key itself.

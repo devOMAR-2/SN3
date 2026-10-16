@@ -1,6 +1,6 @@
 Requirement ID,Primary implementation task,Spec area,Release,Planned test ID,Evidence status
-FR-AUTH-001,FND-004,Cross-cutting,R0,TEST-FR-AUTH-001,Planned; not executed
-FR-AUTH-002,FND-004,Cross-cutting,R0,TEST-FR-AUTH-002,Planned; not executed
+FR-AUTH-001,FND-004,Cross-cutting,R0,TEST-FR-AUTH-001,Automated: tests/Feature/Auth/RegistrationTest.php
+FR-AUTH-002,FND-004,Cross-cutting,R0,TEST-FR-AUTH-002,"Automated: tests/Feature/Auth/{LoginTest,SessionLifecycleTest,PasswordResetTest,EmailVerificationTest,MeTest}.php"
 FR-AUTH-003,FND-005,Cross-cutting,R0,TEST-FR-AUTH-003,Planned; not executed
 FR-I18N-001,FND-006,Cross-cutting,R0,TEST-FR-I18N-001,Planned; not executed
 FR-I18N-002,FND-006,Cross-cutting,R0,TEST-FR-I18N-002,Planned; not executed
