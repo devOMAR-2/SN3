@@ -63,7 +63,7 @@ it('schedules the daily trash purge (CORE-010)', function () {
 });
 
 it('lists only the operational tasks', function () {
-    expect(app(Schedule::class)->events())->toHaveCount(5);
+    expect(app(Schedule::class)->events())->toHaveCount(6);
 
     $this->artisan('schedule:list')
         ->expectsOutputToContain('queue:prune-failed --hours=720')
@@ -71,6 +71,7 @@ it('lists only the operational tasks', function () {
         ->expectsOutputToContain('auth:clear-resets')
         ->expectsOutputToContain('model:prune')
         ->expectsOutputToContain('trash:purge')
+        ->expectsOutputToContain('exports:prune')
         ->assertSuccessful();
 });
 

@@ -54,6 +54,8 @@ return [
         'verification_per_minute' => (int) env('SN3_RATE_LIMIT_VERIFICATION_PER_MINUTE', 6),
         // Project create and PATCH, per user: slows probing of project keys (ADR-020 §10).
         'project_writes_per_minute' => (int) env('SN3_RATE_LIMIT_PROJECT_WRITES_PER_MINUTE', 20),
+        // Team export requests, per user per hour (CORE-012, ADR-024 §5).
+        'team_exports_per_hour' => (int) env('SN3_RATE_LIMIT_TEAM_EXPORTS_PER_HOUR', 10),
     ],
 
     /*
@@ -64,6 +66,25 @@ return [
 
     'verification' => [
         'expire_minutes' => (int) env('SN3_VERIFICATION_EXPIRE_MINUTES', 60),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Team exports (CORE-012, ADR-024)
+    |--------------------------------------------------------------------------
+    |
+    | Archives are written to this dedicated private disk (under `archives/`)
+    | and deleted 24 hours after they complete (API_SPEC.md §13). The default
+    | `exports` disk is local (storage/app/exports) and never served directly;
+    | Cloud may point this at a private S3 disk.
+    |
+    */
+
+    'exports' => [
+        // A dedicated private disk; SN3 only uses keys under `archives/` on it.
+        'disk' => (string) env('SN3_EXPORTS_DISK', 'exports'),
+        // Local working directory for archives being built (one subdirectory per export).
+        'work_dir' => (string) env('SN3_EXPORTS_WORK_DIR', storage_path('app/exports/work')),
     ],
 
 ];

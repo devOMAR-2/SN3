@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\V1\ProjectStatusController;
 use App\Http\Controllers\Api\V1\TaskChecklistController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\TeamController;
+use App\Http\Controllers\Api\V1\TeamExportController;
 use App\Http\Controllers\Api\V1\TeamLifecycleController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
 use App\Http\Controllers\Api\V1\TeamOwnershipController;
@@ -125,4 +126,10 @@ Route::middleware('auth')->group(function (): void {
     Route::post('tasks/{task}/checklist', [TaskChecklistController::class, 'store'])->name('tasks.checklist.store');
     Route::patch('tasks/{task}/checklist/{item}', [TaskChecklistController::class, 'update'])->name('tasks.checklist.update');
     Route::delete('tasks/{task}/checklist/{item}', [TaskChecklistController::class, 'destroy'])->name('tasks.checklist.destroy');
+
+    // Team exports (API_SPEC.md §3, §13, §18; ADR-024), Owner only. The download URL is signed and
+    // expires with the export; it also needs the requesting Owner's session.
+    Route::post('teams/{team}/exports', [TeamExportController::class, 'store'])->middleware(['throttle:team-exports', 'idempotent'])->name('teams.exports.store');
+    Route::get('teams/{team}/exports/{export}', [TeamExportController::class, 'show'])->name('teams.exports.show');
+    Route::get('teams/{team}/exports/{export}/download', [TeamExportController::class, 'download'])->middleware('signed')->name('teams.exports.download');
 });

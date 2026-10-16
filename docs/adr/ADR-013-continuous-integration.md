@@ -74,4 +74,4 @@ The pre-existing "Protect main" ruleset (default branch: PR with one approval, r
 - New PHP code must pass PHPStan level 9 without a baseline. Configuration code that passes `env()` values into typed functions needs an explicit cast.
 - Frontend tests are `*.test.ts` files under `resources/js/`. Pages that use Inertia's `<Head>` need the `$headManager` mock shown in `Welcome.test.ts`.
 - The Docker job builds the image on every PR, but nothing is published. Image publishing is GH-008.
-- E2E (Playwright) joined the pipeline with FND-008 and is a required check. The clean-host Compose install job joined for the R0 release; it becomes required once the ruleset lists it. Backup/restore (CORE-012) and upgrade (GH-008) rehearsals should extend that job when those tasks land.
+- E2E (Playwright) joined the pipeline with FND-008 and is a required check. The clean-host Compose install job joined for the R0 release; it becomes required once the ruleset lists it. CORE-012 extended it with a team export through the worker and the backup and restore drill (ADR-024 §7); the upgrade rehearsal (GH-008) should extend it the same way.
