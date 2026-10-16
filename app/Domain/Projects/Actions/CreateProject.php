@@ -5,6 +5,7 @@ namespace App\Domain\Projects\Actions;
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Projects\ProjectVisibility;
 use App\Domain\Projects\ProjectWriteLock;
+use App\Domain\Workflows\DefaultWorkflow;
 use App\Models\Project;
 use App\Models\ProjectMembership;
 use App\Models\Team;
@@ -17,7 +18,8 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * Creates a project (FR-PROJ-001/002, API_SPEC.md §4). Team-visible unless `private` is chosen
- * (DEC-017). The creator becomes its `manager` (DECIDED-003) in the same transaction.
+ * (DEC-017). The creator becomes its `manager` (DECIDED-003) in the same transaction, which also
+ * seeds the default workflow in the creator's language (FR-CUST-002, CORE-004).
  *
  * The team row is locked first, and the archived flag (423) and the creator's right to create
  * projects are re-checked on it. A key already used in the team, by a trashed project too, is a 409.
@@ -58,6 +60,8 @@ final class CreateProject
                     'project_role' => ProjectRole::Manager,
                     'added_by' => $creator->id,
                 ])->save();
+
+                DefaultWorkflow::seed($project, $creator->preferredLocale());
 
                 Log::info('project.created', [
                     'team_id' => $team->id,

@@ -112,6 +112,15 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 - `id uuid PK`; `project_id uuid NOT NULL`; `team_id uuid NOT NULL`; `name varchar(100) NOT NULL`; `category varchar(16) NOT NULL CHECK IN ('todo','in_progress','done')`; `position numeric(20,10) NOT NULL`; `color varchar(16) NULL`; `is_default boolean NOT NULL DEFAULT false`; `created_at`, `updated_at`.
 - Composite FK `(project_id,team_id) -> projects`; `UNIQUE(project_id,id)`; partial unique `(project_id) WHERE is_default`; index `(project_id,position)`; consider unique case-insensitive status names per project. Require at least one status and prevent deleting a status used by tasks unless reassignment is atomic.
+- **Implemented (CORE-004, ADR-021):**
+  - **Keys:** composite FK `(project_id, team_id) → projects(id, team_id)` with ON DELETE CASCADE, so the purge removes statuses; `UNIQUE(project_id, id)` for the tasks' `(status_id, project_id)` key; partial unique `(project_id) WHERE is_default`; index `(team_id, project_id)`.
+  - **Names:** unique per project ignoring case, a functional index on `(project_id, lower(name))` (the "consider" above is adopted); 1–50 characters at the API, column `varchar(100)`.
+  - **Order:** `UNIQUE(project_id, position)` replaces the plain `(project_id, position)` index. It is `DEFERRABLE INITIALLY IMMEDIATE`, so it is checked at the end of each statement and a reorder can rewrite every rank in one UPDATE. Ranks are kept dense (`0..n-1`), so the stored rank is also the 0-based ordinal the API returns.
+  - **CHECK constraints:** category, a non-blank name, `color` `^#[0-9A-F]{6}$` or NULL, `position >= 0`, `version > 0`, and `NOT is_default OR category = 'todo'` (new tasks start in the default, so it is never a done status).
+  - **Workflow version:** `projects.workflow_version bigint NOT NULL DEFAULT 1 CHECK (> 0)` versions the workflow as a whole (API_SPEC §1.4 "workflow configuration"). Every status create, update, delete and reorder increments it under the project lock; the reorder requires it in `If-Match`. It is separate from `projects.version`.
+  - **Workflow rules (transactional, under the project lock):** every project keeps at least one `todo` and one `done` status; at most 50 statuses per project; when the default leaves `todo` (category change, or deletion with a non-todo or no replacement), the flag moves to the first remaining `todo` status by position. Moving the tasks of a deleted status to `replacement_status_id` arrives with the `tasks` table (CORE-005), whose `(status_id, project_id)` key must be `DEFERRABLE` NO ACTION, never CASCADE or RESTRICT (ADR-022 §5).
+  - **Defaults and upgrade:** every new project gets To do (default), In progress and Done, in the creator's language. The migration seeds the same workflow into existing projects (trashed ones too) with one set-based `INSERT … SELECT`, generating UUIDv7 IDs in SQL.
+  - **Transitions:** none are restricted. Any status of the task's own project is a valid target; the composite key enforces the project match.
 
 ### `tasks`
 
@@ -120,6 +129,10 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 - Stable display key = `projects.project_key || '-' || tasks.task_number`; renaming project key would break old links, so **DECIDED:** freeze `project_key` after the first task is created.
 - **DECIDED-006:** `assignee_user_id` is the sole nullable primary assignee. Multiple assignees are not supported; watchers are separate entities if implemented.
 - Generate `task_number` transactionally: lock `projects` row (`FOR UPDATE`), consume/increment `next_task_number`, insert task in same transaction. Never use `MAX(task_number)+1`.
+- **Implemented (CORE-004, ADR-021 §5):**
+  - **Allocator:** `App\Domain\Projects\TaskNumbers::allocate()` runs `UPDATE projects SET next_task_number = next_task_number + 1 … RETURNING`. It is called after `ProjectWriteLock::project()` (team row, then the project row `FOR NO KEY UPDATE`, which serialises allocators just as well) and refuses to run outside a transaction.
+  - **Key freeze:** "after the first task" means `next_task_number > 1`, so a number has been issued. Deleting tasks does not unfreeze the key. The API answers a frozen key change with 409.
+  - **Trigger:** `projects_guard_task_numbering` refuses, on every path, a `project_key` change once `next_task_number > 1` and any decrease of `next_task_number`.
 - Parent tasks cannot point to themselves or form cycles; use a service-level recursive validation with concurrency tests (or trigger). **FINAL:** maximum nested depth is 3 below the root task; reject cycles transactionally.
 
 ### `labels` and `task_labels`

@@ -14,11 +14,12 @@ final class ApiResponse
 {
     /**
      * @param  array<string, string>  $headers
+     * @param  array<string, mixed>  $meta  extra meta next to `request_id`
      */
-    public static function data(mixed $data, int $status = 200, array $headers = []): JsonResponse
+    public static function data(mixed $data, int $status = 200, array $headers = [], array $meta = []): JsonResponse
     {
         return new JsonResponse(
-            ['data' => $data, 'meta' => ['request_id' => self::requestId()]],
+            ['data' => $data, 'meta' => [...$meta, 'request_id' => self::requestId()]],
             $status,
             $headers,
         );

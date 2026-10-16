@@ -8,6 +8,8 @@ use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectLifecycleController;
 use App\Http\Controllers\Api\V1\ProjectMemberController;
+use App\Http\Controllers\Api\V1\ProjectSettingsController;
+use App\Http\Controllers\Api\V1\ProjectStatusController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamLifecycleController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
@@ -77,6 +79,15 @@ Route::middleware('auth')->group(function (): void {
     Route::get('projects/{project}/members', [ProjectMemberController::class, 'index'])->name('projects.members.index');
     Route::put('projects/{project}/members/{member}', [ProjectMemberController::class, 'update'])->name('projects.members.update');
     Route::delete('projects/{project}/members/{member}', [ProjectMemberController::class, 'destroy'])->name('projects.members.destroy');
+
+    // Workflow statuses and project settings (API_SPEC.md §5, ADR-021).
+    Route::get('projects/{project}/statuses', [ProjectStatusController::class, 'index'])->name('projects.statuses.index');
+    Route::post('projects/{project}/statuses', [ProjectStatusController::class, 'store'])->name('projects.statuses.store');
+    Route::put('projects/{project}/statuses/order', [ProjectStatusController::class, 'reorder'])->name('projects.statuses.reorder');
+    Route::patch('projects/{project}/statuses/{status}', [ProjectStatusController::class, 'update'])->name('projects.statuses.update');
+    Route::delete('projects/{project}/statuses/{status}', [ProjectStatusController::class, 'destroy'])->name('projects.statuses.destroy');
+    Route::get('projects/{project}/settings', [ProjectSettingsController::class, 'show'])->name('projects.settings.show');
+    Route::patch('projects/{project}/settings', [ProjectSettingsController::class, 'update'])->name('projects.settings.update');
 
     // Archive and 30-day trash (API_SPEC.md §3, §4; ADR-022). `{trashedTeam}` and `{trashedProject}`
     // resolve only trashed rows the caller may recover (RecoverableResources); anything else is 404.

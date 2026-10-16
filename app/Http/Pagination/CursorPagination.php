@@ -32,8 +32,9 @@ final class CursorPagination
      *
      * @param  Builder<TModel>  $query
      * @param  Closure(TModel): mixed  $transform
+     * @param  array<string, mixed>  $meta  extra collection meta, e.g. a version the list was read at
      */
-    public static function respond(Request $request, Builder $query, Closure $transform): JsonResponse
+    public static function respond(Request $request, Builder $query, Closure $transform, array $meta = []): JsonResponse
     {
         Validator::make($request->query(), [
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.self::MAX_LIMIT],
@@ -54,6 +55,7 @@ final class CursorPagination
                 'next_cursor' => $next === null ? null : self::encode($next, $scope),
                 'has_more' => $page->hasMorePages(),
                 'limit' => $limit,
+                ...$meta,
             ],
         );
     }
