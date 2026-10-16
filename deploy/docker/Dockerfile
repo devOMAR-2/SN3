@@ -74,13 +74,15 @@ COPY deploy/docker/entrypoint.sh /usr/local/bin/sn3-entrypoint
 WORKDIR /var/www/html
 
 COPY --from=composer-bin /usr/bin/composer /usr/bin/composer
-COPY --chown=www-data:www-data . .
-COPY --from=vendor --chown=www-data:www-data /app/vendor ./vendor
-COPY --from=assets --chown=www-data:www-data /app/public/build ./public/build
+# Code stays root-owned and read-only for www-data; only storage/ and bootstrap/cache are writable.
+COPY . .
+COPY --from=vendor /app/vendor ./vendor
+COPY --from=assets /app/public/build ./public/build
 
 RUN set -eux; \
     composer dump-autoload --no-dev --optimize --no-interaction; \
     rm /usr/bin/composer; \
+    chmod -R a+rX,go-w .; \
     chown -R www-data:www-data bootstrap/cache storage; \
     chmod +x /usr/local/bin/sn3-entrypoint
 
