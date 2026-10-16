@@ -24,7 +24,9 @@ use Illuminate\Support\Facades\Log;
  * every read goes through AccessibleProjects, so the new visibility applies from the next query
  * (FR-PROJ-007; ADR-020 §4).
  *
- * The key stays editable until CORE-004 freezes it after the first task (DATABASE.md §5).
+ * The key is frozen once a task number has been issued (DATABASE.md §5, PROJ-01): changing it
+ * then is a 409, checked on the locked row (a trigger refuses it in the database too). Sending the
+ * current key is not a change.
  */
 final class UpdateProject
 {
@@ -46,6 +48,10 @@ final class UpdateProject
                     $locked->fill(Arr::only($changes, ['name']));
 
                     if (array_key_exists('key', $changes)) {
+                        if ($changes['key'] !== $locked->project_key && $locked->keyIsFrozen()) {
+                            throw new DomainConflictException('The project key is frozen after the first task.');
+                        }
+
                         $locked->project_key = $changes['key'];
                     }
 

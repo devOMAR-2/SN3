@@ -22,15 +22,15 @@ FR-PROJ-007,CORE-003,Projects,R1,TEST-FR-PROJ-007,"Partially automated: visibili
 FR-PROJ-008,CORE-010,Projects,R1,TEST-FR-PROJ-008,Planned; not executed
 FR-TASK-001,CORE-005,Tasks,R1,TEST-FR-TASK-001,Planned; not executed
 FR-TASK-002,CORE-005,Tasks,R1,TEST-FR-TASK-002,Planned; not executed
-FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,Planned; not executed
+FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,Partially automated: task-number allocation and project key freeze in tests/Feature/Projects/ProjectSettingsAndTaskKeyTest.php and tests/Feature/Workflows/TaskNumberConcurrencyTest.php (CORE-004); task keys on tasks follow with CORE-005
 FR-TASK-004,CORE-005,Tasks,R1,TEST-FR-TASK-004,Planned; not executed
 FR-TASK-005,CORE-007,Tasks,R1,TEST-FR-TASK-005,Planned; not executed
 FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,Planned; not executed
 FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,Planned; not executed
 FR-TASK-008,CORE-005,Tasks,R1,TEST-FR-TASK-008,Planned; not executed
 FR-TASK-009,CORE-005,Tasks,R1,TEST-FR-TASK-009,Planned; not executed
-FR-CUST-001,CORE-004,Custom fields,R1,TEST-FR-CUST-001,Planned; not executed
-FR-CUST-002,CORE-004,Custom fields,R1,TEST-FR-CUST-002,Planned; not executed
+FR-CUST-001,CORE-004,Custom fields,R1,TEST-FR-CUST-001,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest,TaskNumberConcurrencyTest}.php"
+FR-CUST-002,CORE-004,Custom fields,R1,TEST-FR-CUST-002,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest}.php"
 FR-CUST-003,FLEX-001,Custom fields,R2,TEST-FR-CUST-003,Planned; not executed
 FR-CUST-004,FLEX-001,Custom fields,R2,TEST-FR-CUST-004,Planned; not executed
 FR-CUST-005,FLEX-003,Custom fields,R2,TEST-FR-CUST-005,Planned; not executed

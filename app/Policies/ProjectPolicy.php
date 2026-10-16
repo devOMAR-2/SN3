@@ -41,7 +41,10 @@ class ProjectPolicy
         return $teamRole->isOwner() || ! $project->isPrivate() || $project->roleOf($user) !== null;
     }
 
-    /** PATCH /projects/{project}: name, key, description and visibility. */
+    /**
+     * PATCH /projects/{project} (name, key, description, visibility), PATCH /projects/{project}/settings
+     * and workflow status changes (API_SPEC.md §5, §17 "project settings, workflow"; ADR-021).
+     */
     public function update(User $user, Project $project): bool
     {
         return $this->manages($user, $project);

@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Domain\Projects\ProjectVisibility;
+use App\Domain\Workflows\DefaultWorkflow;
 use App\Models\Project;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -10,7 +11,8 @@ use Illuminate\Support\Str;
 
 /**
  * Projects created by their team's Owner by default, without a membership row (the Owner needs
- * none). Use ProjectMembership::factory() for explicit members.
+ * none). Use ProjectMembership::factory() for explicit members. They have no statuses unless
+ * `withDefaultStatuses()` seeds the default workflow, as CreateProject does.
  *
  * @extends Factory<Project>
  */
@@ -43,6 +45,13 @@ class ProjectFactory extends Factory
     public function private(): static
     {
         return $this->state(['visibility' => ProjectVisibility::Private]);
+    }
+
+    public function withDefaultStatuses(string $locale = 'en'): static
+    {
+        return $this->afterCreating(function (Project $project) use ($locale): void {
+            DefaultWorkflow::seed($project, $locale);
+        });
     }
 
     public function archived(): static

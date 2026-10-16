@@ -38,6 +38,7 @@ use Illuminate\Support\Carbon;
  * @property-read Team $team
  * @property-read User $creator
  * @property-read Collection<int, ProjectMembership> $memberships
+ * @property-read Collection<int, ProjectStatus> $statuses
  */
 class Project extends Model
 {
@@ -139,6 +140,25 @@ class Project extends Model
         }
 
         return $this->memberships()->where('user_id', $user->id)->first()?->project_role;
+    }
+
+    /**
+     * Workflow statuses (CORE-004). Board order is `position`.
+     *
+     * @return HasMany<ProjectStatus, $this>
+     */
+    public function statuses(): HasMany
+    {
+        return $this->hasMany(ProjectStatus::class);
+    }
+
+    /**
+     * True once a task number has been issued: the project key is then frozen (DATABASE.md §5,
+     * PROJ-01; enforced again by a trigger), whether or not the task still exists.
+     */
+    public function keyIsFrozen(): bool
+    {
+        return $this->next_task_number > 1;
     }
 
     public function isPrivate(): bool

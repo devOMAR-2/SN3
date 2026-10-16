@@ -164,7 +164,7 @@ Create: `{ "name":"Website", "key":"WEB", "visibility":"team", "template_id":nul
 - **`GET /teams/{team_id}/projects`:** only projects the caller can see, filtered before cursor pagination; sorted `created_at desc, id desc`.
 - **`PATCH /projects/{project_id}`:**
   - Accepts `name`, `key`, `description` and `visibility`, with the create rules.
-  - Requires `If-Match` (`428` / `412`). The key stays editable until CORE-004 freezes it after the first task.
+  - Requires `If-Match` (`428` / `412`). Once a task number has been issued the key is frozen: a different `key` is `409 conflict`; the current key (any case) is accepted as a no-op (CORE-004, ADR-021 §5).
   - Project settings (`sprints_enabled`, …) go through `PATCH /projects/{project_id}/settings` (§5); here they are `unknown_field`.
 - **`PUT /projects/{project_id}/members/{user_id}`:**
   - Body `{ "role": "manager" | "contributor" }`. Returns `201` when it adds the user, `200` when it changes or keeps their role.
@@ -192,6 +192,26 @@ Create: `{ "name":"Website", "key":"WEB", "visibility":"team", "template_id":nul
 | PATCH | `/projects/{project_id}/settings` | Toggle sprints, points, enabled views | Owner/Project Manager |
 
 Status: `name` 1–50, `color` hex RGB, `category` one of `todo`, `in_progress`, `done`, `position` is read-only in responses (0-based ordinal derived from the stored rank in `project_statuses.position`); reordering is done only through `PUT /projects/{project_id}/statuses/order`, which accepts the full ordered list of status IDs. Every project has at least one status in `todo` and one in `done`. Default statuses are To Do, In Progress, Done. Status IDs are project-local. Deleting a nonempty status requires `replacement_status_id` in same project and a transaction moving all tasks. Status changes preserve activity log. Sprints default disabled; disabling after use retains historic sprint data, hides planning controls, and prevents starting new sprints until reenabled.
+
+**Implementation contract (CORE-004, ADR-021).** These points settle details §5 leaves open:
+
+- **Statuses:**
+  - **Representation:** `id`, `project_id`, `name`, `category`, `color` (`#RRGGBB` or `null`), `position` (0-based ordinal), `is_default` (the status new tasks start in), `version`, `created_at`, `updated_at`.
+  - **`GET`:** board order (`position`, then `id`), cursor-paginated like every list.
+  - **`POST`:** `{ "name", "category", "color" }`. `name` is trimmed, 1–50 characters and unique in the project ignoring case (`409 conflict` otherwise). `color` is trimmed and upper-cased; `#FFF` and named colours are `regex`. The new status goes last; `position` and `is_default` are `unknown_field`. A project holds at most 50 statuses (`409`).
+  - **`PATCH`:** `name`, `category`, `color` (`null` clears it). Requires `If-Match` with the status `version`. `position` and `is_default` are `unknown_field`. **Technical correction:** the table above lists "order" for PATCH, but the text says `position` is read-only and reordering goes through `PUT …/statuses/order` only; the text applies.
+  - **`DELETE`:** optional body `{ "replacement_status_id": "uuid" }`. Requires `If-Match`. A replacement that is not another status of the same project is `422` (`exists`, or `different` for the status itself), answered identically for another project's status and a random ID. If the status was the default, the replacement becomes the default, otherwise the first remaining `todo` status. `204`.
+  - **Order:** `PUT …/statuses/order` takes `{ "status_ids": [ … ] }`, every status ID of the project exactly once. No `If-Match`: a list that no longer matches the project's statuses is `409 conflict` (reload and retry); a malformed list is `422`. Answers `200` with the statuses in their new order; status versions are unchanged.
+  - **Invariant:** a delete or category change that would leave no `todo` or no `done` status is `409 conflict`.
+- **Default workflow:** To do (`todo`, default), In progress, Done, created with the project, named in the creator's language (`للإنجاز`, `قيد التنفيذ`, `مكتمل` in Arabic).
+- **Transitions:** unrestricted between the statuses of one project. There are no transition rules or endpoints in v1.0.
+- **Settings:**
+  - **Representation:** `GET /settings` returns `project_id`, `sprints_enabled`, `key_frozen` (true once a task number has been issued) and `version`, which is the **project's** version.
+  - **`PATCH /settings`:** accepts `sprints_enabled` (strict boolean). It requires `If-Match` with the project version and increments it, which is the version `PATCH /projects/{project_id}` uses. Points and enabled views are `unknown_field` until FLEX-005/FLEX-002 add them.
+- **Authorization and status codes:**
+  - Writes need the right to `PATCH /projects/{project_id}`: the Owner, a project manager, or a Team Admin on a team-visible project (§12 technical correction). Everyone else who can see the project gets `403` whatever the body; a hidden project is `404` for every endpoint here.
+  - An archived team or project is `423` on every write, before `If-Match`.
+
 
 ## 6. Tasks, checklist, comments, attachments (P0)
 
