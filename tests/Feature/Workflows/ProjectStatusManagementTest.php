@@ -653,7 +653,8 @@ it('moves the workflow version on every status change, so a reorder after one is
     $created = $this->actingAs($this->owner)->postJson("{$uri}/statuses", ['name' => 'Review', 'category' => 'todo'])
         ->assertCreated()
         ->assertJsonPath('meta.workflow_version', 2)
-        ->assertHeader('ETag', '"2"')
+        // A single status carries its own version as ETag, ready for its PATCH/DELETE If-Match.
+        ->assertHeader('ETag', '"1"')
         ->json('data.id');
     $this->actingAs($this->owner)->patchJson("{$uri}/statuses/{$doing->id}", ['color' => '#145A38'], ['If-Match' => '"1"'])
         ->assertOk()
@@ -815,4 +816,19 @@ it('logs workflow events with identifiers only', function () {
         'default_status_id' => null,
     ])->once();
     Log::shouldNotHaveReceived('info', fn (string $message, array $context = []) => preg_match('/Secret merger|Due diligence|Negotiation/', (string) json_encode($context)) === 1);
+});
+
+it('returns the status version as the ETag of a single status, usable as its If-Match', function () {
+    $uri = "/api/v1/projects/{$this->project->id}/statuses";
+
+    $created = $this->actingAs($this->owner)->postJson($uri, ['name' => 'Review', 'category' => 'todo'])->assertCreated();
+    $etag = $created->headers->get('ETag');
+
+    $patched = $this->actingAs($this->owner)->patchJson("{$uri}/{$created->json('data.id')}", ['name' => 'QA'], ['If-Match' => $etag])
+        ->assertOk()
+        ->assertJsonPath('data.version', 2)
+        ->assertHeader('ETag', '"2"');
+
+    $this->actingAs($this->owner)->deleteJson("{$uri}/{$created->json('data.id')}", [], ['If-Match' => $patched->headers->get('ETag')])
+        ->assertNoContent();
 });

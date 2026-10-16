@@ -105,13 +105,15 @@ class ProjectStatusController extends Controller
     }
 
     /**
-     * A single status, with the workflow version of the locked project the action loaded.
+     * A single status. Its `ETag` is the status's own version, which its PATCH and DELETE expect in
+     * `If-Match`; the workflow version (for the reorder) is in `meta.workflow_version`.
      */
     private static function respond(ProjectStatus $status, int $code = 200): JsonResponse
     {
-        $version = $status->project->workflow_version;
-
-        return self::withEtag(ApiResponse::data(ProjectStatusResource::make($status), $code, meta: ['workflow_version' => $version]), $version);
+        return self::withEtag(
+            ApiResponse::data(ProjectStatusResource::make($status), $code, meta: ['workflow_version' => $status->project->workflow_version]),
+            $status->version,
+        );
     }
 
     private static function withEtag(JsonResponse $response, int $version): JsonResponse
