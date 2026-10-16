@@ -18,17 +18,20 @@ it('renders the public auth pages for guests', function (string $uri, string $co
     ['/forgot-password', 'Auth/ForgotPassword'],
 ]);
 
-it('passes the reset token and email to the reset page', function () {
-    $this->get('/reset-password/abc123?email=omar%40example.com')
+it('serves the reset page without the token ever reaching the server', function () {
+    $this->get('/reset-password')
         ->assertOk()
         ->assertInertia(fn (Assert $page) => $page->component('Auth/ResetPassword')
-            ->where('token', 'abc123')
-            ->where('email', 'omar@example.com'));
+            ->missing('token')
+            ->missing('email'));
+
+    // The old path-based form no longer exists.
+    $this->get('/reset-password/abc123')->assertNotFound();
 });
 
 it('redirects signed-in users away from guest pages', function (string $uri) {
     $this->actingAs(User::factory()->create())->get($uri)->assertRedirect('/');
-})->with(['/login', '/register', '/forgot-password', '/reset-password/abc']);
+})->with(['/login', '/register', '/forgot-password']);
 
 it('redirects guests to sign-in from authenticated pages', function (string $uri) {
     $this->get($uri)->assertRedirect('/login');
@@ -59,3 +62,9 @@ it('renders the settings and verification notice pages for signed-in users', fun
     ['/settings', 'Settings/Profile'],
     ['/verify-email', 'Auth/VerifyEmail'],
 ]);
+
+it('serves the reset page to signed-in users too, so the link fragment is not redirected along', function () {
+    $this->actingAs(User::factory()->create())->get('/reset-password')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('Auth/ResetPassword'));
+});

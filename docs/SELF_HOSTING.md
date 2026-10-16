@@ -109,6 +109,8 @@ The `scheduler` runs `schedule:work --whisper`, which evaluates `routes/console.
 |---|---|
 | `queue:prune-failed --hours=720` (delete failed jobs older than 30 days) | daily 03:00 UTC |
 | `queue:prune-batches --hours=48 --unfinished=72 --cancelled=72` | daily 03:10 UTC |
+| `auth:clear-resets` (delete expired password-reset tokens) | daily 03:20 UTC |
+| `model:prune --model=App\Models\ApiIdempotencyRecord` (delete `Idempotency-Key` results older than 24 hours) | daily 03:30 UTC |
 
 Run exactly one `scheduler`. Tasks also take a lock in the database cache (`onOneServer`), so an accidental second scheduler doesn't run them twice. You can run more than one `worker` (`docker compose up -d --scale worker=2`).
 
@@ -133,6 +135,8 @@ The image ships without a Redis client extension, and SN3 needs none. Running th
 
 The application writes one JSON object per line to stderr (`docker compose logs`). Each line has `message`, `level_name`, `datetime`, `context` and `extra`. The worker also prints one JSON status line per job on stdout (`job`, `uuid`, `status`, `attempts`). Apache access lines in the `app` log and the start-up `optimize` output stay plain text:
 
+- Apache access lines carry the method, the path **without its query string**, the status, the size and the user agent. Query strings and the `Referer` header are never logged, because signed links and email addresses can travel there. Password-reset links keep their token in the URL fragment, which browsers never send to the server.
+- The log level is `info` in containers. Set `SN3_LOG_LEVEL=debug` in `.env` only while troubleshooting; debug logs are verbose.
 - `extra.request_id`: the correlation ID of the HTTP request. It is also returned in the `X-Request-Id` response header. If your proxy sends an `X-Request-Id` of 8–64 letters, digits, `.`, `_` or `-`, it is reused; anything else is replaced with a generated `req_…` ID.
 - `extra.job_id`, `extra.job_name`, `extra.job_attempt`: set while the worker runs a job. A job dispatched during a request also carries that request's `request_id`.
 

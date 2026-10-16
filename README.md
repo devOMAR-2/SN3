@@ -6,7 +6,7 @@
 
 سنع منصة لإدارة الفرق والمشاريع والمهام، بواجهة عربية وإنجليزية، ويمكن تشغيلها سحابيًا أو استضافتها ذاتيًا.
 
-> **Status:** R0 — Foundation in progress. The application scaffold exists. No product features have shipped yet.
+> **Status:** R0 — Foundation complete: accounts (sign-up, sign-in, verification, password reset), teams and tenant isolation, the Arabic/English design foundation, background jobs and Docker Compose self-hosting. Product features (projects, tasks, boards) arrive with R1.
 
 ## Planned features
 - Teams, invitations, and role-based access

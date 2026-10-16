@@ -49,7 +49,8 @@ final class EnforceIdempotency
         }
 
         $key = strtolower($key);
-        $routeKey = $request->method().' /'.ltrim($request->path(), '/');
+        // Lower-cased so the same UUID written in another case is the same scope.
+        $routeKey = $request->method().' /'.strtolower(ltrim($request->path(), '/'));
         $digest = self::digest($request);
 
         DB::beginTransaction();

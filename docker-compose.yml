@@ -29,6 +29,8 @@ services:
       DB_PORT: "5432"
       DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env (see docs/SELF_HOSTING.md)}
       LOG_CHANNEL: stderr
+      # .env.example's LOG_LEVEL=debug is for development; containers default to info.
+      LOG_LEVEL: ${SN3_LOG_LEVEL:-info}
       # One JSON object per line, with request_id / job_id in "extra" (ADR-015).
       LOG_STDERR_FORMATTER: Monolog\Formatter\JsonFormatter
       # The log mailer never writes message bodies (sign-in and reset links) in containers.

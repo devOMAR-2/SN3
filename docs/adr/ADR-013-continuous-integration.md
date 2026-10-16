@@ -11,15 +11,16 @@ ARCHITECTURE.md §12 lists the CI gates: formatter/linter, static analysis, unit
 
 ## Decision
 
-### 1. One workflow, six jobs
+### 1. One workflow, seven jobs
 
-`.github/workflows/ci.yml` runs on `pull_request` and `push` for `dev` and `main`. The job names are the required checks:
+`.github/workflows/ci.yml` runs on `pull_request` and `push` for `dev` and `main`. Each job name is a check; the repository ruleset (§6) lists which ones are required:
 
 | Check (job name) | What it runs |
 |---|---|
 | `PHP (Pint, Larastan, migrations, Pest)` | PHP 8.3 (`shivammathur/setup-php`, `intl`, `mbstring`, `pdo_pgsql`); `composer validate --strict`; `composer install` from the lock; `pint --test`; PHPStan/Larastan; `migrate`, `migrate:rollback`, `migrate` again; Pest against a `postgres:16.15-trixie` service container |
 | `Frontend (ESLint, Prettier, vue-tsc, Vitest, build)` | Node from `.nvmrc` (22); `npm ci`; `npm run lint`, `format:check`, `typecheck`, `test`, `build` |
 | `E2E (Playwright, seeded tenants)` | Added by FND-008 (`docs/TESTING.md`). PHP 8.3 and Node 22; `npm run build`; Playwright's Chromium; `npm run e2e` against a `postgres:16.15-trixie` service: `migrate:fresh` plus `E2ETenantSeeder`, `php artisan serve`, desktop and mobile projects. The HTML report is uploaded only when the job fails |
+| `Compose install (clean Linux host)` | Added for the R0 release (DEVELOPMENT_PLAN R0 exit: installation verified on a clean Linux host). `.github/scripts/compose-install-smoke.sh` follows `docs/SELF_HOSTING.md` steps 1–3 on the fresh runner: `.env` from the example with a random `DB_PASSWORD`, `compose build`, `key:generate --show`, `migrate`, `up --wait`. Then it registers through the API with CSRF, waits for the worker to handle the queued mail, signs in, checks that no signature or email address reaches the access log, and signs in again after `down`/`up` |
 | `Dependency audit (Composer, npm)` | `composer audit --locked`; `npm audit --omit=dev --audit-level=high` (blocking); full `npm audit` (report only, see §4) |
 | `Dependency review` | `actions/dependency-review-action` on pull requests only: fails if the PR adds or changes a runtime dependency with a known vulnerability of any severity |
 | `Docker image (build, health smoke test)` | Buildx build of `deploy/docker/Dockerfile` (not pushed, GitHub Actions layer cache), then `docker run` without a database: `/health/live` must return `200 {"status":"ok"}` and `/health/ready` must return `503 {"status":"unavailable"}` |
@@ -73,4 +74,4 @@ The pre-existing "Protect main" ruleset (default branch: PR with one approval, r
 - New PHP code must pass PHPStan level 9 without a baseline. Configuration code that passes `env()` values into typed functions needs an explicit cast.
 - Frontend tests are `*.test.ts` files under `resources/js/`. Pages that use Inertia's `<Head>` need the `$headManager` mock shown in `Welcome.test.ts`.
 - The Docker job builds the image on every PR, but nothing is published. Image publishing is GH-008.
-- E2E (Playwright) joined the pipeline with FND-008 and becomes a required check once the ruleset lists it. The clean Compose install/backup/restore smoke test (ARCHITECTURE.md §12, deployment row) is not part of this pipeline yet; it should be added as a further required check when that task lands.
+- E2E (Playwright) joined the pipeline with FND-008 and is a required check. The clean-host Compose install job joined for the R0 release; it becomes required once the ruleset lists it. Backup/restore (CORE-012) and upgrade (GH-008) rehearsals should extend that job when those tasks land.

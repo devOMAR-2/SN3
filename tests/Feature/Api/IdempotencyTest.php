@@ -67,6 +67,17 @@ it('runs the request once and replays the stored result for the same key and pay
         ->and($record->expires_at->between(now()->addHours(23), now()->addHours(25)))->toBeTrue();
 });
 
+it('treats the same team ID in another letter case as the same scope', function () {
+    $this->actingAs($this->user)->postJson($this->url, ['title' => 'One'], ['Idempotency-Key' => $this->key])->assertCreated();
+
+    $this->actingAs($this->user)
+        ->postJson(str_replace($this->team->id, strtoupper($this->team->id), $this->url), ['title' => 'One'], ['Idempotency-Key' => $this->key])
+        ->assertCreated()
+        ->assertHeader('Idempotent-Replayed', 'true');
+
+    expect(probeCount())->toBe(1);
+});
+
 it('rejects the same key with a different payload with 409 and does not run it', function () {
     $this->actingAs($this->user)->postJson($this->url, ['title' => 'One'], ['Idempotency-Key' => $this->key])->assertCreated();
 

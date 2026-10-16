@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { router } from '@inertiajs/vue3';
+import { onMounted, ref } from 'vue';
 import TextLink from '@/Components/TextLink.vue';
 import AppAlert from '@/Components/ui/AppAlert.vue';
 import AppButton from '@/Components/ui/AppButton.vue';
@@ -7,11 +8,25 @@ import TextField from '@/Components/ui/TextField.vue';
 import { useApiForm } from '@/Composables/useApiForm';
 import { useI18n } from '@/i18n';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
+import { readResetLink } from '@/lib/resetLink';
 
-const props = defineProps<{ token: string; email: string }>();
+// The token arrives in the URL fragment, which the server never sees. Read it once, then drop it
+// from Inertia's page URL (which Inertia keeps writing back into the address bar and history) so it
+// is not left behind on the device.
+const link = readResetLink(window.location.hash);
+onMounted(() => {
+  if (window.location.hash !== '') {
+    router.replace({
+      url: window.location.pathname + window.location.search,
+      preserveState: true,
+      preserveScroll: true,
+    });
+  }
+});
 
 const { t } = useI18n();
-const form = useApiForm('auth', { token: props.token, email: props.email, password: '' });
+const form = useApiForm('auth', { token: link.token, email: link.email, password: '' });
+const missingToken = link.token === '';
 const done = ref(false);
 
 async function submit(): Promise<void> {
@@ -35,8 +50,8 @@ async function submit(): Promise<void> {
     </template>
 
     <form v-else class="flex flex-col gap-4" novalidate @submit.prevent="submit">
-      <AppAlert v-if="form.errors.token" variant="error">
-        {{ form.errors.token }}
+      <AppAlert v-if="missingToken || form.errors.token" variant="error">
+        {{ form.errors.token || t('auth.errors.token.invalid_token') }}
         <TextLink href="/forgot-password">{{ t('auth.forgot.submit') }}</TextLink>
       </AppAlert>
       <AppAlert v-if="form.message.value" variant="error">{{ form.message.value }}</AppAlert>
