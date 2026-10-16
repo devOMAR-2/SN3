@@ -12,10 +12,12 @@ for (const u of USERS) {
     await signIn(page, u.key);
     const expected = expectedRoles(u.key);
 
-    const list = await apiGet(page, '/me/teams');
-    expect(list.status()).toBe(200);
-    const listed = (await list.json()).data as { id: string; role: string }[];
-    expect(Object.fromEntries(listed.map((t) => [t.id, t.role]))).toEqual(expected);
+    for (const path of ['/me/teams', '/teams']) {
+      const list = await apiGet(page, path);
+      expect(list.status(), path).toBe(200);
+      const listed = (await list.json()).data as { id: string; role: string }[];
+      expect(Object.fromEntries(listed.map((t) => [t.id, t.role])), path).toEqual(expected);
+    }
 
     const missing = await apiGet(page, `/teams/${RANDOM_TEAM_ID}`);
     expect(missing.status()).toBe(404);
@@ -54,7 +56,15 @@ test('guests reach no team data', async ({ request }) => {
 test('guessed and malformed team IDs never reach the database', async ({ page }) => {
   await signIn(page, 'outsider');
 
-  for (const id of ['not-a-uuid', '1', "'%20OR%201=1--", 'team-alpha', FIRST_TEAM.slug]) {
+  // `outsider` belongs to no team, so even the real ID in another shape must stay hidden.
+  for (const id of [
+    'not-a-uuid',
+    '1',
+    "'%20OR%201=1--",
+    FIRST_TEAM.slug,
+    FIRST_TEAM.id.toUpperCase(),
+    `${FIRST_TEAM.id}0`,
+  ]) {
     const response = await apiGet(page, `/teams/${id}`);
     expect(response.status(), id).toBe(404);
     expect((await response.json()).error.code).toBe('not_found');

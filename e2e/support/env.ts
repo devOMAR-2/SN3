@@ -12,6 +12,8 @@ export function e2eEnv(): Record<string, string> {
     APP_ENV: 'e2e',
     APP_URL: E2E_BASE_URL,
     DB_DATABASE: E2E_DB_DATABASE,
+    // A connection URL would override DB_DATABASE (same reason phpunit.xml empties it).
+    DB_URL: '',
     // Many sign-ins from one address in a few seconds: keep limits out of the way.
     SN3_RATE_LIMIT_LOGIN_PER_MINUTE: '0',
     SN3_RATE_LIMIT_BURST_PER_SECOND: '0',

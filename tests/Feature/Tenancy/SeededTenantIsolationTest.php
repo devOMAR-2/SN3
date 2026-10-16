@@ -70,10 +70,12 @@ it('lets every user see exactly their own teams, and nothing of any other team',
             ->filter(fn (array $team) => array_key_exists($userData['key'], rolesIn($team)))
             ->mapWithKeys(fn (array $team) => [$team['id'] => rolesIn($team)[$userData['key']]]);
 
-        $listed = $this->actingAs($user)->getJson('/api/v1/me/teams')->assertOk()->json('data');
+        foreach (['/api/v1/me/teams', '/api/v1/teams'] as $path) {
+            $listed = $this->actingAs($user)->getJson($path)->assertOk()->json('data');
 
-        expect(collect($listed)->pluck('role', 'id')->sortKeys()->all())
-            ->toBe($expected->sortKeys()->all(), "{$userData['key']} lists the wrong teams");
+            expect(collect($listed)->pluck('role', 'id')->sortKeys()->all())
+                ->toBe($expected->sortKeys()->all(), "{$userData['key']} lists the wrong teams at {$path}");
+        }
 
         foreach ($this->fixture['teams'] as $team) {
             $response = $this->actingAs($user)->getJson("/api/v1/teams/{$team['id']}");
@@ -89,26 +91,41 @@ it('lets every user see exactly their own teams, and nothing of any other team',
     }
 });
 
-it('denies cross-tenant team abilities for every role', function () {
-    $alpha = Team::query()->findOrFail(collect($this->fixture['teams'])->firstWhere('key', 'alpha')['id']);
+it('denies every team ability to every non-member, in both directions', function () {
+    $abilities = ['view', 'update', 'invite', 'createProject', 'transferOwnership', 'archive', 'delete', 'restore', 'export'];
+    $users = User::query()->get()->keyBy('id');
 
-    foreach (['beta_owner', 'beta_member', 'outsider'] as $key) {
-        $user = User::query()->findOrFail(collect($this->fixture['users'])->firstWhere('key', $key)['id']);
+    foreach ($this->fixture['teams'] as $data) {
+        $team = Team::query()->findOrFail($data['id']);
+        $members = collect(rolesIn($data))->keys()
+            ->map(fn (string $key) => $users[collect($this->fixture['users'])->firstWhere('key', $key)['id']]);
+        $someMember = $members->first();
 
-        expect($alpha->roleOf($user))->toBeNull();
+        foreach ($users->reject(fn (User $u) => $members->contains('id', $u->id)) as $outsider) {
+            expect($team->roleOf($outsider))->toBeNull();
 
-        foreach (['view', 'update', 'invite', 'createProject', 'transferOwnership', 'archive', 'delete', 'restore', 'export'] as $ability) {
-            expect($user->can($ability, $alpha))->toBeFalse("{$key} → {$ability} on alpha");
+            foreach ($abilities as $ability) {
+                expect($outsider->can($ability, $team))->toBeFalse("{$outsider->email} → {$ability} on {$data['key']}");
+            }
+
+            expect($outsider->can('changeMemberRole', [$team, $someMember]))->toBeFalse()
+                ->and($outsider->can('removeMember', [$team, $someMember]))->toBeFalse()
+                ->and($outsider->can('removeMember', [$team, $outsider]))->toBeFalse();
         }
     }
 
-    $shared = User::query()->findOrFail(collect($this->fixture['users'])->firstWhere('key', 'shared')['id']);
+    $alpha = Team::query()->findOrFail(collect($this->fixture['teams'])->firstWhere('key', 'alpha')['id']);
+    $shared = $users[collect($this->fixture['users'])->firstWhere('key', 'shared')['id']];
     expect($alpha->roleOf($shared))->toBe(TeamRole::Viewer)
         ->and($shared->can('update', $alpha))->toBeFalse();
 });
 
-it('refuses to seed production data', function () {
-    app()->detectEnvironment(fn () => 'production');
+it('refuses to seed outside local, testing and e2e', function (string $environment) {
+    $users = User::query()->count();
+    app()->detectEnvironment(fn () => $environment);
 
-    expect(fn () => (new E2ETenantSeeder)->run())->toThrow(RuntimeException::class);
-});
+    // The message pins the guard itself; a second seed would otherwise fail on duplicate keys too.
+    expect(fn () => (new E2ETenantSeeder)->run())
+        ->toThrow(RuntimeException::class, 'E2ETenantSeeder only runs in the local, testing, e2e environments.')
+        ->and(User::query()->count())->toBe($users);
+})->with(['production', 'staging']);

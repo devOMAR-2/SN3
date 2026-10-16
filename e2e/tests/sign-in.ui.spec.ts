@@ -28,7 +28,8 @@ test.describe('Arabic (default) @ui', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText(member.name);
     await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
 
-    // No other tenant leaks into the page or its Inertia props.
+    // Forward guard: the shell shares no team data yet (team navigation is CORE-006), so this
+    // only starts to matter once it does. The isolation proof is tenant-isolation.spec.ts.
     const beta = TEAMS.find((t) => t.key === 'beta')!;
     expect(await page.content()).not.toContain(beta.name);
     expect(await page.content()).not.toContain(beta.id);
@@ -55,14 +56,11 @@ test.describe('English @ui', () => {
 
     await page.getByLabel('Email').fill(user('beta_owner').email);
     await page.getByLabel('Password').fill('wrong-password-123');
+    const attempt = page.waitForResponse((r) => r.url().endsWith('/api/v1/auth/login'));
     await page.getByRole('button', { name: 'Sign in' }).click();
 
+    expect((await attempt).status()).toBe(422);
+    await expect(page.getByText('These details do not match an active account.')).toBeVisible();
     await expect(page).toHaveURL(/\/login$/);
-    await expect(
-      page
-        .getByRole('alert')
-        .or(page.getByText(/incorrect|invalid|do not match/i))
-        .first(),
-    ).toBeVisible();
   });
 });

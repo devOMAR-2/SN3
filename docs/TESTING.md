@@ -17,7 +17,7 @@ Test layers follow ARCHITECTURE.md §12. Every layer runs in CI on each pull req
 | `alpha` (فريق ألفا) | `alpha_owner` | `alpha_admin` | `alpha_member` | `alpha_viewer`, `shared` |
 | `beta` (Beta Studio) | `beta_owner` | `shared` | `beta_member` | none |
 
-`outsider` belongs to no team. Every user, team and membership has a fixed UUIDv7, every email is verified, and all accounts share the fixture password. Names mix Arabic and English.
+`outsider` belongs to no team. Every user and team has a fixed UUIDv7 (membership IDs are generated), every email is verified, and all accounts share the fixture password. Names mix Arabic and English.
 
 The password is public, so the seeder throws unless `APP_ENV` is `local`, `testing` or `e2e`. It also expects an empty database:
 
@@ -30,7 +30,9 @@ Add a user or team in `tenants.json` when a later task needs one (private projec
 Tenant isolation is proved twice:
 
 - **`tests/Feature/Tenancy/SeededTenantIsolationTest.php` (Pest):** every user × every team through the API and the policies. Fast, and part of `composer test`.
-- **`e2e/tests/tenant-isolation.spec.ts` (Playwright):** the same matrix through the running app with real sessions and CSRF. A foreign team must look exactly like a missing one.
+- **`e2e/tests/tenant-isolation.spec.ts` (Playwright):** the same matrix (`/me/teams`, `/teams`, `/teams/{id}`) through the running app with real sessions and CSRF. A foreign team must look exactly like a missing one.
+
+Both were checked by mutation: removing the membership filter from `AccessibleTeams` makes them fail.
 
 ## Running the E2E suite locally
 
@@ -53,7 +55,9 @@ What `npm run e2e` does:
 2. **Resets the `sn3_e2e` database** (`migrate:fresh` plus the seeder). Laravel creates the database if your role may create databases; otherwise create it once.
 3. Runs the specs: all of them on desktop Chromium, and the `@ui` ones again on a Pixel 7 viewport.
 
-The application under test gets its settings from environment variables, which override `.env`. They are defined in `e2e/support/env.ts`: `APP_ENV=e2e`, the `sn3_e2e` database, rate limits off, the `sync` queue and the `array` mailer. Your own database is never touched.
+The application under test gets its settings from environment variables, which override `.env`. They are defined in `e2e/support/env.ts`: `APP_ENV=e2e`, the `sn3_e2e` database (with `DB_URL` cleared), rate limits off, the `sync` queue and the `array` mailer.
+
+Before resetting anything, global setup asks the app which database and environment it actually resolves to, and stops unless the answer is `sn3_e2e` and `e2e`. A cached config (`php artisan config:cache` or `optimize`) ignores environment variables, so it makes the run stop instead of resetting your own database. Clear it with `php artisan config:clear`.
 
 | Variable | Default | Purpose |
 |---|---|---|
