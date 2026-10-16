@@ -23,7 +23,7 @@ class ProjectFactory extends Factory
     {
         return [
             'team_id' => Team::factory(),
-            'name' => fake()->catchPhrase(),
+            'name' => rtrim(fake()->sentence(3), '.'),
             'project_key' => 'P'.Str::upper(Str::random(6)),
             'visibility' => ProjectVisibility::Team,
             'created_by' => fn (array $attributes): string => self::teamOwner($attributes),
