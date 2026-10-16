@@ -6,6 +6,8 @@ use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\TeamController;
+use App\Http\Controllers\Api\V1\TeamMemberController;
+use App\Http\Controllers\Api\V1\TeamOwnershipController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -51,5 +53,13 @@ Route::middleware('auth')->group(function (): void {
 
     // `{team}` resolves only to the caller's own teams (TenancyServiceProvider); anything else is 404.
     Route::get('teams', [TeamController::class, 'index'])->name('teams.index');
+    // Creating or joining a team needs a verified email (API_SPEC.md §2).
+    Route::post('teams', [TeamController::class, 'store'])->middleware('verified')->name('teams.store');
     Route::get('teams/{team}', [TeamController::class, 'show'])->name('teams.show');
+    Route::patch('teams/{team}', [TeamController::class, 'update'])->name('teams.update');
+
+    Route::get('teams/{team}/members', [TeamMemberController::class, 'index'])->name('teams.members.index');
+    Route::patch('teams/{team}/members/{member}', [TeamMemberController::class, 'update'])->name('teams.members.update');
+    Route::delete('teams/{team}/members/{member}', [TeamMemberController::class, 'destroy'])->name('teams.members.destroy');
+    Route::post('teams/{team}/ownership-transfer', TeamOwnershipController::class)->name('teams.ownership.transfer');
 });

@@ -2,7 +2,7 @@ Scenario ID,Coverage,Preconditions,Action,Expected result,Execution status
 AUTH-01,cross-team task read,member of team A; task belongs to team B,GET /tasks/{id} using team A session,404 and no private metadata,Specified; not executed
 AUTH-02,private project non-disclosure,team Admin not project member,"GET private project, list projects, search, export",404 for direct access; absent from list/search/export,Specified; not executed
 AUTH-03,Owner private override,team Owner not explicitly project member,GET private project,200 and project visible,Specified; not executed
-AUTH-04,Viewer mutation,team Viewer,POST task or PATCH project,403 and no mutation,Specified; not executed
+AUTH-04,Viewer mutation,team Viewer,POST task or PATCH project,403 and no mutation,"Partially automated: team mutations in tests/Feature/Teams/TeamManagementTest.php; project and task mutations follow with CORE-003/CORE-005"
 AUTH-05,attachment revocation,member previously had access then removed,GET previously issued attachment download,403/404 and no content,Specified; not executed
 TASK-01,subtask depth,root→child→grandchild→great-grandchild exists,POST fourth descendant level,422 validation error; no row,Specified; not executed
 TASK-02,subtask cycle,A parent of B,PATCH A parent_task_id=B,422 and unchanged tree,Specified; not executed
@@ -16,7 +16,7 @@ GH-01,webhook replay,valid signed GitHub webhook,send same delivery twice,one pr
 GH-02,GitHub conflict v1.1,pending local task update,receive conflicting GitHub issue update,local value retained; conflict event created,Specified; not executed
 I18N-01,RTL and LTR,Arabic/English user preferences,"navigate board, task detail, forms","direction, logical spacing, localized strings correct",Specified; not executed
 OPS-01,backup restore,seeded Cloud/Self-Hosted datasets,"backup, restore in isolated environment",referential integrity and data match; no leaked secrets,Specified; not executed
-TEAM-01,last owner removal,team with a single Owner and other members,DELETE own membership without POST ownership-transfer,rejected; team still has exactly one Owner,Specified; not executed
+TEAM-01,last owner removal,team with a single Owner and other members,DELETE own membership without POST ownership-transfer,rejected; team still has exactly one Owner,Automated: tests/Feature/Teams/TeamManagementTest.php (409 conflict)
 INV-01,invitation expiry,email invitation older than 7 days,POST /invitations/{token}/accept as the verified invitee,410 expired; no membership created,Specified; not executed
 INV-02,share-link redemption limit,share link with use_count 20 and max_uses 20,21st verified user POST accept,rejected; no membership created; use_count unchanged,Specified; not executed
 INV-03,invitation email binding,email invitation for a@x.com; signed-in user has a different verified email,POST accept,rejected; no membership created,Specified; not executed

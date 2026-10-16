@@ -59,12 +59,12 @@ it('lets only the Owner change roles, and never the Owner own role', function ()
         ->and(Gate::forUser($this->users['outsider'])->allows('changeMemberRole', [$this->team, $this->users['member']]))->toBeFalse();
 });
 
-it('lets the Owner remove others and anyone but the Owner leave', function () {
+it('lets the Owner remove others and any member try to leave (RemoveMember refuses the Owner)', function () {
     $owner = $this->users['owner'];
     $remove = fn (User $actor, User $member) => Gate::forUser($actor)->allows('removeMember', [$this->team, $member]);
 
     expect($remove($owner, $this->users['admin']))->toBeTrue()
-        ->and($remove($owner, $owner))->toBeFalse()
+        ->and($remove($owner, $owner))->toBeTrue()
         ->and($remove($this->users['admin'], $this->users['member']))->toBeFalse()
         ->and($remove($this->users['viewer'], $this->users['viewer']))->toBeTrue()
         ->and($remove($this->users['member'], $owner))->toBeFalse()

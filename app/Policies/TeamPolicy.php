@@ -36,20 +36,29 @@ class TeamPolicy
         return $team->roleOf($user)?->managesTeam() ?? false;
     }
 
+    /** Only the Owner assigns roles (API_SPEC.md §3: "Owner alone may assign Admin"). */
+    public function changeRoles(User $user, Team $team): bool
+    {
+        return $this->isOwner($user, $team);
+    }
+
     /** PATCH /teams/{team}/members/{member}: Owner only; the Owner's own role changes only by transfer. */
     public function changeMemberRole(User $user, Team $team, User $member): bool
     {
-        return $this->isOwner($user, $team) && $member->id !== $team->owner_user_id;
+        return $this->changeRoles($user, $team) && $member->id !== $team->owner_user_id;
     }
 
-    /** DELETE /teams/{team}/members/{member}: Owner removes others, anyone may leave, the Owner never leaves. */
+    /**
+     * DELETE /teams/{team}/members/{member}: the Owner removes others; any member may try to leave.
+     * The Owner leaving is then refused by RemoveMember (409, TEAM-01), not here.
+     */
     public function removeMember(User $user, Team $team, User $member): bool
     {
-        if ($member->id === $team->owner_user_id || $team->roleOf($member) === null) {
+        if ($team->roleOf($member) === null) {
             return false;
         }
 
-        return $member->id === $user->id ? $team->roleOf($user) !== null : $this->isOwner($user, $team);
+        return $member->id === $user->id || $this->isOwner($user, $team);
     }
 
     public function transferOwnership(User $user, Team $team): bool
