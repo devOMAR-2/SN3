@@ -132,6 +132,14 @@ All under the `auth` group of `/api/v1`. `{project}` resolves through Accessible
 - **Structured `info` events, IDs only** (never titles, descriptions, label names or checklist text; ADR-020 §9): `task.created`, `task.updated` (`fields`: the names of the changed fields), `task.status_changed` (`from`, `to`), `task.assignee_changed` (`from`, `to`), `task.trashed`, `task.restored_from_trash`, `task.assignments_released`, `label.created`, `label.updated`, `label.deleted` (`tasks`), `task.checklist_item_created`, `task.checklist_item_updated` (`fields`), `task.checklist_item_deleted`. Each carries `team_id`, `project_id`, `actor_id` and the resource IDs. CORE-008 replaces them with the activity model.
 - **Jobs:** CORE-005 dispatches none. ADR-022's rule stands for the first one (CORE-008/009 notifications, GH-*): carry IDs only and re-resolve the project at run time, so a trashed project gets no queued writes (DEL-01).
 
+### 11. Team export (CORE-012, ADR-024 §2)
+Once CORE-012 landed, CORE-005 appended four sections to `TeamExportFormat::SECTIONS`, an additive change that keeps `format_version` 1:
+
+- `labels`, `tasks`, `task_labels` and `task_checklist_items`, each scoped through `TeamExportContext::projectIds()` (AccessibleProjects for the requesting Owner, so private projects are included and trashed projects are not) and built from explicit field allowlists. The generated `priority_rank` and `due_sort` columns and the concurrency `version` are never exported; checklist items use the API's names (`text`, `checked`).
+- **Trashed tasks are excluded**, with their label links and checklist items, consistent with ADR-024's exclusion of trashed projects: no read path shows them, and only a manager's restore brings them back. A restored task appears in the next export.
+- `tasks.position` is exported as the stored decimal string (it is fractional once CORE-007 moves tasks); `key` is computed as in the API.
+- `TeamExportTest` covers the records, the exact field lists, the private project's tasks in the Owner's export, trashed and foreign tasks left out, the manifest counts and SHA-256, the credential-name scan over every section, and the scoping for a non-Owner context. Build time is measured in ADR-024 §8.
+
 ## Consequences
 
 - **CORE-006/007** build task detail, board and list on these endpoints. CORE-007 adds `/move` and decides whether the representation exposes `position`; it should keep "status change via PATCH appends to the column".

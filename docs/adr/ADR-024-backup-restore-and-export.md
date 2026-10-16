@@ -40,6 +40,10 @@ data/members.json
 data/projects.json
 data/project_members.json
 data/statuses.json
+data/labels.json                 (CORE-005)
+data/tasks.json                  (CORE-005)
+data/task_labels.json            (CORE-005)
+data/task_checklist_items.json   (CORE-005)
 ```
 
 - **`manifest.json`:** `format` (`sn3.team-export`), `format_version` (`1`), `export_id`, `team_id`, `requested_by`, `generated_at`, and `sections`, a list of `{name, file, records, sha256}` in file order. A consumer can check every file against its checksum and count.
@@ -50,6 +54,11 @@ data/statuses.json
   - `projects`: `id`, `name`, `key`, `description`, `visibility`, `sprints_enabled`, `created_by`, `archived_at`, `created_at`, `updated_at`.
   - `project_members`: `project_id`, `user_id`, `project_role`, `added_by`, `created_at`.
   - `statuses`: `id`, `project_id`, `name`, `category`, `position` (0-based), `color`, `is_default`, `created_at`, `updated_at`.
+  - Added by CORE-005 (ADR-023 §11), still format version 1:
+    - `labels`: `id`, `project_id`, `name`, `color`, `created_at`, `updated_at`.
+    - `tasks`: `id`, `project_id`, `key`, `number`, `title`, `description`, `status_id`, `position` (the stored rank within the status, a decimal string), `priority`, `assignee_user_id`, `due_date` (`YYYY-MM-DD`), `parent_task_id`, `created_by`, `created_at`, `updated_at`. The generated sort columns and `version` are not exported.
+    - `task_labels`: `task_id`, `label_id`, `created_at`, ordered by `(task_id, label_id)` (the table has no ID).
+    - `task_checklist_items`: `id`, `task_id`, `text`, `checked`, `position` (0-based), `completed_by`, `completed_at`, `created_at`, `updated_at`.
 - **Versioning rule:** adding a section, or a field to a section, is backwards compatible and keeps `format_version`; consumers must ignore sections and fields they do not know. Renaming or removing a field, or changing its meaning, needs a new `format_version`. Import is outside public v1.0 (DATABASE.md §13), but every record keeps its UUID so a later importer can remap IDs.
 - **Registry for later tasks.** A section is a class implementing `App\Domain\Exports\TeamExportSection` (`name()`, `records(TeamExportContext)`), listed in `App\Domain\Exports\TeamExportFormat::SECTIONS`. CORE-005 adds tasks by writing `TasksSection` and appending one line there; CORE-007 and later tasks do the same for comments, checklist items, labels, attachment manifests and so on. The interface's docblock states the rules: scope through the context, allowlist fields, stream by ID, additive changes only. `TeamExportTest` checks that section names are unique and well-formed and that no field anywhere is named like a credential.
 - **Writer:** `TeamExportWriter` streams each section to its own file (memory stays flat), writes the manifest, and builds the zip with `PharData`. PHP bundles Phar, while the image has no `zip` extension, and adding one would change the image for one feature. Entries are deflated when zlib is available. Entry names come from the format, never from data (no path traversal).
@@ -59,7 +68,7 @@ data/statuses.json
 - **Owner only** (API_SPEC §3, `TeamPolicy::export` from ADR-017 §5). An Admin, Member or Viewer gets `403` whatever the body (AUTH-04). They get `403` on `GET …/exports/{id}` too, *before* the export ID is looked up, so they cannot tell whether an export exists. A non-member, a trashed team, a random or malformed ID: `404` (DB-T01).
 - **Only the requesting Owner** reads or downloads an export. After an ownership transfer the former Owner gets `403` (no right any more), and the new Owner gets `404` (not their export; they can start their own). This is stricter than "Owner", and the conservative reading of "authorization-scoped" exports.
 - **Content: what the requester can see, resolved when the job runs.** `TeamExportContext::projectIds()` goes through `AccessibleProjects::inTeam()` for the requester (DATABASE.md §10.2), so the Owner's export holds every project, private ones included (DECIDED-003 Owner override), and the scoping would hold for any other actor (tested with an Admin: no private project, no private statuses; DB-T02).
-- **Trashed projects are left out.** No read path shows them (ADR-022 §2), and they are recovered with their content within 30 days. **Archived teams can be exported.** An export reads the team and changes nothing in it, and archiving is "read-only, fully readable". It is the obvious step before deleting an archived team.
+- **Trashed projects are left out.** No read path shows them (ADR-022 §2), and they are recovered with their content within 30 days. **Tasks in the task trash are left out too** (CORE-005, ADR-023 §11), with their label links and checklist items, for the same reason: only a project manager's restore brings them back. **Archived teams can be exported.** An export reads the team and changes nothing in it, and archiving is "read-only, fully readable". It is the obvious step before deleting an archived team.
 - **Never in an export:** password hashes, remember tokens, sessions, idempotency records, tokens of any kind, users' preferences or other teams. Sections build records from named fields only; a test sets a remember token and a session and checks that neither, nor any member's password hash, appears in the archive.
 
 ### 4. Lifecycle, storage and expiry
@@ -98,8 +107,9 @@ Structured logs with IDs only (until CORE-008): `team_export.requested`, `team_e
 
 ### 8. Limits and follow-ups
 
-- **Export size:** the job runs within the worker's `--timeout=60` (below `DB_QUEUE_RETRY_AFTER=90`, ADR-015). Today's sections are small. Before tasks, comments and attachments make archives large, those tasks must measure exports of a realistic team and, if needed, give the job its own longer timeout on a dedicated queue with a matching `retry_after`, or split the build.
-- **CORE-005 / CORE-007 and later:** add sections (§2). Attachments add a manifest section and the binary files under `files/` in the same archive, which streams files from their disk; with an attachment archive, `TeamExportWriter` should stop rewriting the zip for compression (PharData) and stream it instead.
+- **Export size:** the job runs within the worker's `--timeout=60` (below `DB_QUEUE_RETRY_AFTER=90`, ADR-015). Before comments and attachments make archives large, those tasks must measure exports of a realistic team and, if needed, give the job its own longer timeout on a dedicated queue with a matching `retry_after`, or split the build.
+  - **Measured with the CORE-005 sections** (`TeamExportWriter::build` on a 2-vCPU development container, PostgreSQL 16 on the same host, 10 projects and 11 members): 10,000 tasks with 40,000 checklist items and 20,000 label links took **9.1 s** (2.8 MB archive); 50,000 tasks with 200,000 checklist items and 100,000 links took **33.3 s** (13.9 MB). Peak memory stayed at 46.5 MB in both (the sections stream). Build time grows linearly, so a single team stays inside the 60-second timeout up to roughly 80,000 tasks with checklists of this size. That is far beyond a small team (BRD), so the timeout stays; CORE-008 must re-measure with comments and attachments, which will dominate.
+- **CORE-005:** added `labels`, `tasks`, `task_labels` and `task_checklist_items` (§2), excluding trashed tasks (§3). **CORE-008 and later:** add sections (§2). Attachments add a manifest section and the binary files under `files/` in the same archive, which streams files from their disk; with an attachment archive, `TeamExportWriter` should stop rewriting the zip for compression (PharData) and stream it instead.
 - **CORE-006 (UI):** the team deletion screen offers "Export first" (DECIDED-011), starts an export and shows its progress and download. Until then the offer is in API_SPEC §3 and docs/SELF_HOSTING.md.
 - **Backups:** public-key encryption, point-in-time recovery (WAL archiving) for Cloud, and an upload hook for offsite copies. GH-008 adds the upgrade and rollback rehearsal to the same CI job.
 

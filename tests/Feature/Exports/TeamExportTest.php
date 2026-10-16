@@ -1,7 +1,11 @@
 <?php
 
 use App\Domain\Exports\Actions\RequestTeamExport;
+use App\Domain\Exports\Sections\LabelsSection;
 use App\Domain\Exports\Sections\StatusesSection;
+use App\Domain\Exports\Sections\TaskChecklistItemsSection;
+use App\Domain\Exports\Sections\TaskLabelsSection;
+use App\Domain\Exports\Sections\TasksSection;
 use App\Domain\Exports\TeamExportContext;
 use App\Domain\Exports\TeamExportFormat;
 use App\Domain\Exports\TeamExportSection;
@@ -10,8 +14,11 @@ use App\Domain\Projects\ProjectRole;
 use App\Domain\Teams\TeamRole;
 use App\Http\Resources\TeamExportResource;
 use App\Jobs\BuildTeamExport;
+use App\Models\Label;
 use App\Models\Project;
 use App\Models\ProjectMembership;
+use App\Models\Task;
+use App\Models\TaskChecklistItem;
 use App\Models\Team;
 use App\Models\TeamExport;
 use App\Models\TeamMembership;
@@ -143,6 +150,7 @@ it('exports the team asynchronously for its Owner: 202, then a ready export with
     $entries = downloadExport($this->owner, $url);
     expect(array_keys($entries))->toBe([
         'manifest.json', 'data/team.json', 'data/members.json', 'data/projects.json', 'data/project_members.json', 'data/statuses.json',
+        'data/labels.json', 'data/tasks.json', 'data/task_labels.json', 'data/task_checklist_items.json',
     ]);
 
     $context = ['team_id' => $this->team->id, 'export_id' => $id, 'actor_id' => $this->owner->id];
@@ -164,7 +172,7 @@ it('writes a versioned manifest and one JSON array per section, with counts and 
         'requested_by' => $this->owner->id,
     ])->and($manifest['generated_at'])->toMatch('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/');
 
-    expect(array_column($manifest['sections'], 'name'))->toBe(['team', 'members', 'projects', 'project_members', 'statuses']);
+    expect(array_column($manifest['sections'], 'name'))->toBe(['team', 'members', 'projects', 'project_members', 'statuses', 'labels', 'tasks', 'task_labels', 'task_checklist_items']);
 
     foreach ($manifest['sections'] as $section) {
         $content = $entries[$section['file']];
@@ -222,6 +230,11 @@ it('writes a versioned manifest and one JSON array per section, with counts and 
 
 it('never includes another team, trashed projects or anything secret (DB-T01, DATABASE.md §13)', function () {
     $trashed = Project::factory()->for($this->team)->create(['name' => 'Binned project', 'deleted_at' => now()->subDay()]);
+    // Every section has records, so the credential-name scan below covers the task sections too.
+    $task = Task::factory()->for($this->private)->create(['assignee_user_id' => $this->members['member']->id]);
+    $label = Label::factory()->for($this->private)->create();
+    DB::table('task_labels')->insert(['task_id' => $task->id, 'project_id' => $this->private->id, 'label_id' => $label->id]);
+    TaskChecklistItem::factory()->for($task)->create();
     $this->owner->forceFill(['remember_token' => 'remember-'.Str::random(40)])->save();
     DB::table('sessions')->insert(['id' => 'session-'.Str::random(30), 'user_id' => $this->owner->id, 'payload' => 'payload-secret', 'last_activity' => time()]);
 
@@ -257,7 +270,73 @@ it('never includes another team, trashed projects or anything secret (DB-T01, DA
     };
     $collect($decoded);
 
-    expect(collect($keys)->filter(fn (string $key) => preg_match('/password|token|secret|session|signature|remember/i', $key) === 1)->all())->toBe([]);
+    expect(collect($decoded)->except('manifest.json')->every(fn (array $records) => $records !== []))->toBeTrue()
+        ->and(collect($keys)->filter(fn (string $key) => preg_match('/password|token|secret|session|signature|remember/i', $key) === 1)->all())->toBe([]);
+});
+
+it('exports live tasks, labels, label links and checklists of every project the Owner sees, private ones included (CORE-005)', function () {
+    $bug = Label::factory()->for($this->private)->create(['name' => 'خطأ', 'color' => '#AA0000']);
+    $publicTask = Task::factory()->for($this->public)->create(['title' => 'Public task', 'priority' => 'urgent', 'due_date' => '2026-11-01']);
+    $privateTask = Task::factory()->for($this->private)->create(['title' => 'مهمة سرية', 'assignee_user_id' => $this->members['member']->id]);
+    $subtask = Task::factory()->childOf($privateTask)->create(['title' => 'Subtask']);
+    DB::table('task_labels')->insert(['task_id' => $privateTask->id, 'project_id' => $this->private->id, 'label_id' => $bug->id]);
+    $item = TaskChecklistItem::factory()->for($privateTask)->create(['content' => 'Step one']);
+
+    // In the task trash: left out, with its label link and checklist (ADR-023 §11).
+    $trashed = Task::factory()->for($this->private)->create(['title' => 'Binned task']);
+    DB::table('task_labels')->insert(['task_id' => $trashed->id, 'project_id' => $this->private->id, 'label_id' => $bug->id]);
+    $trashedItem = TaskChecklistItem::factory()->for($trashed)->create(['content' => 'Binned step']);
+    $trashed->delete();
+
+    $foreignTask = Task::factory()->for($this->foreign)->create(['title' => 'Foreign task']);
+
+    $id = requestExport($this->owner, $this->team)->assertStatus(202)->json('data.id');
+    $entries = downloadExport($this->owner, downloadUrlFor($id));
+    $manifest = collect(json_decode($entries['manifest.json'], true, flags: JSON_THROW_ON_ERROR)['sections'])->keyBy('name');
+    $data = fn (string $name) => collect(json_decode($entries["data/{$name}.json"], true, flags: JSON_THROW_ON_ERROR));
+
+    foreach (['labels' => 1, 'tasks' => 3, 'task_labels' => 1, 'task_checklist_items' => 1] as $name => $count) {
+        expect($manifest[$name])->toMatchArray(['file' => "data/{$name}.json", 'records' => $count])
+            ->and($manifest[$name]['sha256'])->toBe(hash('sha256', $entries["data/{$name}.json"]))
+            ->and($data($name))->toHaveCount($count);
+    }
+
+    $tasks = $data('tasks')->keyBy('id');
+    expect($tasks->keys()->all())->toEqualCanonicalizing([$publicTask->id, $privateTask->id, $subtask->id])
+        ->and(array_keys($tasks[$privateTask->id]))->toBe([
+            'id', 'project_id', 'key', 'number', 'title', 'description', 'status_id', 'position', 'priority',
+            'assignee_user_id', 'due_date', 'parent_task_id', 'created_by', 'created_at', 'updated_at',
+        ])
+        ->and($tasks[$privateTask->id])->toMatchArray([
+            'project_id' => $this->private->id,
+            'key' => 'SEC-1',
+            'title' => 'مهمة سرية',
+            'assignee_user_id' => $this->members['member']->id,
+            'priority' => 'none',
+        ])
+        ->and($tasks[$subtask->id]['parent_task_id'])->toBe($privateTask->id)
+        ->and($tasks[$publicTask->id])->toMatchArray(['key' => 'WEB-1', 'priority' => 'urgent', 'due_date' => '2026-11-01']);
+
+    expect($data('labels')->sole())->toBe([
+        'id' => $bug->id,
+        'project_id' => $this->private->id,
+        'name' => 'خطأ',
+        'color' => '#AA0000',
+        'created_at' => $bug->created_at->utc()->toIso8601ZuluString(),
+        'updated_at' => $bug->updated_at->utc()->toIso8601ZuluString(),
+    ]);
+
+    expect($data('task_labels')->sole())->toMatchArray(['task_id' => $privateTask->id, 'label_id' => $bug->id])
+        ->and(array_keys($data('task_labels')->sole()))->toBe(['task_id', 'label_id', 'created_at'])
+        ->and($data('task_labels')->sole()['created_at'])->toMatch('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/');
+
+    expect($data('task_checklist_items')->sole())->toMatchArray(['id' => $item->id, 'task_id' => $privateTask->id, 'text' => 'Step one', 'checked' => false, 'position' => 0])
+        ->and(array_keys($data('task_checklist_items')->sole()))->toBe(['id', 'task_id', 'text', 'checked', 'position', 'completed_by', 'completed_at', 'created_at', 'updated_at']);
+
+    $all = implode("\n", $entries);
+    foreach ([$trashed->id, 'Binned task', $trashedItem->id, 'Binned step', $foreignTask->id, 'Foreign task', 'priority_rank', 'due_sort', 'infinity', '"version"'] as $absent) {
+        expect($all)->not->toContain($absent);
+    }
 });
 
 it('exports an archived team: an export reads and changes nothing (ADR-024 §3)', function () {
@@ -592,6 +671,24 @@ it('marks the export failed and removes any file when the job finally fails', fu
     $this->actingAs($this->owner)->getJson("/api/v1/teams/{$this->team->id}/exports/{$id}")->assertOk()->assertJsonPath('data.status', 'failed');
 });
 
+it('deletes the work directory when the job finally fails, even one a killed attempt left behind', function () {
+    Queue::fake();
+    $id = requestExport($this->owner, $this->team)->assertStatus(202)->json('data.id');
+
+    // A timed-out (killed) last attempt never reached handle()'s cleanup; only failed() runs.
+    $workDir = "{$this->workRoot}/{$id}";
+    mkdir("{$workDir}/data", 0700, true);
+    file_put_contents("{$workDir}/data/tasks.json", '["plaintext"]');
+    $other = "{$this->workRoot}/".Str::uuid7();
+    mkdir($other, 0700, true);
+
+    (new BuildTeamExport($id))->failed(new RuntimeException('timed out'));
+
+    expect(is_dir($workDir))->toBeFalse()
+        ->and(is_dir($other))->toBeTrue()
+        ->and(TeamExport::query()->findOrFail($id)->status)->toBe(TeamExportStatus::Failed);
+});
+
 it('builds in a deterministic work directory, clears what a killed attempt left there, and removes it afterwards', function () {
     Queue::fake();
     $id = requestExport($this->owner, $this->team)->assertStatus(202)->json('data.id');
@@ -628,6 +725,23 @@ it('keeps the section list well-formed for later tasks to extend', function () {
 
     expect($names)->toBe(array_values(array_unique($names)))
         ->and(collect($names)->every(fn (string $name) => preg_match('/^[a-z][a-z0-9_]*$/', $name) === 1))->toBeTrue();
+});
+
+it('scopes the task sections to the projects the requester can see (DB-T02)', function () {
+    $hidden = Task::factory()->for($this->private)->create();
+    $label = Label::factory()->for($this->private)->create();
+    DB::table('task_labels')->insert(['task_id' => $hidden->id, 'project_id' => $this->private->id, 'label_id' => $label->id]);
+    TaskChecklistItem::factory()->for($hidden)->create();
+    $visible = Task::factory()->for($this->public)->create();
+
+    $export = new TeamExport;
+    $export->forceFill(['id' => (string) Str::uuid7()]);
+    $forAdmin = new TeamExportContext($this->team, $this->members['admin'], $export, app(AccessibleProjects::class));
+
+    expect(collect(app(TasksSection::class)->records($forAdmin))->pluck('id')->all())->toBe([$visible->id])
+        ->and(iterator_to_array(app(LabelsSection::class)->records($forAdmin)))->toBe([])
+        ->and(iterator_to_array(app(TaskLabelsSection::class)->records($forAdmin)))->toBe([])
+        ->and(iterator_to_array(app(TaskChecklistItemsSection::class)->records($forAdmin)))->toBe([]);
 });
 
 it('scopes sections to the projects the requester can see (DB-T02)', function () {
