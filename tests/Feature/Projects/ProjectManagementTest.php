@@ -12,6 +12,7 @@ use App\Models\TeamMembership;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Tenancy\AccessibleProjects;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -557,4 +558,106 @@ it('logs membership and visibility audit events without project names', function
         'role' => 'contributor',
     ])->once();
     Log::shouldNotHaveReceived('info', fn (string $message, array $context = []) => str_contains(json_encode($context), 'Secret merger'));
+});
+
+// --- Review follow-ups ------------------------------------------------------------------------------
+
+it('lets a Team Admin manage a team-visible project\'s settings but not its membership (ADR-020 §5)', function () {
+    $admin = $this->members['admin'];
+    $project = Project::factory()->for($this->team)->create(['name' => 'Ops']);
+
+    // Pre-adding themselves would keep their access after the project is made private.
+    $this->actingAs($admin)->putJson("/api/v1/projects/{$project->id}/members/{$admin->id}", ['role' => 'manager'])
+        ->assertForbidden();
+    $this->actingAs($admin)->patchJson("/api/v1/projects/{$project->id}", ['visibility' => 'private'], ['If-Match' => '"1"'])
+        ->assertOk();
+    $this->actingAs($admin)->getJson("/api/v1/projects/{$project->id}")->assertNotFound();
+
+    expect(projectRolesOf($project))->toBe([]);
+});
+
+it('answers 404, not 409, when the project became invisible while the request waited', function () {
+    $admin = $this->members['admin'];
+    $project = Project::factory()->for($this->team)->create(['name' => 'Ops']);
+    $stale = app(AccessibleProjects::class)->findOrFail($admin, $project->id);
+
+    // The Owner makes the project private after the Admin's request passed its policy check.
+    $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$project->id}", ['visibility' => 'private'], ['If-Match' => '"1"'])->assertOk();
+
+    expect(fn () => app(UpdateProject::class)->handle($stale, $admin, 2, ['name' => 'Renamed']))
+        ->toThrow(ModelNotFoundException::class)
+        ->and($project->refresh()->name)->toBe('Ops');
+});
+
+it('answers 423 before 412 for an archived project with a stale version', function () {
+    $project = Project::factory()->for($this->team)->archived()->create();
+
+    $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$project->id}", ['name' => 'X'], ['If-Match' => '"7"'])
+        ->assertStatus(423)
+        ->assertJsonPath('error.code', 'resource_locked');
+});
+
+it('lists projects with a constant number of queries', function () {
+    $admin = $this->members['admin'];
+    $countQueries = function () use ($admin): int {
+        DB::flushQueryLog();
+        DB::enableQueryLog();
+        $this->actingAs($admin)->getJson("/api/v1/teams/{$this->team->id}/projects?limit=100")->assertOk();
+        DB::disableQueryLog();
+
+        return count(DB::getQueryLog());
+    };
+
+    Project::factory()->for($this->team)->count(2)->create();
+    $few = $countQueries();
+
+    Project::factory()->for($this->team)->count(20)->create();
+
+    expect($countQueries())->toBe($few);
+});
+
+it('answers a taken key with a generic 409 that names no project (ADR-020 §8)', function () {
+    $private = Project::factory()->for($this->team)->private()->create(['name' => 'Secret merger', 'project_key' => 'SECRET']);
+    $admin = $this->members['admin'];
+
+    $response = $this->actingAs($admin)->postJson("/api/v1/teams/{$this->team->id}/projects", ['name' => 'Mine', 'key' => 'SECRET'])
+        ->assertStatus(409)
+        ->assertJsonPath('error.code', 'conflict')
+        ->assertJsonPath('error.fields', null);
+
+    expect($response->getContent())->not->toContain($private->id)
+        ->not->toContain('Secret merger')
+        ->not->toContain('private');
+});
+
+it('audits key conflicts without naming the project that holds the key', function () {
+    Project::factory()->for($this->team)->private()->create(['project_key' => 'SECRET']);
+    $admin = $this->members['admin'];
+    Log::spy();
+
+    $this->actingAs($admin)->postJson("/api/v1/teams/{$this->team->id}/projects", ['name' => 'Mine', 'key' => 'SECRET'])
+        ->assertStatus(409);
+
+    Log::shouldHaveReceived('warning')->with('project.key_conflict', ['team_id' => $this->team->id, 'actor_id' => $admin->id])->once();
+});
+
+it('rate-limits project create and update per user to slow key probing', function () {
+    config(['sn3.rate_limits.project_writes_per_minute' => 3]);
+    $admin = $this->members['admin'];
+
+    foreach (['AAA', 'BBB', 'CCC'] as $key) {
+        $this->actingAs($admin)->postJson("/api/v1/teams/{$this->team->id}/projects", ['name' => $key, 'key' => $key])->assertCreated();
+    }
+
+    $this->actingAs($admin)->postJson("/api/v1/teams/{$this->team->id}/projects", ['name' => 'DDD', 'key' => 'DDD'])
+        ->assertStatus(429)
+        ->assertJsonPath('error.code', 'rate_limited')
+        ->assertHeader('Retry-After');
+
+    $project = Project::query()->where('project_key', 'AAA')->firstOrFail();
+    $this->actingAs($admin)->patchJson("/api/v1/projects/{$project->id}", ['key' => 'ZZZ'], ['If-Match' => '"1"'])->assertStatus(429);
+
+    // Reads and other users are unaffected.
+    $this->actingAs($admin)->getJson("/api/v1/projects/{$project->id}")->assertOk();
+    $this->actingAs($this->owner)->postJson("/api/v1/teams/{$this->team->id}/projects", ['name' => 'Own', 'key' => 'OWN'])->assertCreated();
 });

@@ -60,7 +60,7 @@ Archive, restore, trash and purge (`/archive`, `/restore`, `DELETE /projects/{pr
 - the user has a `project_memberships` row for it;
 - the user's team role is `owner`.
 
-- **`query()`, `inTeam()`, `findOrFail()`:** these serve the list, the binding and the detail route. They eager-load the viewer's own team and project memberships, so policy checks cost no extra queries.
+- **`query()`, `inTeam()`, `findOrFail()`:** these serve the list, the binding and the detail route. They eager-load the viewer's own team and project memberships and mark each project as loaded for that viewer (`Project::$membershipsLoadedFor`), so policy checks cost no extra queries and a list takes a constant number of queries.
 - **`constrain(Builder $projects, User $user)`:** applies the same predicate to any project query. Later resources must reach projects through it or through the `{project}` binding, for example `Task::query()->whereHas('project', fn ($p) => $accessibleProjects->constrain($p, $user))`. A `Project::find()` followed by a policy check is not allowed.
 - **Hidden means 404:** a hidden project gives the same 404 `not_found` envelope as a random or malformed ID. The body and logs never include its name, key or ID (API_SPEC §14.2). That holds for every child endpoint, members included.
 - **Lists:** the list applies the predicate before cursor pagination, so `has_more`, `next_cursor` and page sizes only ever count visible projects. No endpoint returns a project count.
@@ -72,20 +72,19 @@ The policy computes the intersection of team role and project role, with the Own
 | Team role | Team-visible project | Private project |
 |---|---|---|
 | Owner | view, manage, contribute | view, manage, contribute (no row needed) |
-| Admin | view, manage, contribute | nothing, unless a member. As `manager`: manage and contribute. As `contributor`: contribute. |
+| Admin | view, settings, contribute; members only as `manager` | nothing, unless a member. As `manager`: manage and contribute. As `contributor`: contribute. |
 | Member | view, contribute; manage as `manager` | nothing, unless a member. As `manager`: manage and contribute. As `contributor`: contribute. |
 | Viewer | view | view, only as a member |
 
 - **Abilities:** "manage" is `update` (PATCH) and `manageMembers` (PUT/DELETE members). "Contribute" (`contribute`) is the write ability that task and comment endpoints use from CORE-005 on. The Projects tests cover the matrix for all 26 combinations.
 - **Spec conflict resolved:**
-  - API_SPEC §12 says a Team Admin manages project settings and members "only if Project Manager".
-  - §17 ("Final effective permission rules (normative)") and DATABASE.md §19 say "Team-visible project: Owner/Admin can manage project settings".
-  - API_SPEC §0.2 ranks the final registers above earlier contract text, so the Admin manages **team-visible** projects (settings and members) without a membership row.
+  - API_SPEC §12 says a Team Admin manages project settings and members "only if Project Manager"; §4's PATCH and member rows say "Owner or Project Manager".
+  - §17 ("Final effective permission rules (normative)") and DATABASE.md §19 say "Team-visible project: Owner/Admin can manage project settings". They say nothing about membership.
+  - API_SPEC §0.2 ranks the final registers above earlier contract text, so the Admin edits a **team-visible** project's **settings** (PATCH) without a membership row. **Membership** (PUT/DELETE members) follows §4: Owner or Project Manager only.
   - For **private** projects the stricter rule applies: an Admin manages only as an explicit `manager`.
-  - API_SPEC §12 now carries a note that records this reading.
-- **Consequences of that rule:**
-  - An Admin may add themselves to a team-visible project. The BRD §7 footnote forbids this only for private projects.
-  - An Admin may make a team-visible project private, and then loses access to it unless they are a member.
+  - API_SPEC §12 carries a note that records this reading.
+- **Why membership is excluded:** if an Admin could add themselves to every team-visible project, they would keep access to any of them that is later made private, which defeats DECIDED-003 ("Admin cannot add themselves" to private projects).
+- **Consequence:** an Admin may make a team-visible project private, and then loses access to it unless they are a member.
 - **Team Viewer:** read-only regardless of project role (DECIDED-003). PATCH and member changes give 403 even for a Viewer with the `manager` role.
 - **403 vs 404:** a 403 only ever concerns a project the caller can already see. Everyone else gets the 404 from the binding first.
 
@@ -96,15 +95,17 @@ The policy computes the intersection of team role and project role, with the Own
 
 ### 7. Locking, concurrency, idempotency
 - **Lock order:**
-  - Every project writer (`CreateProject`, `UpdateProject`, `SetProjectMember`, `RemoveProjectMember`) locks the team row first (`Team::WRITE_LOCK`), as the team writers do (ADR-018 §4). It then locks the project row (`Project::WRITE_LOCK`, `FOR NO KEY UPDATE`; `OptimisticLock` uses `FOR UPDATE` for PATCH), then memberships.
+  - Every project writer (`CreateProject`, `UpdateProject`, `SetProjectMember`, `RemoveProjectMember`) locks the team row first (`Team::WRITE_LOCK`), as the team writers do (ADR-018 §4). It then locks the project row (`Project::WRITE_LOCK`, `FOR NO KEY UPDATE`, also for the version-checked PATCH, so future child inserts such as tasks are not blocked by the foreign-key check), then memberships.
   - That gives one lock order (team → project → memberships) shared with `RemoveMember`, `ChangeMemberRole` and `TransferOwnership`, so writers cannot deadlock or interleave.
 - **Re-checks on the locked rows:** `ProjectWriteLock` checks these after locking:
   - an archived team or archived project gives 423 `resource_locked` (reads stay available);
+  - the actor must still see the project; if it became invisible while they waited (made private, membership removed), the answer is 404, exactly like a trashed or missing project (API_SPEC §0.4);
   - the actor must still hold the ability, because their team or project role may have changed while they waited; if not, 409 `conflict` ("reload and retry"), as ADR-018 does for a former Owner;
+  - for PATCH these checks run before the `If-Match` comparison, so an archived project answers 423 even with a stale version;
   - for a new project member, the target's team membership must still exist (read after the team lock), otherwise 404.
 - **Real-process races:** `ProjectConcurrencyTest` races real processes. A team removal racing a project add never leaves an orphan or produces a 500. Two creates with the same key produce one project and one 409, because the unique index is the authority and its violation is mapped to 409.
 - **`If-Match`:** `PATCH /projects/{project}` requires it (API_SPEC §1.4): missing → 428, stale → 412, no change applied. A successful change increments `version`; a no-op keeps it.
-- **Membership endpoints are not versioned.** §1.4 lists Project, not memberships, among the versioned resources. The §18 row for `/projects*` and `/projects/*/members*` names the version column of that endpoint family. Bumping `projects.version` on every member change would make unrelated project edits fail with 412. `PUT` sets a role, which is idempotent by nature, and the row locks serialise concurrent changes.
+- **Membership endpoints are not versioned (a technical correction of API_SPEC §18).** §1.4 lists Project, not memberships, among the versioned resources. The §18 row for `/projects*` and `/projects/*/members*` names the version column of that endpoint family. Bumping `projects.version` on every member change would make unrelated project edits fail with 412. `PUT` sets a role, which is idempotent by nature, and the row locks serialise concurrent changes.
 - **No `Idempotency-Key` on project creation.** §1.4 requires the key for task creation, invitations, sprint start/close, GitHub sync and attachments, not for projects. A retried create hits the unique key and gets 409, so no duplicate can arise.
 
 ### 8. Membership details
@@ -120,6 +121,14 @@ Until the activity model arrives (CORE-008), these structured `info` events are 
 - `project.member_added` (`user_id`, `role`), `project.member_role_changed` (`user_id`, `from`, `to`), `project.member_removed` (`user_id`, `role`).
 
 Events carry IDs only, never project names or descriptions, because those may be private.
+
+### 10. Project keys are approved team-level metadata (DEC-018)
+`UNIQUE(team_id, project_key)` is required: keys appear in task keys and in `/t/{slug}/p/{key}`. A create or key change by someone who cannot see a private (or trashed) project therefore gets 409 for its key, which confirms that a project with that key exists. No code change can hide this while keys are unique per team. The BRD authorization invariant allows only team-level metadata that is explicitly approved, so the product owner approved project keys as such on 2026-10-16 (BRD DEC-018), with these mitigations:
+- **Generic 409:** the body is the standard `conflict` envelope with no project name, ID, visibility or fields. A test pins this.
+- **Rate limit:** `POST /teams/{team}/projects` and `PATCH /projects/{project}` share the `project-writes` limiter, 20 requests per minute per user (`SN3_RATE_LIMIT_PROJECT_WRITES_PER_MINUTE`; `0` disables it on self-hosted instances), answering `429 rate_limited` with `Retry-After`.
+- **Audit:** every key conflict logs `project.key_conflict` (warning) with `team_id` and `actor_id` only, so repeated conflicts by one user are visible to operators. The holding project is never logged.
+
+Only the key is disclosed. A project's name, description, members and content stay hidden as in §4.
 
 ## Consequences
 

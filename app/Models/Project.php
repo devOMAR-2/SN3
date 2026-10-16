@@ -52,6 +52,12 @@ class Project extends Model
     public const WRITE_LOCK = 'for no key update';
 
     /**
+     * The user whose own project memberships the `memberships` relation holds, when it was loaded
+     * filtered to that user (AccessibleProjects). Not a database column.
+     */
+    public ?string $membershipsLoadedFor = null;
+
+    /**
      * Team, creator, counters and version are set by the project actions only.
      *
      * @var list<string>
@@ -125,8 +131,10 @@ class Project extends Model
         if ($this->relationLoaded('memberships')) {
             $loaded = $this->memberships->firstWhere('user_id', $user->id);
 
-            if ($loaded !== null) {
-                return $loaded->project_role;
+            // When AccessibleProjects loaded the set for this user, a miss means "no membership"
+            // without another query (no N+1 on project lists).
+            if ($loaded !== null || $this->membershipsLoadedFor === $user->id) {
+                return $loaded?->project_role;
             }
         }
 

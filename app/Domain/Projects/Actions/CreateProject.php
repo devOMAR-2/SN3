@@ -74,6 +74,10 @@ final class CreateProject
                 throw $e;
             }
 
+            // Keys are approved team-level metadata (ADR-020 §10), but a conflict may still be a probe
+            // for a private project's key: log who hit it, never which project holds the key.
+            Log::warning('project.key_conflict', ['team_id' => $team->id, 'actor_id' => $creator->id]);
+
             throw new DomainConflictException('Project key is already taken in this team.', previous: $e);
         }
     }

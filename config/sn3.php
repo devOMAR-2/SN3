@@ -52,6 +52,8 @@ return [
         'register_per_minute' => (int) env('SN3_RATE_LIMIT_REGISTER_PER_MINUTE', 5),
         'password_reset_per_minute' => (int) env('SN3_RATE_LIMIT_PASSWORD_RESET_PER_MINUTE', 5),
         'verification_per_minute' => (int) env('SN3_RATE_LIMIT_VERIFICATION_PER_MINUTE', 6),
+        // Project create and PATCH, per user: slows probing of project keys (ADR-020 §10).
+        'project_writes_per_minute' => (int) env('SN3_RATE_LIMIT_PROJECT_WRITES_PER_MINUTE', 20),
     ],
 
     /*

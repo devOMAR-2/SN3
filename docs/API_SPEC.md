@@ -170,9 +170,9 @@ Create: `{ "name":"Website", "key":"WEB", "visibility":"team", "template_id":nul
   - Body `{ "role": "manager" | "contributor" }`. Returns `201` when it adds the user, `200` when it changes or keeps their role.
   - The user must be a member of the project's team; otherwise `404`.
 - **`DELETE /projects/{project_id}/members/{user_id}`:** `204`, or `404` without a membership.
-- **Member endpoints and versions:** they do not take `If-Match` and do not change `projects.version` (§18 names the endpoint family's version column; §1.4 versions the Project resource). Concurrent changes are serialised by row locks.
+- **Member endpoints and versions (technical correction of §18, ADR-020 §7):** §18 lists `projects.version` as the concurrency control for `/projects/*/members*`. They do not take `If-Match` and do not change `projects.version`: §1.4 versions the Project resource, and bumping its version on every membership change would make unrelated project edits fail with 412. Concurrent changes are serialised by row locks instead.
 - **Member list:** each entry has `user_id`, `name`, `role`, `added_by` and `added_at`. `email` is included only for the Team Owner and Admins.
-- **Status codes:** an archived team or project gives `423 resource_locked` on every write. A caller whose role changed while the request waited gets `409 conflict`.
+- **Status codes:** an archived team or project gives `423 resource_locked` on every write, checked before `If-Match` (423 wins over 412). A caller who can no longer see the project when their request reaches the lock gets `404`; one who still sees it but lost the right gets `409 conflict`. A taken key is a generic `409 conflict` that names no project (DEC-018); project create and `PATCH` are rate-limited per user (`429 rate_limited`).
 - **Not yet implemented:** `/archive`, `/restore`, `DELETE`, `/restore-deleted` (CORE-010) and `/activity` (CORE-008).
 
 ## 5. Workflows, labels and project configuration (P0/P1)
@@ -361,7 +361,7 @@ Notifications triggered by assignment, comment mention, invitation, and task upd
 | Manage project settings/members | Yes | Only if Project Manager | Only if Project Manager | No |
 | Read task attachments/GitHub activity | If authorized | If authorized | If authorized | If authorized |
 
-- **Technical correction (CORE-003, ADR-020 §5):** the row "Manage project settings/members" conflicts with §17 and DATABASE.md §19, which let Owner/Admin manage **team-visible** projects. Per §0.2 the final rules apply: a Team Admin manages a team-visible project's settings and members without a membership row, and a private project only as its explicit `manager`.
+- **Technical correction (CORE-003, ADR-020 §5):** the row "Manage project settings/members" conflicts with §17 and DATABASE.md §19, which let Owner/Admin manage **team-visible** project *settings*. Per §0.2 the final rules apply to settings only: a Team Admin edits a team-visible project's settings (`PATCH /projects/{project_id}`) without a membership row. Project **membership** (`PUT`/`DELETE /projects/{project_id}/members/{user_id}`) stays "Owner or Project Manager" as in §4, so an Admin cannot pre-add themselves and keep access after a project is made private. Private projects: an Admin manages only as an explicit `manager`.
 - Private-project Admins not explicitly added must receive 404 for detail, tasks, search hits, notifications, file download, GitHub activity, and any aggregate exposing content.
 - Team Owner has implicit access to private projects even without project membership row.
 - A Team Viewer with Project Manager label is **still read-only**; effective permission is the intersection of Team role and project permission, with Owner exception.

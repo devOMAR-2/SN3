@@ -10,6 +10,7 @@ use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Str;
@@ -52,7 +53,14 @@ final class AccessibleProjects
                 static function (HasMany $memberships) use ($user): void {
                     $memberships->where('user_id', $user->id);
                 },
-        ]);
+        ])->afterQuery(
+            /** @param Collection<int, Project> $projects */
+            static function (Collection $projects) use ($user): void {
+                foreach ($projects as $project) {
+                    $project->membershipsLoadedFor = $user->id;
+                }
+            },
+        );
     }
 
     /**

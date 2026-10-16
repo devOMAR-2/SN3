@@ -40,8 +40,7 @@ final class UpdateProject
                 $lockedTeam = ProjectWriteLock::team($project->team_id);
                 $previous = $project->visibility;
 
-                $updated = OptimisticLock::update($project, $expectedVersion, function (Project $locked) use ($lockedTeam, $actor, $changes, &$previous): void {
-                    ProjectWriteLock::assertWritable($locked, $lockedTeam, $actor, 'update');
+                $updated = OptimisticLock::update($project, $expectedVersion, function (Project $locked) use ($changes, &$previous): void {
                     $previous = $locked->visibility;
 
                     $locked->fill(Arr::only($changes, ['name']));
@@ -57,7 +56,9 @@ final class UpdateProject
                     if (array_key_exists('visibility', $changes)) {
                         $locked->visibility = ProjectVisibility::from($changes['visibility']);
                     }
-                });
+                }, guard: function (Project $locked) use ($lockedTeam, $actor): void {
+                    ProjectWriteLock::assertWritable($locked, $lockedTeam, $actor, 'update');
+                }, lock: Project::WRITE_LOCK);
 
                 if ($updated->visibility !== $previous) {
                     Log::info('project.visibility_changed', [
@@ -76,6 +77,10 @@ final class UpdateProject
             if (! str_contains($e->getMessage(), 'projects_team_id_project_key_unique')) {
                 throw $e;
             }
+
+            // Keys are approved team-level metadata (ADR-020 §10), but a conflict may still be a probe
+            // for a private project's key: log who hit it, never which project holds the key.
+            Log::warning('project.key_conflict', ['team_id' => $project->team_id, 'actor_id' => $actor->id]);
 
             throw new DomainConflictException('Project key is already taken in this team.', previous: $e);
         }

@@ -68,9 +68,9 @@ Route::middleware('auth')->group(function (): void {
     // Projects (API_SPEC.md §4, ADR-020). `{project}` resolves only to projects the caller can see
     // (AccessibleProjects): a private project is a 404 for everyone but its members and the Owner.
     Route::get('teams/{team}/projects', [ProjectController::class, 'index'])->name('teams.projects.index');
-    Route::post('teams/{team}/projects', [ProjectController::class, 'store'])->name('teams.projects.store');
+    Route::post('teams/{team}/projects', [ProjectController::class, 'store'])->middleware('throttle:project-writes')->name('teams.projects.store');
     Route::get('projects/{project}', [ProjectController::class, 'show'])->name('projects.show');
-    Route::patch('projects/{project}', [ProjectController::class, 'update'])->name('projects.update');
+    Route::patch('projects/{project}', [ProjectController::class, 'update'])->middleware('throttle:project-writes')->name('projects.update');
 
     Route::get('projects/{project}/members', [ProjectMemberController::class, 'index'])->name('projects.members.index');
     Route::put('projects/{project}/members/{member}', [ProjectMemberController::class, 'update'])->name('projects.members.update');

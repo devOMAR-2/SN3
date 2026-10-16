@@ -18,15 +18,23 @@ final class OptimisticLock
      *
      * @param  TModel  $model  a model with an integer-cast `version` attribute
      * @param  Closure(TModel): void  $change  sets attributes on the locked, fresh copy
+     * @param  (Closure(TModel): void)|null  $guard  state checks on the locked copy that run before the
+     *                                               version comparison, so e.g. 423 wins over 412
+     * @param  string  $lock  row-lock clause; models with children referencing them should pass
+     *                        `for no key update` so child inserts are not blocked
      * @return TModel the fresh, saved copy
      *
      * @throws StaleVersionException
      */
-    public static function update(Model $model, int $expectedVersion, Closure $change): Model
+    public static function update(Model $model, int $expectedVersion, Closure $change, ?Closure $guard = null, string $lock = 'for update'): Model
     {
-        return DB::transaction(function () use ($model, $expectedVersion, $change): Model {
+        return DB::transaction(function () use ($model, $expectedVersion, $change, $guard, $lock): Model {
             /** @var TModel $locked */
-            $locked = $model->newQuery()->whereKey($model->getKey())->lockForUpdate()->firstOrFail();
+            $locked = $model->newQuery()->whereKey($model->getKey())->lock($lock)->firstOrFail();
+
+            if ($guard !== null) {
+                $guard($locked);
+            }
 
             if ($locked->getAttribute('version') !== $expectedVersion) {
                 throw new StaleVersionException;

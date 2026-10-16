@@ -14,11 +14,15 @@ use App\Models\User;
  * | Team role | Team-visible project                    | Private project                                  |
  * |-----------|-----------------------------------------|--------------------------------------------------|
  * | Owner     | view, manage, contribute                | view, manage, contribute (no membership needed)  |
- * | Admin     | view, manage, contribute                | only as a member: manager manages, both contribute |
+ * | Admin     | view, settings, contribute; members as manager | only as a member: manager manages, both contribute |
  * | Member    | view, contribute; manage as manager     | only as a member: manager manages, both contribute |
  * | Viewer    | view                                    | view, only as a member; never writes             |
  *
- * "Manage" is project settings and membership; "contribute" is task and collaboration writes
+ * "Manage" is project settings and membership. A Team Admin manages a team-visible project's
+ * settings without a membership (API_SPEC.md §17) but its membership only as a Project Manager
+ * (API_SPEC.md §4 "Owner or Project Manager"): otherwise an Admin could add themselves to every
+ * team-visible project and keep access after one is made private (ADR-020 §5). "Contribute" is
+ * task and collaboration writes
  * (CORE-005 onwards). In HTTP flows a user who may not view a project never reaches these checks:
  * the `{project}` binding (AccessibleProjects) answers 404 first, so a 403 here only ever concerns
  * a project the user already knows about. Resource state (archived team or project → 423) belongs
@@ -46,7 +50,15 @@ class ProjectPolicy
     /** PUT and DELETE /projects/{project}/members/{user}. */
     public function manageMembers(User $user, Project $project): bool
     {
-        return $this->manages($user, $project);
+        if (! $this->view($user, $project)) {
+            return false;
+        }
+
+        return match ($project->team->roleOf($user)) {
+            TeamRole::Owner => true,
+            TeamRole::Admin, TeamRole::Member => $project->roleOf($user) === ProjectRole::Manager,
+            TeamRole::Viewer, null => false,
+        };
     }
 
     /** Write access to project content: tasks, comments and ordinary collaboration (CORE-005+). */

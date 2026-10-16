@@ -37,41 +37,43 @@ function joinProject(Project $project, User $user, ProjectRole $role = ProjectRo
 }
 
 /**
- * [team role, visibility, explicit project role, can view, can manage, can contribute]
+ * [team role, visibility, explicit project role, can view, can manage settings, can manage members, can contribute]
  *
- * "Manage" is PATCH /projects and the member endpoints; "contribute" is the write ability later
- * task endpoints use (CORE-005), checked through the policy.
+ * "Settings" is PATCH /projects; "members" is PUT/DELETE /projects/{project}/members; "contribute"
+ * is the write ability later task endpoints use (CORE-005), checked through the policy. A Team
+ * Admin manages a team-visible project's settings without a membership (API_SPEC §17), but its
+ * membership only as a Project Manager (API_SPEC §4, ADR-020 §5).
  */
 dataset('access matrix', [
-    'Owner, team, no membership' => ['owner', 'team', null, true, true, true],
-    'Owner, team, manager' => ['owner', 'team', 'manager', true, true, true],
-    'Owner, team, contributor' => ['owner', 'team', 'contributor', true, true, true],
-    'Owner, private, no membership' => ['owner', 'private', null, true, true, true],
-    'Owner, private, manager' => ['owner', 'private', 'manager', true, true, true],
-    'Owner, private, contributor' => ['owner', 'private', 'contributor', true, true, true],
-    'Admin, team, no membership' => ['admin', 'team', null, true, true, true],
-    'Admin, team, manager' => ['admin', 'team', 'manager', true, true, true],
-    'Admin, team, contributor' => ['admin', 'team', 'contributor', true, true, true],
-    'Admin, private, no membership' => ['admin', 'private', null, false, false, false],
-    'Admin, private, manager' => ['admin', 'private', 'manager', true, true, true],
-    'Admin, private, contributor' => ['admin', 'private', 'contributor', true, false, true],
-    'Member, team, no membership' => ['member', 'team', null, true, false, true],
-    'Member, team, manager' => ['member', 'team', 'manager', true, true, true],
-    'Member, team, contributor' => ['member', 'team', 'contributor', true, false, true],
-    'Member, private, no membership' => ['member', 'private', null, false, false, false],
-    'Member, private, manager' => ['member', 'private', 'manager', true, true, true],
-    'Member, private, contributor' => ['member', 'private', 'contributor', true, false, true],
-    'Viewer, team, no membership' => ['viewer', 'team', null, true, false, false],
-    'Viewer, team, manager' => ['viewer', 'team', 'manager', true, false, false],
-    'Viewer, team, contributor' => ['viewer', 'team', 'contributor', true, false, false],
-    'Viewer, private, no membership' => ['viewer', 'private', null, false, false, false],
-    'Viewer, private, manager' => ['viewer', 'private', 'manager', true, false, false],
-    'Viewer, private, contributor' => ['viewer', 'private', 'contributor', true, false, false],
-    'other team, team' => ['outsider', 'team', null, false, false, false],
-    'other team, private' => ['outsider', 'private', null, false, false, false],
+    'Owner, team, no membership' => ['owner', 'team', null, true, true, true, true],
+    'Owner, team, manager' => ['owner', 'team', 'manager', true, true, true, true],
+    'Owner, team, contributor' => ['owner', 'team', 'contributor', true, true, true, true],
+    'Owner, private, no membership' => ['owner', 'private', null, true, true, true, true],
+    'Owner, private, manager' => ['owner', 'private', 'manager', true, true, true, true],
+    'Owner, private, contributor' => ['owner', 'private', 'contributor', true, true, true, true],
+    'Admin, team, no membership' => ['admin', 'team', null, true, true, false, true],
+    'Admin, team, manager' => ['admin', 'team', 'manager', true, true, true, true],
+    'Admin, team, contributor' => ['admin', 'team', 'contributor', true, true, false, true],
+    'Admin, private, no membership' => ['admin', 'private', null, false, false, false, false],
+    'Admin, private, manager' => ['admin', 'private', 'manager', true, true, true, true],
+    'Admin, private, contributor' => ['admin', 'private', 'contributor', true, false, false, true],
+    'Member, team, no membership' => ['member', 'team', null, true, false, false, true],
+    'Member, team, manager' => ['member', 'team', 'manager', true, true, true, true],
+    'Member, team, contributor' => ['member', 'team', 'contributor', true, false, false, true],
+    'Member, private, no membership' => ['member', 'private', null, false, false, false, false],
+    'Member, private, manager' => ['member', 'private', 'manager', true, true, true, true],
+    'Member, private, contributor' => ['member', 'private', 'contributor', true, false, false, true],
+    'Viewer, team, no membership' => ['viewer', 'team', null, true, false, false, false],
+    'Viewer, team, manager' => ['viewer', 'team', 'manager', true, false, false, false],
+    'Viewer, team, contributor' => ['viewer', 'team', 'contributor', true, false, false, false],
+    'Viewer, private, no membership' => ['viewer', 'private', null, false, false, false, false],
+    'Viewer, private, manager' => ['viewer', 'private', 'manager', true, false, false, false],
+    'Viewer, private, contributor' => ['viewer', 'private', 'contributor', true, false, false, false],
+    'other team, team' => ['outsider', 'team', null, false, false, false, false],
+    'other team, private' => ['outsider', 'private', null, false, false, false, false],
 ]);
 
-it('applies the effective permission matrix to every project endpoint', function (string $role, string $visibility, ?string $projectRole, bool $view, bool $manage, bool $contribute) {
+it('applies the effective permission matrix to every project endpoint', function (string $role, string $visibility, ?string $projectRole, bool $view, bool $settings, bool $members, bool $contribute) {
     $project = Project::factory()->for($this->team)->create(['name' => 'Payroll revamp', 'visibility' => $visibility]);
     $actor = match ($role) {
         'owner' => $this->owner,
@@ -88,15 +90,15 @@ it('applies the effective permission matrix to every project endpoint', function
     joinProject($project, $existing);
 
     // Hidden is 404 (never 403); visible but not allowed is 403.
-    $writeStatus = $manage ? null : ($view ? 403 : 404);
+    $deniedStatus = $view ? 403 : 404;
 
     // Detail and member list.
     $detail = $this->actingAs($actor)->getJson("/api/v1/projects/{$project->id}");
     $view ? $detail->assertOk()->assertJsonPath('data.role', $projectRole) : $detail->assertNotFound()->assertJsonPath('error.code', 'not_found');
     expect($detail->getContent() !== false && str_contains($detail->getContent(), 'Payroll revamp'))->toBe($view);
 
-    $members = $this->actingAs($actor)->getJson("/api/v1/projects/{$project->id}/members");
-    $view ? $members->assertOk() : $members->assertNotFound();
+    $memberList = $this->actingAs($actor)->getJson("/api/v1/projects/{$project->id}/members");
+    $view ? $memberList->assertOk() : $memberList->assertNotFound();
 
     // Team project list (another team's member cannot list this team at all).
     $list = $this->actingAs($actor)->getJson("/api/v1/teams/{$this->team->id}/projects");
@@ -108,23 +110,23 @@ it('applies the effective permission matrix to every project endpoint', function
 
     // Add a team member (PUT) and remove an existing project member (DELETE).
     $put = $this->actingAs($actor)->putJson("/api/v1/projects/{$project->id}/members/{$newcomer->id}", ['role' => 'contributor']);
-    $manage ? $put->assertCreated() : $put->assertStatus($writeStatus);
-    expect($project->memberships()->where('user_id', $newcomer->id)->exists())->toBe($manage);
+    $members ? $put->assertCreated() : $put->assertStatus($deniedStatus);
+    expect($project->memberships()->where('user_id', $newcomer->id)->exists())->toBe($members);
 
     $delete = $this->actingAs($actor)->deleteJson("/api/v1/projects/{$project->id}/members/{$existing->id}");
-    $manage ? $delete->assertNoContent() : $delete->assertStatus($writeStatus);
-    expect($project->memberships()->where('user_id', $existing->id)->exists())->toBe(! $manage);
+    $members ? $delete->assertNoContent() : $delete->assertStatus($deniedStatus);
+    expect($project->memberships()->where('user_id', $existing->id)->exists())->toBe(! $members);
 
     // Settings and visibility (PATCH).
     $patch = $this->actingAs($actor)->patchJson("/api/v1/projects/{$project->id}", ['name' => 'Renamed'], ['If-Match' => '"1"']);
-    $manage ? $patch->assertOk()->assertJsonPath('data.version', 2) : $patch->assertStatus($writeStatus);
-    expect($project->refresh()->name)->toBe($manage ? 'Renamed' : 'Payroll revamp');
+    $settings ? $patch->assertOk()->assertJsonPath('data.version', 2) : $patch->assertStatus($deniedStatus);
+    expect($project->refresh()->name)->toBe($settings ? 'Renamed' : 'Payroll revamp');
 
     // Task-level writes (CORE-005 builds on this ability).
     $fresh = Project::query()->findOrFail($project->id);
     expect(Gate::forUser($actor)->allows('view', $fresh))->toBe($view)
-        ->and(Gate::forUser($actor)->allows('update', $fresh))->toBe($manage)
-        ->and(Gate::forUser($actor)->allows('manageMembers', $fresh))->toBe($manage)
+        ->and(Gate::forUser($actor)->allows('update', $fresh))->toBe($settings)
+        ->and(Gate::forUser($actor)->allows('manageMembers', $fresh))->toBe($members)
         ->and(Gate::forUser($actor)->allows('contribute', $fresh))->toBe($contribute);
 })->with('access matrix');
 

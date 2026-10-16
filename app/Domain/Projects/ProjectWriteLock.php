@@ -7,6 +7,7 @@ use App\Models\Team;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Gate;
 
 /**
@@ -17,8 +18,10 @@ use Illuminate\Support\Facades\Gate;
  *    the same lock first, so a project write cannot interleave with a member removal, a role change
  *    or an ownership transfer, and lock order stays team → project → memberships (no deadlocks).
  * 2. Lock the project row and refuse an archived project (423).
- * 3. Re-check the actor's ability on the locked state: their team or project role may have changed
- *    while the request waited for the lock (409, reload and retry).
+ * 3. Re-check the actor's access on the locked state: their team or project role may have changed
+ *    while the request waited for the lock. A project they can no longer see is a 404, exactly like
+ *    a trashed or missing one (API_SPEC.md §0.4); one they still see but may no longer change is a
+ *    409 (reload and retry).
  */
 final class ProjectWriteLock
 {
@@ -57,7 +60,13 @@ final class ProjectWriteLock
 
         $locked->setRelation('team', $lockedTeam);
 
-        if (! Gate::forUser($actor)->allows($ability, $locked)) {
+        $gate = Gate::forUser($actor);
+
+        if (! $gate->allows('view', $locked)) {
+            throw (new ModelNotFoundException)->setModel(Project::class, [$locked->id]);
+        }
+
+        if (! $gate->allows($ability, $locked)) {
             throw new DomainConflictException('Project access changed while the request waited; reload and try again.');
         }
     }
