@@ -17,9 +17,12 @@
 - Arabic RTL / English LTR; light and dark themes
 
 ## Technology
-Laravel 12 · PHP 8.3+ · Vue 3 · TypeScript · Inertia 2 · PostgreSQL 16+ · Docker Compose (planned, FND-002)
+Laravel 12 · PHP 8.3+ · Vue 3 · TypeScript · Inertia 2 · PostgreSQL 16+ · Docker Compose
 
 Exact versions are in `composer.lock` and `package-lock.json`, and are recorded in [ADR-011](docs/adr/ADR-011-pinned-toolchain-versions.md).
+
+## Self-hosting
+Run SN3 with Docker Compose (app + PostgreSQL, optional HTTPS proxy): see [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
 
 ## Local development
 Requirements: PHP 8.3+ (extensions `pdo_pgsql`, `mbstring`, `intl`), Composer 2, Node.js 22 LTS, PostgreSQL 16+. No proprietary or paid service is required. Redis is optional.
