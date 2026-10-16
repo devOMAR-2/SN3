@@ -1,14 +1,21 @@
 <script setup lang="ts">
-import { Head } from '@inertiajs/vue3';
+import AppAlert from '@/Components/ui/AppAlert.vue';
+import GuestLayout from '@/Layouts/GuestLayout.vue';
+import { useI18n } from '@/i18n';
+
+const { t } = useI18n();
 </script>
 
 <template>
-  <Head />
-  <main class="flex min-h-screen items-center justify-center">
-    <h1 class="text-4xl font-semibold">
-      <span lang="ar" dir="rtl">سنع</span>
-      <span aria-hidden="true"> · </span>
-      <span lang="en" dir="ltr">SN3</span>
-    </h1>
-  </main>
+  <GuestLayout>
+    <div class="flex flex-col items-center gap-4 text-center">
+      <h1 class="text-display font-semibold">
+        <span lang="ar" dir="rtl">{{ t('common.brand.arabic') }}</span>
+        <span class="text-text-subtle" aria-hidden="true"> · </span>
+        <span lang="en" dir="ltr">{{ t('common.brand.latin') }}</span>
+      </h1>
+      <p class="text-body text-text-muted">{{ t('welcome.tagline') }}</p>
+      <AppAlert class="w-full text-start">{{ t('welcome.status') }}</AppAlert>
+    </div>
+  </GuestLayout>
 </template>
