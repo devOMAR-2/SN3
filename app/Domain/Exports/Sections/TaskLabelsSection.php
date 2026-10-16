@@ -6,7 +6,6 @@ use App\Domain\Exports\TeamExportContext;
 use App\Domain\Exports\TeamExportSection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use stdClass;
 
 /**
  * `data/task_labels.json`: which label each exported task carries (CORE-005). Only links of live
@@ -33,10 +32,6 @@ final class TaskLabelsSection implements TeamExportSection
             ->lazy(500);
 
         foreach ($links as $link) {
-            if (! $link instanceof stdClass) {
-                continue;
-            }
-
             yield [
                 'task_id' => $link->task_id,
                 'label_id' => $link->label_id,
