@@ -1,8 +1,8 @@
 Scenario ID,Coverage,Preconditions,Action,Expected result,Execution status
 AUTH-01,cross-team task read,member of team A; task belongs to team B,GET /tasks/{id} using team A session,404 and no private metadata,Specified; not executed
-AUTH-02,private project non-disclosure,team Admin not project member,"GET private project, list projects, search, export",404 for direct access; absent from list/search/export,Specified; not executed
-AUTH-03,Owner private override,team Owner not explicitly project member,GET private project,200 and project visible,Specified; not executed
-AUTH-04,Viewer mutation,team Viewer,POST task or PATCH project,403 and no mutation,"Partially automated: team mutations in tests/Feature/Teams/TeamManagementTest.php; project and task mutations follow with CORE-003/CORE-005"
+AUTH-02,private project non-disclosure,team Admin not project member,"GET private project, list projects, search, export",404 for direct access; absent from list/search/export,"Partially automated: direct access and list in tests/Feature/Projects/ProjectAccessMatrixTest.php; search and export follow with CORE-009/CORE-012"
+AUTH-03,Owner private override,team Owner not explicitly project member,GET private project,200 and project visible,"Automated: tests/Feature/Projects/ProjectAccessMatrixTest.php"
+AUTH-04,Viewer mutation,team Viewer,POST task or PATCH project,403 and no mutation,"Partially automated: team mutations in tests/Feature/Teams/TeamManagementTest.php; project mutations in tests/Feature/Projects/ProjectManagementTest.php; task mutations follow with CORE-005"
 AUTH-05,attachment revocation,member previously had access then removed,GET previously issued attachment download,403/404 and no content,Specified; not executed
 TASK-01,subtask depth,root→child→grandchild→great-grandchild exists,POST fourth descendant level,422 validation error; no row,Specified; not executed
 TASK-02,subtask cycle,A parent of B,PATCH A parent_task_id=B,422 and unchanged tree,Specified; not executed
