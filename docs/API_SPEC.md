@@ -121,6 +121,26 @@ Registration: `name` 1–100 chars, `email` valid unique normalized address, `pa
 
 Create team body: `name` (1–100), optional `slug` (`[a-z0-9-]{3,40}`, unique), `description` (max 1000). Slug is presentation-only; UUID is authoritative. Team has exactly one Owner; Owner cannot self-leave without transfer; no privilege escalation; Member/Viewer cannot change memberships. Admin may invite Member/Viewer but cannot assign Admin/Owner. Owner alone may assign Admin or transfer Owner. `ownership-transfer` body `{ "new_owner_user_id": "uuid" }`, requires existing active team member and transactional swap.
 
+**Implementation contract (CORE-010, ADR-022): archive and trash.** These points settle details §3 and §4 leave open, for teams and projects alike:
+
+- **Bodies:** the lifecycle endpoints take no body; any field is `unknown_field`.
+- **Who:** team archive, restore, delete and restore-deleted are Owner only. Project archive, restore, delete and restore-deleted are the Team Owner or a Project Manager (a Team Admin or Member with the `manager` role). A Team Viewer is read-only even as a manager. The Team Admin's settings exception for team-visible projects (§12 note) does not extend to the lifecycle.
+- **Answers:** archive and restore (unarchive) return `200` with the resource; `DELETE` returns `204`; restore-deleted returns `200` with the resource. Archive on an archived resource, and restore on an active one, change nothing and return `200`.
+- **Archive:**
+  - Archived is read-only, and every write answers `423 resource_locked`. Reads keep working.
+  - An archived team makes all its projects read-only without changing their own `archived_at`, so unarchiving the team returns each project to the state it had.
+  - Deleting an archived team or project is `423`; unarchive it first. Any lifecycle change to a project of an archived team is `423`.
+- **Trash:**
+  - `DELETE` only sets `deleted_at`. The team (with all its projects) or the project disappears from every list, detail and child route, and every write answers `404`. Nothing is deleted until the purge.
+  - Slugs and project keys stay reserved while in the trash (`409` on reuse).
+- **Restore-deleted:**
+  - Only within 30 days of the deletion (`deleted_at > now − 30 days`), and only for a caller who may recover the resource. A trashed private project stays hidden from non-members.
+  - Everyone else gets `404`, never `403`, and so does an expired, purged, live, random or malformed ID.
+  - A project whose team is in the trash is `404` (recover the team first). A project whose team is archived is `423`.
+  - Recovering a team brings back its projects except those trashed on their own, which keep their own 30-day clock.
+- **Versions:** project archive, restore and `DELETE` require `If-Match` (`428`/`412`, 423 checked first) and increment `version` (§1.4). Restore-deleted needs no `If-Match`, because no read path exposes a trashed project's version, but it increments `version`. Teams are not versioned.
+- **Purge:** `trash:purge` runs daily and permanently deletes teams and projects trashed 30 or more days ago, with everything that belongs to them. It never deletes anything on GitHub (§13).
+
 ### 3.1 Invitations
 
 | Method | Path | Operation | Permission |
@@ -173,7 +193,8 @@ Create: `{ "name":"Website", "key":"WEB", "visibility":"team", "template_id":nul
 - **Member endpoints and versions (technical correction of §18, ADR-020 §7):** §18 lists `projects.version` as the concurrency control for `/projects/*/members*`. They do not take `If-Match` and do not change `projects.version`: §1.4 versions the Project resource, and bumping its version on every membership change would make unrelated project edits fail with 412. Concurrent changes are serialised by row locks instead.
 - **Member list:** each entry has `user_id`, `name`, `role`, `added_by` and `added_at`. `email` is included only for the Team Owner and Admins.
 - **Status codes:** an archived team or project gives `423 resource_locked` on every write, checked before `If-Match` (423 wins over 412). A caller who can no longer see the project when their request reaches the lock gets `404`; one who still sees it but lost the right gets `409 conflict`. A taken key is a generic `409 conflict` that names no project (DEC-018); project create and `PATCH` are rate-limited per user (`429 rate_limited`).
-- **Not yet implemented:** `/archive`, `/restore`, `DELETE`, `/restore-deleted` (CORE-010) and `/activity` (CORE-008).
+- **Archive and trash:** `/archive`, `/restore`, `DELETE` and `/restore-deleted` follow the CORE-010 contract in §3 (ADR-022).
+- **Not yet implemented:** `/activity` (CORE-008).
 
 ## 5. Workflows, labels and project configuration (P0/P1)
 

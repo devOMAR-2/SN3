@@ -19,7 +19,7 @@ FR-PROJ-004,CORE-003,Projects,R1,TEST-FR-PROJ-004,"Partially automated: project 
 FR-PROJ-005,CORE-003,Projects,R1,TEST-FR-PROJ-005,"Partially automated: project detail, list, members and self-add in tests/Feature/Projects/ProjectAccessMatrixTest.php; tasks, files, search and notifications follow with CORE-005/008/009"
 FR-PROJ-006,CORE-003,Projects,R1,TEST-FR-PROJ-006,"Automated: tests/Feature/Projects/{ProjectManagementTest,ProjectAccessMatrixTest,ProjectConcurrencyTest}.php"
 FR-PROJ-007,CORE-003,Projects,R1,TEST-FR-PROJ-007,"Partially automated: visibility changes re-evaluated for project detail, list and members in tests/Feature/Projects/ProjectManagementTest.php; search, files, notifications and GitHub content follow with CORE-008/009 and GH-*"
-FR-PROJ-008,CORE-010,Projects,R1,TEST-FR-PROJ-008,Planned; not executed
+FR-PROJ-008,CORE-010,Projects,R1,TEST-FR-PROJ-008,"Automated: tests/Feature/Projects/ProjectLifecycleTest.php, tests/Feature/Teams/TeamLifecycleTest.php, tests/Feature/Trash/{TrashPurgeTest,LifecycleConcurrencyTest}.php (API; UI follows in CORE-006)"
 FR-TASK-001,CORE-005,Tasks,R1,TEST-FR-TASK-001,Planned; not executed
 FR-TASK-002,CORE-005,Tasks,R1,TEST-FR-TASK-002,Planned; not executed
 FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,Planned; not executed
