@@ -1,0 +1,38 @@
+{
+  "$schema": "https://www.schemastore.org/package.json",
+  "name": "sn3",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "engines": {
+    "node": "^22.12.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write resources/ *.ts *.js",
+    "format:check": "prettier --check resources/ *.ts *.js",
+    "typecheck": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "@inertiajs/vue3": "2.3.29",
+    "vue": "3.5.44"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@vitejs/plugin-vue": "6.0.10",
+    "@vue/eslint-config-typescript": "14.9.0",
+    "concurrently": "10.0.6",
+    "eslint": "10.12.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-vue": "10.11.1",
+    "laravel-vite-plugin": "3.2.0",
+    "prettier": "3.9.10",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "8.3.4",
+    "vue-tsc": "3.3.13"
+  }
+}
