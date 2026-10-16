@@ -1,7 +1,7 @@
 # SN3 (سنع) continuous integration. Design and branch-protection rules: docs/adr/ADR-013-continuous-integration.md
 #
-# The job names below are the required status checks on `dev` and `main`. Renaming a job
-# renames its check, so update the repository ruleset in the same change.
+# The job names below are the required status checks on `dev` and `main` (repository ruleset
+# "CI required (dev, main)"). Renaming a job renames its check: update the ruleset with it.
 #
 # No repository secrets are used. Every third-party action is pinned to a full commit SHA
 # (version in the trailing comment); Dependabot's github-actions ecosystem proposes updates.
