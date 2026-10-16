@@ -1,0 +1,18 @@
+# PHP static analysis: PHPStan with the Larastan extension (docs/adr/ADR-013-continuous-integration.md).
+# Run with `composer analyse`. There is no baseline: new code must pass at this level.
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    # Level 9 (strict mixed). Level 10 is not used because it rejects idiomatic macro calls such as
+    # Route::inertia(...)->name(...), whose return type Laravel declares as mixed.
+    level: 9
+    # Analyse against the lowest supported PHP (DECIDED-010, composer config.platform.php), whatever PHP runs the tool.
+    phpVersion: 80300
+    # tests/ is not analysed: Pest binds $this inside test closures at runtime, which PHPStan cannot see.
+    paths:
+        - app/
+        - bootstrap/app.php
+        - config/
+        - database/
+        - routes/
