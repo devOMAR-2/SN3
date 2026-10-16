@@ -11,7 +11,7 @@ use App\Models\User;
 final class TeamResource
 {
     /**
-     * @return array{id: string, name: string, slug: string, owner_user_id: string, role: string|null, archived_at: string|null, created_at: string|null, updated_at: string|null}
+     * @return array{id: string, name: string, slug: string, description: string|null, owner_user_id: string, role: string|null, archived_at: string|null, created_at: string|null, updated_at: string|null}
      */
     public static function make(Team $team, User $viewer): array
     {
@@ -19,6 +19,7 @@ final class TeamResource
             'id' => $team->id,
             'name' => $team->name,
             'slug' => $team->slug,
+            'description' => $team->description,
             'owner_user_id' => $team->owner_user_id,
             'role' => $team->roleOf($viewer)?->value,
             'archived_at' => $team->archived_at?->utc()->toIso8601ZuluString(),

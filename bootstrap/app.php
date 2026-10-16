@@ -6,6 +6,9 @@ use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforceIdempotency;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SetLocale;
+use App\Support\Concurrency\StaleVersionException;
+use App\Support\Exceptions\DomainConflictException;
+use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Contracts\Auth\Middleware\AuthenticatesRequests;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -56,4 +59,11 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request): bool => ApiExceptionRenderer::handles($request) || $request->expectsJson(),
         );
         $exceptions->render(ApiExceptionRenderer::render(...));
+
+        // Expected outcomes of valid requests (409, 412, 423), not errors worth reporting.
+        $exceptions->dontReport([
+            DomainConflictException::class,
+            ResourceLockedException::class,
+            StaleVersionException::class,
+        ]);
     })->create();

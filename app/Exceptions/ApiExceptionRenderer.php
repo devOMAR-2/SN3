@@ -5,6 +5,8 @@ namespace App\Exceptions;
 use App\Http\Middleware\SetLocale;
 use App\Http\Responses\ApiResponse;
 use App\Support\Concurrency\StaleVersionException;
+use App\Support\Exceptions\DomainConflictException;
+use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -62,6 +64,14 @@ final class ApiExceptionRenderer
 
         if ($e instanceof StaleVersionException) {
             return ApiResponse::error('version_mismatch', 412);
+        }
+
+        if ($e instanceof DomainConflictException) {
+            return ApiResponse::error('conflict', 409);
+        }
+
+        if ($e instanceof ResourceLockedException) {
+            return ApiResponse::error('resource_locked', 423);
         }
 
         if ($e instanceof AuthenticationException) {
