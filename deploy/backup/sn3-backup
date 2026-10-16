@@ -16,8 +16,9 @@
 #                                    restore the database dump into a NEW database <name>
 #   restore-storage <set|latest> --into <dir> [--force]
 #                                    extract the file storage into <dir> (empty unless --force)
-#   compare <database-a> <database-b>
-#                                    exact row counts of every table; exits 1 on a difference
+#   compare [<database-a>] <database-b>
+#                                    exact row counts of every table (database-a defaults to
+#                                    PGDATABASE); exits 1 on a difference
 #   prune                            apply retention only
 #
 # Environment (defaults in brackets):
@@ -29,6 +30,8 @@
 #   SN3_BACKUP_RETENTION_DAYS      [14]  sets older than this are deleted (the newest is kept)
 #   SN3_BACKUP_STORAGE_DIR         [/storage]  the app's storage/app volume; empty = skip files
 #   SN3_BACKUP_AT                  [02:30]  daily time (HH:MM, UTC) for `daemon`
+#   SN3_BACKUP_RETRIES             [3]  after a failed backup, `daemon` retries this many times…
+#   SN3_BACKUP_RETRY_MINUTES       [60]  …this many minutes apart, then waits for the next day
 #   SN3_BACKUP_COMPARE_EXCLUDE     [cache cache_locks sessions jobs]  tables `compare` skips
 #   SN3_BACKUP_STATE_FILE          [/tmp/sn3-backup.state]  `daemon` health state (ok|failed)
 #
@@ -46,6 +49,8 @@ STORAGE_DIR="${SN3_BACKUP_STORAGE_DIR-/storage}"
 BACKUP_AT="${SN3_BACKUP_AT:-02:30}"
 COMPARE_EXCLUDE="${SN3_BACKUP_COMPARE_EXCLUDE-cache cache_locks sessions jobs}"
 STATE_FILE="${SN3_BACKUP_STATE_FILE:-/tmp/sn3-backup.state}"
+RETRIES="${SN3_BACKUP_RETRIES:-3}"
+RETRY_MINUTES="${SN3_BACKUP_RETRY_MINUTES:-60}"
 SET_PATTERN='^sn3-[0-9]{8}T[0-9]{6}Z$'
 
 log() { printf '%s sn3-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
@@ -268,7 +273,7 @@ cmd_restore() {
     die "restore of $set failed; $target was removed"
   fi
 
-  log "restored $set into $target ($(psql -X -d "$target" -tAc 'select count(*) from migrations') migrations applied)"
+  log "restored $set into $target ($(psql -X -d "$target" -tAc 'select count(*) from migrations' 2> /dev/null || echo '?') migrations applied)"
 }
 
 cmd_restore_storage() {
@@ -309,17 +314,29 @@ table_counts() {
     order by table_name"
 }
 
+COMPARE_FILES=()
+cleanup_compare() {
+  [ "${#COMPARE_FILES[@]}" -eq 0 ] || rm -f -- "${COMPARE_FILES[@]}"
+  COMPARE_FILES=()
+}
+
 cmd_compare() {
   local a="${1:-}" b="${2:-}"
-  [ -n "$a" ] && [ -n "$b" ] || die "compare needs two database names"
+  # One name: compare the live database (PGDATABASE) with it.
+  if [ -n "$a" ] && [ -z "$b" ]; then
+    b="$a"
+    a="${PGDATABASE:-}"
+  fi
+  [ -n "$a" ] && [ -n "$b" ] || die "compare needs a database name (compared with PGDATABASE) or two"
   valid_db_name "$a"
   valid_db_name "$b"
 
   local left right
   left="$(mktemp)"
   right="$(mktemp)"
-  table_counts "$a" > "$left"
-  table_counts "$b" > "$right"
+  COMPARE_FILES=("$left" "$right")
+  table_counts "$a" > "$left" || die "cannot count the rows of $a"
+  table_counts "$b" > "$right" || die "cannot count the rows of $b"
 
   local excluded="|${COMPARE_EXCLUDE// /|}|" table count other differences=0 tables=0
   while IFS='|' read -r table count; do
@@ -342,7 +359,7 @@ cmd_compare() {
     fi
   done < "$right"
 
-  rm -f "$left" "$right"
+  cleanup_compare
 
   if [ "$differences" -gt 0 ]; then
     log "$differences of the compared tables differ between $a and $b"
@@ -377,49 +394,71 @@ next_run() {
   fi
 }
 
+# One backup in a separate process, so `set -e` applies inside the run and its locks and traps
+# are its own. The state file keeps `failed` until a backup succeeds (the healthcheck).
 attempt() {
-  # A separate process, so `set -e` applies inside the run and its locks and traps are its own.
   if "$BASH" "$0" run; then
     state ok
-  else
-    state failed
-    log "the backup FAILED; the next attempt is at the next scheduled time"
+    return 0
   fi
+
+  state failed
+  return 1
 }
 
 cmd_daemon() {
   [[ "$BACKUP_AT" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "SN3_BACKUP_AT must be HH:MM (UTC)"
+  [[ "$RETRIES" =~ ^[0-9]+$ ]] || die "SN3_BACKUP_RETRIES must be a whole number"
+  [[ "$RETRY_MINUTES" =~ ^[1-9][0-9]*$ ]] || die "SN3_BACKUP_RETRY_MINUTES must be a positive whole number"
   require_dir
   require_passphrase
   state ok
   # The healthcheck wants the state file fresh, also while a long backup runs.
   ( while sleep 60; do touch "$STATE_FILE"; done ) &
   HEARTBEAT_PID=$!
-  log "daily backups at $BACKUP_AT UTC into $BACKUP_DIR, kept $RETENTION_DAYS days"
+  log "daily backups at $BACKUP_AT UTC into $BACKUP_DIR, kept $RETENTION_DAYS days; $RETRIES retries ${RETRY_MINUTES} min apart after a failure"
 
   # Catch up: no complete set from the last 24 hours (a fresh install, or the service was down).
-  local newest
+  local newest next now daily failures=0
   newest="$(complete_sets | tail -n1)"
   if [ -z "$newest" ] || [[ "$newest" < "sn3-$(date -u -d '-24 hours' +%Y%m%dT%H%M%SZ)" ]]; then
-    attempt
+    next="$(date -u +%s)"
+  else
+    next="$(next_run)"
   fi
 
-  local next now
   while true; do
-    next="$(next_run)"
     log "next backup at $(date -u -d "@$next" +%Y-%m-%dT%H:%M:%SZ)"
     while now="$(date -u +%s)"; [ "$now" -lt "$next" ]; do
       # In the background, so SIGTERM (docker compose stop) is handled at once.
       sleep $(( next - now < 60 ? next - now : 60 )) &
       wait $! || true
     done
-    attempt
+
+    if attempt; then
+      failures=0
+      next="$(next_run)"
+      continue
+    fi
+
+    failures=$((failures + 1))
+    daily="$(next_run)"
+    if [ "$failures" -le "$RETRIES" ]; then
+      next=$(( $(date -u +%s) + RETRY_MINUTES * 60 ))
+      # A retry never pushes back the regular daily run.
+      [ "$next" -lt "$daily" ] || next="$daily"
+      log "the backup FAILED; retry $failures of $RETRIES"
+    else
+      next="$daily"
+      failures=0
+      log "the backup FAILED $((RETRIES + 1)) times in a row; waiting for the next scheduled time"
+    fi
   done
 }
 
 # --- Main ---------------------------------------------------------------------------------------
 
-trap 'stop_heartbeat; cleanup_gpg' EXIT
+trap 'stop_heartbeat; cleanup_gpg; cleanup_compare' EXIT
 trap 'exit 143' TERM INT
 
 command="${1:-}"

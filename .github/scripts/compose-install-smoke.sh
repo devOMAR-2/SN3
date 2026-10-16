@@ -4,9 +4,10 @@
 # Follows docs/SELF_HOSTING.md steps 1–3 on a fresh checkout, then proves the stack works end to
 # end: readiness, registration through the API with CSRF, the queued mail handled by the worker,
 # sign-in, no secrets in the access log, and data surviving `down` / `up`. Then CORE-012: a team
-# export built by the worker and downloaded, and the docs/BACKUP_RESTORE.md restore drill
+# export built by the worker and downloaded, the docs/BACKUP_RESTORE.md restore drill
 # (encrypted backup, verify, restore into a fresh database, row counts, migrations, files,
-# retention, wrong passphrase, the daily `backup` service turning healthy).
+# retention, wrong passphrase) and the §6 real restore (database swap, sessions cleared, files
+# back in the app-storage volume, the daily `backup` service turning healthy).
 #
 # CI only: it writes .env in the working tree and starts the default Compose project.
 set -euo pipefail
@@ -132,7 +133,8 @@ status="$(api_post "/api/v1/teams/$TEAM_ID/exports" '{}' "Idempotency-Key: $(pyt
 EXPORT_ID="$(json_field data.id)"
 
 for attempt in $(seq 1 30); do
-  curl -fsS -o "$BODY" -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/teams/$TEAM_ID/exports/$EXPORT_ID"
+  curl -fsS -o "$BODY" -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/teams/$TEAM_ID/exports/$EXPORT_ID" \
+    || fail "reading the export status failed (attempt $attempt)"
   export_status="$(json_field data.status)"
   [ "$export_status" = ready ] && break
   [ "$export_status" = failed ] && fail "the worker failed the export"
@@ -182,7 +184,7 @@ fi
 
 # Restore into a fresh database and compare it with the live one.
 backup restore latest --database sn3_restore_drill || fail "the restore failed"
-compare="$(backup compare sn3 sn3_restore_drill)" || { echo "$compare"; fail "the restored database differs from the live one"; }
+compare="$(backup compare sn3_restore_drill)" || { echo "$compare"; fail "the restored database differs from the live one"; }
 echo "$compare"
 echo "::notice title=Restore drill::$(grep -c '^ok ' <<< "$compare") tables with identical row counts; users=$(awk '$2 == "users" {print $3}' <<< "$compare"), teams=$(awk '$2 == "teams" {print $3}' <<< "$compare"), projects=$(awk '$2 == "projects" {print $3}' <<< "$compare"), team_exports=$(awk '$2 == "team_exports" {print $3}' <<< "$compare")"
 migrations="$(docker compose run --rm --no-deps -T -e DB_DATABASE=sn3_restore_drill app php artisan migrate:status)"
@@ -203,9 +205,40 @@ backup prune
 in_backup 'test ! -e /backups/sn3-20200101T000000Z.sha256 && test ! -e /backups/sn3-20200102T000000Z.db.dump.gpg && ls /backups/sn3-*.sha256 | grep -q .' \
   || fail "retention did not delete the old sets or kept nothing"
 
-# The daily service starts and reports healthy.
-docker compose --profile backup up -d --wait --wait-timeout 120 backup || fail "the backup service did not become healthy"
+docker compose exec -T postgres dropdb -U sn3 sn3_restore_drill
+
+# --- A real restore, as docs/BACKUP_RESTORE.md §6 describes ------------------------------------
+# Changes after the backup that the restore must undo: a new team and a lost file.
+status="$(api_post /api/v1/teams '{"name":"After backup","slug":"after-backup"}')"
+[ "$status" = 201 ] || fail "creating the post-backup team answered $status, expected 201"
+docker compose exec -T app rm storage/app/private/smoke/marker.txt
+
+docker compose --profile backup stop app worker scheduler backup
+backup restore latest --database sn3_restored || fail "the restore into sn3_restored failed"
+docker compose exec -T postgres psql -U sn3 -d postgres \
+  -c 'ALTER DATABASE "sn3" RENAME TO "sn3_before_restore"' -c 'ALTER DATABASE sn3_restored RENAME TO "sn3"' \
+  || fail "swapping the restored database in failed"
+docker compose exec -T postgres psql -U sn3 -d sn3 -c 'TRUNCATE sessions, cache, cache_locks' || fail "TRUNCATE sessions failed"
+docker compose --profile backup run --rm -T -v app-storage:/restore backup restore-storage latest --into /restore --force \
+  || fail "restoring the files into the app-storage volume failed"
+docker compose run --rm -T app php artisan migrate --force --no-interaction
+# Also starts the daily backup service, which must report healthy.
+docker compose --profile backup up -d --wait --wait-timeout 180 || fail "the stack did not come back after the restore"
+
+[ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/me")" = 401 ] \
+  || fail "a session from before the restore still works"
+status="$(sign_in)"
+[ "$status" = 200 ] || fail "sign-in after the restore answered $status, expected 200"
+curl -fsS -o "$BODY" -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/teams" || fail "listing teams after the restore failed"
+python3 - "$BODY" <<'PY' || fail "the restored teams are not those of the backup"
+import json, sys
+slugs = sorted(team["slug"] for team in json.load(open(sys.argv[1]))["data"])
+assert slugs == ["smoke-team"], slugs
+PY
+docker compose exec -T app grep -qx marker storage/app/private/smoke/marker.txt || fail "the restored file is missing in the app"
+docker compose exec -T postgres dropdb -U sn3 sn3_before_restore
+echo "::notice title=Real restore::database swapped in, sessions cleared, files restored into app-storage, post-backup team gone, sign-in works, backup service healthy"
 docker compose --profile backup stop backup
 
 docker compose --profile backup ps
-echo "Clean install verified: build, key, migrate, up --wait, register, queued mail, sign-in, log hygiene, restart, team export, encrypted backup, restore drill, retention."
+echo "Clean install verified: build, key, migrate, up --wait, register, queued mail, sign-in, log hygiene, restart, team export, encrypted backup, restore drill, retention, real restore."

@@ -4,6 +4,7 @@ namespace App\Domain\Exports;
 
 use App\Models\TeamExport;
 use Carbon\CarbonInterface;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -15,11 +16,14 @@ use Illuminate\Support\Facades\Log;
  *   expires; until then the API already reports it `expired` and refuses the download.
  * - **Orphaned files**: an archive whose row no longer exists (its team was purged from the trash,
  *   or a crash between the two deletes) is removed too, so stored files never outlive their rows
- *   (DATABASE.md §13 purge rule for stored files).
+ *   (DATABASE.md §13 purge rule for stored files). Only keys under `archives/` matching the
+ *   archive pattern are considered; nothing else on the disk is touched.
+ * - **Stale work directories**: a build directory older than WORK_TTL_MINUTES (a worker killed
+ *   mid-build skips its cleanup) is deleted with its plaintext content.
  *
  * Idempotent; logs IDs only.
  *
- * @phpstan-type PruneResult array{exports: int, orphans: int}
+ * @phpstan-type PruneResult array{exports: int, orphans: int, work_dirs: int}
  */
 final class PruneTeamExports
 {
@@ -37,6 +41,7 @@ final class PruneTeamExports
         return [
             'exports' => $this->pruneExpired($now),
             'orphans' => $this->pruneOrphans(),
+            'work_dirs' => $this->pruneWorkDirs($now),
         ];
     }
 
@@ -77,7 +82,7 @@ final class PruneTeamExports
         $disk = $this->storage->disk();
         $candidates = [];
 
-        foreach ($disk->allFiles() as $path) {
+        foreach ($disk->allFiles(TeamExportStorage::PREFIX) as $path) {
             if (preg_match(TeamExportStorage::KEY_PATTERN, $path, $match) === 1) {
                 $candidates[$match[2]] = $path;
             }
@@ -100,5 +105,29 @@ final class PruneTeamExports
         }
 
         return $orphans;
+    }
+
+    private function pruneWorkDirs(CarbonInterface $now): int
+    {
+        $root = $this->storage->workRoot();
+
+        if (! is_dir($root)) {
+            return 0;
+        }
+
+        $cutoff = $now->getTimestamp() - TeamExportStorage::WORK_TTL_MINUTES * 60;
+        $removed = 0;
+
+        foreach (File::directories($root) as $directory) {
+            $modified = filemtime($directory);
+
+            if ($modified !== false && $modified <= $cutoff) {
+                File::deleteDirectory($directory);
+                $removed++;
+                Log::info('team_export.work_dir_pruned', ['export_id' => basename($directory)]);
+            }
+        }
+
+        return $removed;
     }
 }

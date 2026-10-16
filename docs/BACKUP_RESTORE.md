@@ -62,21 +62,21 @@ Run these in the directory with `docker-compose.yml`, after the install in [SELF
    docker compose --profile backup up -d --wait backup
    ```
 
-   It backs up every day at `SN3_BACKUP_AT`. When it starts and finds no set from the last 24 hours (a fresh install, or the service was down), it takes one at once. Its log is `docker compose logs backup`.
+   It backs up every day at `SN3_BACKUP_AT`. When it starts and finds no set from the last 24 hours (a fresh install, or the service was down), it takes one at once. After a failed backup it retries `SN3_BACKUP_RETRIES` (3) times, `SN3_BACKUP_RETRY_MINUTES` (60) minutes apart, and then waits for the next daily run; a retry never delays the daily run. Its log is `docker compose logs backup`.
 
-   The container is **healthy** while the scheduler runs and the last backup succeeded, and **unhealthy** after a failed backup until the next one succeeds. Alert on it (ARCHITECTURE.md §11.2), for example with `docker compose ps backup` in your monitoring, or by watching for `the backup FAILED` in the log.
+   The container is **healthy** while the scheduler runs and the last backup succeeded, and **unhealthy** after a failed backup until the next one (a retry or the next daily run) succeeds. Alert on it (ARCHITECTURE.md §11.2), for example with `docker compose ps backup` in your monitoring, or by watching for `the backup FAILED` in the log.
 
 Every command of the script:
 
 | Command | Does |
 |---|---|
 | `run` | Take one backup set now, verify it, apply retention |
-| `daemon` | The service's default: daily at `SN3_BACKUP_AT` |
+| `daemon` | The service's default: daily at `SN3_BACKUP_AT`, with bounded retries after a failure |
 | `list` | Complete sets, newest first, with size and content |
 | `verify <set\|latest>` | Checksums, decryption and readability |
 | `restore <set\|latest> --database <name>` | Restore the dump into a **new** database (refuses an existing one) |
 | `restore-storage <set\|latest> --into <dir> [--force]` | Extract the files into a directory (empty unless `--force`) |
-| `compare <db-a> <db-b>` | Exact row counts of every table in both databases; exit code 1 on any difference. Skips `cache`, `cache_locks`, `sessions` and `jobs` (`SN3_BACKUP_COMPARE_EXCLUDE`) |
+| `compare [<db-a>] <db-b>` | Exact row counts of every table in both databases (`db-a` defaults to the live database, `PGDATABASE`); exit code 1 on any difference. Skips `cache`, `cache_locks`, `sessions` and `jobs` (`SN3_BACKUP_COMPARE_EXCLUDE`) |
 | `prune` | Apply retention only |
 
 Without Compose, set `PGHOST`, `PGPORT`, `PGUSER`, `PGPASSWORD`, `PGDATABASE`, `SN3_BACKUP_DIR`, `SN3_BACKUP_PASSPHRASE_FILE` and `SN3_BACKUP_STORAGE_DIR` (your `storage/app`, or empty to skip files), and run `deploy/backup/sn3-backup run` from cron, for example `30 2 * * * /opt/sn3/deploy/backup/sn3-backup run`. Use the PostgreSQL client tools of the same major version as the server.
@@ -120,6 +120,13 @@ Backups on the same disk as the database do not survive the loss of that disk. C
 
 The drill proves that the latest backup can actually be restored, without touching the live database. Run it after setting up backups, after every upgrade, and on a regular schedule. Write down the date, the set and how long each step took: that is your measured restore time.
 
+The commands use your database and role names from `.env` (both default to `sn3`):
+
+```bash
+DB="$(sed -n 's/^DB_DATABASE=//p' .env)"; DB="${DB:-sn3}"
+DBU="$(sed -n 's/^DB_USERNAME=//p' .env)"; DBU="${DBU:-sn3}"
+```
+
 ```bash
 # 1. Take a fresh backup (or use the latest nightly one) and verify it.
 docker compose --profile backup run --rm backup run
@@ -130,7 +137,7 @@ docker compose --profile backup run --rm backup restore latest --database sn3_re
 
 # 3. Compare row counts with the live database. Right after step 1 they must be identical;
 #    later, only tables changed by activity since the backup may differ.
-docker compose --profile backup run --rm backup compare sn3 sn3_restore_drill
+docker compose --profile backup run --rm backup compare sn3_restore_drill
 
 # 4. The restored schema is complete: every migration shows "Ran", none "Pending".
 docker compose run --rm --no-deps -e DB_DATABASE=sn3_restore_drill app php artisan migrate:status
@@ -141,14 +148,14 @@ docker compose --profile backup run --rm --entrypoint bash backup -c \
 docker compose exec app sh -c 'find storage/app -type f -not -path "storage/app/exports/*" | wc -l'   # same number, right after step 1
 
 # 6. Remove the drill database.
-docker compose exec postgres dropdb -U sn3 sn3_restore_drill
+docker compose exec postgres dropdb -U "$DBU" sn3_restore_drill
 ```
 
 Every step must succeed. `restore` runs in a single transaction with `--exit-on-error`, so a dump that does not restore completely (a broken foreign key, a missing extension) fails instead of leaving a partial database, and the half-created database is dropped. Referential integrity is checked by PostgreSQL itself, because every constraint is re-created and validated during the restore (DATABASE.md §16 DB-T12).
 
-## 6. Restoring for real
+## 6. Restoring for real (same host)
 
-Use this after data loss or corruption. It replaces the live data with a backup set, so everything written after that set is lost. The old database is renamed, not dropped, so you can go back.
+Use this after data loss or corruption. It replaces the live data with a backup set, so everything written after that set is lost. The old database is renamed, not dropped, so you can go back. Set `DB` and `DBU` as in §5 first. The CI job runs these steps on every pull request.
 
 ```bash
 # 1. Stop everything that writes. PostgreSQL keeps running.
@@ -156,39 +163,88 @@ docker compose --profile backup stop app worker scheduler backup
 
 # 2. Pick the set (normally the newest one taken before the incident) and verify it.
 docker compose --profile backup run --rm backup list
-docker compose --profile backup run --rm backup verify sn3-20261016T023000Z
+SET=sn3-20261016T023000Z
+docker compose --profile backup run --rm backup verify "$SET"
 
 # 3. Restore the database into a new database and check it.
-docker compose --profile backup run --rm backup restore sn3-20261016T023000Z --database sn3_restored
+docker compose --profile backup run --rm backup restore "$SET" --database sn3_restored
 docker compose run --rm --no-deps -e DB_DATABASE=sn3_restored app php artisan migrate:status
 
 # 4. Swap it in. Keep the old database until you are sure.
-docker compose exec postgres psql -U sn3 -d postgres \
-  -c 'ALTER DATABASE sn3 RENAME TO sn3_before_restore' \
-  -c 'ALTER DATABASE sn3_restored RENAME TO sn3'
+docker compose exec postgres psql -U "$DBU" -d postgres \
+  -c "ALTER DATABASE \"$DB\" RENAME TO \"${DB}_before_restore\"" \
+  -c "ALTER DATABASE sn3_restored RENAME TO \"$DB\""
 
-# 5. Restore the files into the storage volume. Files newer than the set stay, but nothing in
-#    the restored database points at them.
-docker compose --profile backup run --rm -v sn3_app-storage:/restore backup \
-  restore-storage sn3-20261016T023000Z --into /restore --force
+# 5. Sign everyone out and drop cached state from backup time.
+docker compose exec postgres psql -U "$DBU" -d "$DB" -c 'TRUNCATE sessions, cache, cache_locks'
 
-# 6. Bring SN3 back. If the running version is newer than the backup, migrate first.
+# 6. Restore the files into the storage volume. `app-storage` is the volume's name in
+#    docker-compose.yml. Files newer than the set stay, but nothing in the restored database
+#    points at them.
+docker compose --profile backup run --rm -v app-storage:/restore backup \
+  restore-storage "$SET" --into /restore --force
+
+# 7. Bring SN3 back. If the running version is newer than the backup, migrate first.
 docker compose run --rm app php artisan migrate --force
 docker compose --profile backup up -d --wait
 
-# 7. Sign in and check a few teams and projects. Then drop the old database.
-docker compose exec postgres dropdb -U sn3 sn3_before_restore
+# 8. Sign in and check a few teams and projects. Then drop the old database.
+docker compose exec postgres dropdb -U "$DBU" "${DB}_before_restore"
 ```
 
 To **roll back** step 4 before dropping anything: stop the app again and rename the databases the other way round.
 
 Notes:
 
+- **Queued jobs come back.** The `jobs` table holds what was queued when the backup was taken (verification, password-reset and invitation mail, team exports). The worker runs them again after step 7: a mail may arrive twice, and an export older than 24 hours is refused. To discard them instead, add `TRUNCATE jobs` to step 5; those jobs are then lost.
 - Restore with the **same `APP_KEY`** as the backup. The application role (`DB_USERNAME`) must be able to create databases, which the bundled PostgreSQL's role can. With an external PostgreSQL, run the restore as the application's role, so the restored tables belong to it.
 - A restore brings back the database as it was, including teams and projects that were in the trash then. Their 30-day clock continues from their original `deleted_at`, so the next `trash:purge` removes those past the window. Team exports in the restored database have no archive (archives are not backed up); they expire within 24 hours and are pruned.
 - Restoring an **older** backup over a newer installation is a data rollback. To roll back an upgrade, restore the backup taken before the upgrade and run the previous release's image (GH-008 documents upgrades).
 
-## 7. Troubleshooting
+## 7. Restoring onto a new host
+
+Use this when the original host is gone. You need three things from outside it: **the offsite copy of the backup sets** (§4), **the backup passphrase**, and **the original `.env`** (above all the same `APP_KEY` and `DB_PASSWORD`).
+
+```bash
+# 1. Install Docker (SELF_HOSTING.md requirements) and check out the SN3 version that wrote the
+#    backup, or a newer one.
+git clone https://github.com/devOMAR-2/SN3.git sn3 && cd sn3
+
+# 2. Put back the configuration and the secrets.
+cp /secure/place/sn3.env .env
+umask 077 && cp /secure/place/backup-passphrase backup-passphrase
+DB="$(sed -n 's/^DB_DATABASE=//p' .env)"; DB="${DB:-sn3}"
+DBU="$(sed -n 's/^DB_USERNAME=//p' .env)"; DBU="${DBU:-sn3}"
+
+# 3. Fetch the backup sets from the offsite copy (any tool; the files are encrypted).
+mkdir -p backups
+rsync -a backup@vault.example.com:/srv/sn3-backups/ backups/   # or: rclone copy s3remote:sn3-backups/prod/ backups/
+
+# 4. Build the image and start only PostgreSQL. It creates an empty "$DB" owned by "$DBU".
+docker compose build
+docker compose up -d --wait postgres
+
+# 5. Verify the set, drop the empty database and restore into a database with the same name.
+docker compose --profile backup run --rm backup list
+SET=sn3-20261016T023000Z
+docker compose --profile backup run --rm backup verify "$SET"
+docker compose exec postgres dropdb -U "$DBU" "$DB"
+docker compose --profile backup run --rm backup restore "$SET" --database "$DB"
+docker compose exec postgres psql -U "$DBU" -d "$DB" -c 'TRUNCATE sessions, cache, cache_locks'
+
+# 6. Restore the files into the (new, empty) storage volume.
+docker compose --profile backup run --rm -v app-storage:/restore backup restore-storage "$SET" --into /restore
+
+# 7. Migrate if this version is newer than the backup, then start everything, backups included.
+docker compose run --rm app php artisan migrate --force
+docker compose --profile backup up -d --wait
+
+# 8. Point DNS (or your proxy) at the new host, sign in and check a few teams and projects.
+```
+
+The notes of §6 apply: queued jobs from backup time run again, and everyone signs in again.
+
+## 8. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|

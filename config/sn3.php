@@ -73,15 +73,18 @@ return [
     | Team exports (CORE-012, ADR-024)
     |--------------------------------------------------------------------------
     |
-    | Archives are written to this private disk and deleted 24 hours after they
-    | complete (API_SPEC.md §13). The default `exports` disk is local
-    | (storage/app/exports) and never served directly; Cloud may point
-    | this at a private S3 disk.
+    | Archives are written to this dedicated private disk (under `archives/`)
+    | and deleted 24 hours after they complete (API_SPEC.md §13). The default
+    | `exports` disk is local (storage/app/exports) and never served directly;
+    | Cloud may point this at a private S3 disk.
     |
     */
 
     'exports' => [
+        // A dedicated private disk; SN3 only uses keys under `archives/` on it.
         'disk' => (string) env('SN3_EXPORTS_DISK', 'exports'),
+        // Local working directory for archives being built (one subdirectory per export).
+        'work_dir' => (string) env('SN3_EXPORTS_WORK_DIR', storage_path('app/exports/work')),
     ],
 
 ];

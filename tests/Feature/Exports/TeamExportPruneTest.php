@@ -10,6 +10,7 @@ use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -21,14 +22,20 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     Storage::fake('exports');
+    $this->workRoot = sys_get_temp_dir().'/sn3-export-work-test-'.Str::random(8);
+    config(['sn3.exports.work_dir' => $this->workRoot]);
     $this->team = Team::factory()->create();
+});
+
+afterEach(function () {
+    File::deleteDirectory($this->workRoot);
 });
 
 function storedExport(Team $team, TeamExportStatus $status, DateTimeInterface $expiresAt, bool $withFile = true): TeamExport
 {
     $export = new TeamExport;
     $export->id = (string) Str::uuid7();
-    $key = "{$team->id}/{$export->id}.zip";
+    $key = "archives/{$team->id}/{$export->id}.zip";
 
     $export->forceFill([
         'team_id' => $team->id,
@@ -53,11 +60,11 @@ it('deletes expired exports with their archives and keeps the rest', function ()
     $fresh = storedExport(Team::factory()->create(), TeamExportStatus::Ready, now()->addHour());
 
     $this->artisan('exports:prune')
-        ->expectsOutputToContain('Pruned 3 expired export(s) and 0 orphaned archive(s).')
+        ->expectsOutputToContain('Pruned 3 expired export(s), 0 orphaned archive(s) and 0 stale work director(ies).')
         ->assertSuccessful();
 
     expect(TeamExport::query()->pluck('id')->all())->toBe([$fresh->id])
-        ->and(Storage::disk('exports')->allFiles())->toBe(["{$fresh->team_id}/{$fresh->id}.zip"]);
+        ->and(Storage::disk('exports')->allFiles())->toBe(["archives/{$fresh->team_id}/{$fresh->id}.zip"]);
 
     foreach ([$expired, $failed, $stalePending] as $export) {
         Log::shouldHaveReceived('info')->with('team_export.pruned', ['team_id' => $export->team_id, 'export_id' => $export->id])->once();
@@ -67,11 +74,17 @@ it('deletes expired exports with their archives and keeps the rest', function ()
 it('deletes archives whose export row is gone, e.g. after the trash purge, and nothing else', function () {
     $kept = storedExport($this->team, TeamExportStatus::Ready, now()->addHour());
     $orphanId = (string) Str::uuid7();
-    Storage::disk('exports')->put("{$this->team->id}/{$orphanId}.zip", 'orphan');
+    Storage::disk('exports')->put("archives/{$this->team->id}/{$orphanId}.zip", 'orphan');
+    // Outside the `archives/` prefix nothing is touched, not even a file that looks like an archive.
     Storage::disk('exports')->put('README.txt', 'not an export');
+    Storage::disk('exports')->put("{$this->team->id}/{$orphanId}.zip", 'someone else\'s file');
 
-    expect(app(PruneTeamExports::class)->handle())->toBe(['exports' => 0, 'orphans' => 1])
-        ->and(Storage::disk('exports')->allFiles())->toEqualCanonicalizing(['README.txt', "{$kept->team_id}/{$kept->id}.zip"]);
+    expect(app(PruneTeamExports::class)->handle())->toBe(['exports' => 0, 'orphans' => 1, 'work_dirs' => 0])
+        ->and(Storage::disk('exports')->allFiles())->toEqualCanonicalizing([
+            'README.txt',
+            "{$this->team->id}/{$orphanId}.zip",
+            "archives/{$kept->team_id}/{$kept->id}.zip",
+        ]);
 });
 
 it('works through more rows than one batch and is idempotent', function () {
@@ -81,7 +94,7 @@ it('works through more rows than one batch and is idempotent', function () {
     }
 
     expect(app(PruneTeamExports::class)->handle()['exports'])->toBe(PruneTeamExports::BATCH + 5)
-        ->and(app(PruneTeamExports::class)->handle())->toBe(['exports' => 0, 'orphans' => 0])
+        ->and(app(PruneTeamExports::class)->handle())->toBe(['exports' => 0, 'orphans' => 0, 'work_dirs' => 0])
         ->and(TeamExport::query()->count())->toBe(0);
 });
 
@@ -94,6 +107,26 @@ it('goes with its team when the trash is purged, and the sweep then removes the 
     expect(TeamExport::query()->whereKey($export->id)->exists())->toBeFalse()
         ->and(app(PruneTeamExports::class)->handle()['orphans'])->toBe(1)
         ->and(Storage::disk('exports')->allFiles())->toBe([]);
+});
+
+it('removes work directories a killed worker left behind once they are two hours old, and keeps fresh ones', function () {
+    Log::spy();
+    $stale = $this->workRoot.'/'.Str::uuid7();
+    $fresh = $this->workRoot.'/'.Str::uuid7();
+    foreach ([$stale, $fresh] as $directory) {
+        mkdir($directory.'/data', 0700, true);
+        file_put_contents($directory.'/data/members.json', '[{"email":"plain@example.com"}]');
+    }
+    touch($stale, now()->subMinutes(121)->getTimestamp());
+
+    expect(app(PruneTeamExports::class)->handle())->toBe(['exports' => 0, 'orphans' => 0, 'work_dirs' => 1])
+        ->and(is_dir($stale))->toBeFalse()
+        ->and(is_dir($fresh))->toBeTrue();
+    Log::shouldHaveReceived('info')->with('team_export.work_dir_pruned', ['export_id' => basename($stale)])->once();
+
+    // Two hours later the fresh one goes too.
+    expect(app(PruneTeamExports::class)->handle(now()->addMinutes(121))['work_dirs'])->toBe(1)
+        ->and(is_dir($fresh))->toBeFalse();
 });
 
 // --- Schema ---------------------------------------------------------------------------------------

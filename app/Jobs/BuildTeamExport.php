@@ -16,7 +16,6 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Str;
 use RuntimeException;
 use Throwable;
 
@@ -33,8 +32,10 @@ use Throwable;
  * time (TeamExportContext), so the archive holds exactly what the Owner can see then.
  *
  * Unexpected errors are retried by the worker (`--tries=3`); after the last attempt failed() marks
- * the export `failed`. Partial files never survive: the archive is built in a private temporary
- * directory and copied to the export disk only when complete.
+ * the export `failed`. Partial files never survive: the archive is built in the export's own work
+ * directory (TeamExportStorage::workDir) and copied to the export disk only when complete. That
+ * directory is deleted when the job ends, cleared when a retry starts, and swept by exports:prune
+ * if a killed worker left it behind.
  */
 final class BuildTeamExport implements ShouldQueue
 {
@@ -66,7 +67,10 @@ final class BuildTeamExport implements ShouldQueue
 
         $export->forceFill(['status' => TeamExportStatus::Processing])->save();
 
-        $workDir = rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR).DIRECTORY_SEPARATOR.'sn3-export-'.Str::uuid7();
+        // Deterministic per export: whatever a killed earlier attempt left there goes first, and
+        // exports:prune removes directories that outlive WORK_TTL_MINUTES.
+        $workDir = $storage->workDir($export);
+        File::deleteDirectory($workDir);
         $key = $storage->key($export);
         $stored = false;
         $size = 0;
@@ -132,6 +136,7 @@ final class BuildTeamExport implements ShouldQueue
 
         $storage = app(TeamExportStorage::class);
         $storage->disk()->delete($storage->key($export));
+        File::deleteDirectory($storage->workDir($export));
 
         if ($export->status->inFlight()) {
             $this->markFailed($export);

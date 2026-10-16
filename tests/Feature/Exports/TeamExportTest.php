@@ -21,9 +21,11 @@ use App\Support\Tenancy\AccessibleProjects;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 
 // CORE-012: asynchronous, Owner-only team export (API_SPEC.md §3, §13, §18; DATABASE.md §13, §20;
@@ -34,6 +36,8 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     Storage::fake('exports');
+    $this->workRoot = sys_get_temp_dir().'/sn3-export-work-test-'.Str::random(8);
+    config(['sn3.exports.work_dir' => $this->workRoot]);
 
     $this->team = Team::factory()->create(['name' => 'فريق الموقع', 'slug' => 'website']);
     $this->owner = $this->team->owner;
@@ -51,6 +55,10 @@ beforeEach(function () {
     $this->otherTeam = Team::factory()->create();
     $this->outsider = $this->otherTeam->owner;
     $this->foreign = Project::factory()->for($this->otherTeam)->withDefaultStatuses()->create(['name' => 'Foreign project']);
+});
+
+afterEach(function () {
+    File::deleteDirectory($this->workRoot);
 });
 
 dataset('non-owner team roles', ['admin', 'member', 'viewer']);
@@ -123,7 +131,7 @@ it('exports the team asynchronously for its Owner: 202, then a ready export with
 
     $export = TeamExport::query()->sole();
     expect($export->status)->toBe(TeamExportStatus::Ready)
-        ->and($export->storage_key)->toBe("{$this->team->id}/{$id}.zip")
+        ->and($export->storage_key)->toBe("archives/{$this->team->id}/{$id}.zip")
         ->and($export->expires_at->between(now()->addHours(23)->addMinutes(59), now()->addHours(24)))->toBeTrue()
         ->and($show->json('data.size_bytes'))->toBe($export->size_bytes)
         ->and($show->json('data.sha256'))->toBe(hash('sha256', Storage::disk('exports')->get($export->storage_key)))
@@ -298,6 +306,20 @@ it('answers 404 for an export of another team, another requester, or a malformed
     $this->actingAs($this->owner)->getJson("/api/v1/teams/{$this->team->id}/exports/{$foreignExport}")->assertNotFound();
     $this->actingAs($this->outsider)->getJson("/api/v1/teams/{$this->team->id}/exports/{$foreignExport}")->assertNotFound();
     $this->actingAs($this->owner)->getJson("/api/v1/teams/{$this->team->id}/exports/not-a-uuid")->assertNotFound();
+});
+
+it('scopes an export to its own team, even for an Owner of both teams (DB-T01)', function () {
+    $teamB = Team::factory()->ownedBy($this->owner)->create();
+    $exportB = requestExport($this->owner, $teamB)->assertStatus(202)->json('data.id');
+
+    // Team A's URL with team B's export: the same 404 as a missing export.
+    $this->actingAs($this->owner)->getJson("/api/v1/teams/{$this->team->id}/exports/{$exportB}")->assertNotFound();
+    $crossSigned = URL::temporarySignedRoute('api.teams.exports.download', now()->addHour(), ['team' => $this->team->id, 'export' => $exportB]);
+    $this->actingAs($this->owner)->getJson($crossSigned)->assertNotFound();
+
+    // Through its own team it works.
+    $this->actingAs($this->owner)->getJson("/api/v1/teams/{$teamB->id}/exports/{$exportB}")->assertOk()->assertJsonPath('data.team_id', $teamB->id);
+    $this->actingAs($this->owner)->get(downloadUrlFor($exportB))->assertOk();
 });
 
 it('requires authentication', function () {
@@ -557,9 +579,10 @@ it('marks the export failed and removes any file when the job finally fails', fu
     $job = new BuildTeamExport($id);
     expect(fn () => app()->call([$job, 'handle']))->toThrow(RuntimeException::class);
     expect(TeamExport::query()->findOrFail($id)->status)->toBe(TeamExportStatus::Processing)
-        ->and(Storage::disk('exports')->allFiles())->toBe([]);
+        ->and(Storage::disk('exports')->allFiles())->toBe([])
+        ->and(is_dir("{$this->workRoot}/{$id}"))->toBeFalse();
 
-    Storage::disk('exports')->put("{$this->team->id}/{$id}.zip", 'partial');
+    Storage::disk('exports')->put("archives/{$this->team->id}/{$id}.zip", 'partial');
     $job->failed(new RuntimeException('disk full'));
 
     expect(TeamExport::query()->findOrFail($id)->status)->toBe(TeamExportStatus::Failed)
@@ -567,6 +590,29 @@ it('marks the export failed and removes any file when the job finally fails', fu
     Log::shouldHaveReceived('warning')->with('team_export.failed', ['team_id' => $this->team->id, 'export_id' => $id, 'actor_id' => $this->owner->id])->once();
 
     $this->actingAs($this->owner)->getJson("/api/v1/teams/{$this->team->id}/exports/{$id}")->assertOk()->assertJsonPath('data.status', 'failed');
+});
+
+it('builds in a deterministic work directory, clears what a killed attempt left there, and removes it afterwards', function () {
+    Queue::fake();
+    $id = requestExport($this->owner, $this->team)->assertStatus(202)->json('data.id');
+
+    // A worker killed mid-build (SIGKILL on timeout or OOM) skips its cleanup.
+    $workDir = "{$this->workRoot}/{$id}";
+    mkdir("{$workDir}/data", 0700, true);
+    file_put_contents("{$workDir}/data/leftover.json", '["plaintext from the killed attempt"]');
+    $half = new ZipArchive;
+    $half->open("{$workDir}/export.zip", ZipArchive::CREATE);
+    $half->addFromString('data/leftover.json', '["half-written archive"]');
+    $half->close();
+    TeamExport::query()->whereKey($id)->update(['status' => 'processing']);
+
+    app()->call([new BuildTeamExport($id), 'handle']);
+
+    $export = TeamExport::query()->findOrFail($id);
+    expect($export->status)->toBe(TeamExportStatus::Ready)
+        ->and(is_dir($workDir))->toBeFalse()
+        ->and(File::directories($this->workRoot))->toBe([])
+        ->and(array_keys(exportEntries(Storage::disk('exports')->get($export->storage_key))))->not->toContain('data/leftover.json');
 });
 
 // --- Format and scoping -------------------------------------------------------------------------

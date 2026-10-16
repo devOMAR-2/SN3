@@ -177,11 +177,12 @@ An error here shows the SMTP problem directly. Use an address you control.
 
 ## Team exports
 
-A team's Owner can export the team (members, projects including private ones, workflows, and later tasks and the rest) through `POST /api/v1/teams/{team}/exports`. The worker builds a zip archive (`manifest.json` plus one JSON file per section, ADR-024) in `storage/app/exports`, part of the `sn3_app-storage` volume. Only the requesting Owner can download it, through a signed link, and it is deleted 24 hours after it is ready. Offer an export before deleting a team (DECIDED-011).
+A team's Owner can export the team (members, projects including private ones, workflows, and later tasks and the rest) through `POST /api/v1/teams/{team}/exports`. The worker builds a zip archive (`manifest.json` plus one JSON file per section, ADR-024) in `storage/app/exports`, part of the `sn3_app-storage` volume (and left out of backups). Only the requesting Owner can download it, through a signed link, and it is deleted 24 hours after it is ready. Offer an export before deleting a team (DECIDED-011).
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SN3_EXPORTS_DISK` | `exports` | Filesystem disk for the archives (`config/filesystems.php`); must be private |
+| `SN3_EXPORTS_DISK` | `exports` | Filesystem disk for the archives (`config/filesystems.php`). Use a **dedicated private disk**; SN3 only uses keys under `archives/` on it |
+| `SN3_EXPORTS_WORK_DIR` | `storage/app/exports/work` | Local directory where archives are built; leftovers older than 2 hours are removed |
 | `SN3_RATE_LIMIT_TEAM_EXPORTS_PER_HOUR` | `10` | Export requests per user per hour; `0` disables the limit. At most one export per team runs at a time |
 
 Exports run on the queue worker, within its 60-second job timeout. Today's sections are small; ADR-024 §8 lists what must change before tasks and attachments make archives large.
