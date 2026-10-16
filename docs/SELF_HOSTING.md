@@ -42,7 +42,7 @@ Edit `.env`:
 | `DB_PASSWORD` | A long random password. **Required.** Compose refuses to start without it. Example: `openssl rand -base64 24` |
 | `APP_URL` | The public URL, e.g. `https://pm.example.com` (or `http://127.0.0.1:8080` for a local trial) |
 | `SESSION_SECURE_COOKIE` | `true` when served over HTTPS |
-| `SN3_DOMAIN` | The public hostname, if you use the Caddy proxy |
+| `SN3_DOMAIN` | The public hostname, if you use the Caddy proxy (`SN3_PROXY_HTTP_PORT`/`SN3_PROXY_HTTPS_PORT` default to 80/443) |
 | `MAIL_*` | Your SMTP server. Until it is set, mail is written to the log |
 
 Compose forces `APP_ENV=production`, `APP_DEBUG=false`, the database host and logging to stderr, so the `.env.example` development values for those keys don't apply inside the containers.

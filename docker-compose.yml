@@ -70,9 +70,9 @@ services:
     environment:
       SN3_DOMAIN: ${SN3_DOMAIN:-localhost}
     ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+      - "${SN3_PROXY_HTTP_PORT:-80}:80"
+      - "${SN3_PROXY_HTTPS_PORT:-443}:443"
+      - "${SN3_PROXY_HTTPS_PORT:-443}:443/udp"
     volumes:
       - ./deploy/docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
