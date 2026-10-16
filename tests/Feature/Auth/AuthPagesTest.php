@@ -31,7 +31,7 @@ it('serves the reset page without the token ever reaching the server', function 
 
 it('redirects signed-in users away from guest pages', function (string $uri) {
     $this->actingAs(User::factory()->create())->get($uri)->assertRedirect('/');
-})->with(['/login', '/register', '/forgot-password', '/reset-password']);
+})->with(['/login', '/register', '/forgot-password']);
 
 it('redirects guests to sign-in from authenticated pages', function (string $uri) {
     $this->get($uri)->assertRedirect('/login');
@@ -62,3 +62,9 @@ it('renders the settings and verification notice pages for signed-in users', fun
     ['/settings', 'Settings/Profile'],
     ['/verify-email', 'Auth/VerifyEmail'],
 ]);
+
+it('serves the reset page to signed-in users too, so the link fragment is not redirected along', function () {
+    $this->actingAs(User::factory()->create())->get('/reset-password')
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page->component('Auth/ResetPassword'));
+});

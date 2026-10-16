@@ -13,11 +13,14 @@ Route::put('/locale', [LocaleController::class, 'update'])
     ->name('locale.update');
 
 // Public auth shell (FND-004). Forms submit to /api/v1/auth/*.
+// The reset page is not guest-only: a redirect would carry the URL fragment (the reset token)
+// along to the next page.
+Route::get('/reset-password', [AuthPageController::class, 'resetPassword'])->name('password.reset');
+
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthPageController::class, 'login'])->name('login');
     Route::get('/register', [AuthPageController::class, 'register'])->name('register');
     Route::get('/forgot-password', [AuthPageController::class, 'forgotPassword'])->name('password.request');
-    Route::get('/reset-password', [AuthPageController::class, 'resetPassword'])->name('password.reset');
 });
 
 Route::middleware('auth')->group(function (): void {

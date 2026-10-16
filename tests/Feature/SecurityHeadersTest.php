@@ -13,7 +13,7 @@ it('forbids framing by other sites and MIME sniffing everywhere', function (stri
         ->assertHeader('X-Content-Type-Options', 'nosniff');
 })->with([
     'Inertia page' => ['GET', '/login'],
-    'API success' => ['GET', '/api/v1/auth/email/verify/x/y'],
+    'API forbidden' => ['GET', '/api/v1/auth/email/verify/x/y'],
     'API error' => ['GET', '/api/v1/teams'],
     'unknown route' => ['GET', '/no-such-page'],
     'health probe' => ['GET', '/health/live'],

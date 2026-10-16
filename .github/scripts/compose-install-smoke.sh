@@ -77,13 +77,15 @@ for attempt in $(seq 1 30); do
   [ "$attempt" = 30 ] && fail "the worker did not process the verification mail"
   sleep 2
 done
-docker compose logs --no-color worker | grep -q 'Mail was not delivered' || fail "no mail warning from the worker"
+worker_logs="$(docker compose logs --no-color worker)"
+grep -q 'Mail was not delivered' <<< "$worker_logs" || fail "no mail warning from the worker"
 failed="$(docker compose exec -T postgres psql -U sn3 -d sn3 -tAc 'select count(*) from failed_jobs')"
 [ "$failed" = 0 ] || fail "$failed failed job(s)"
 
 status="$(sign_in)"
 [ "$status" = 200 ] || fail "sign-in answered $status, expected 200"
-curl -fsS -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/me" | grep -q "\"email\":\"$EMAIL\"" || fail "/api/v1/me does not return the new user"
+me="$(curl -fsS -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/me")"
+grep -q "\"email\":\"$EMAIL\"" <<< "$me" || fail "/api/v1/me does not return the new user"
 
 # --- No secrets in the access log --------------------------------------------------------------
 curl -sS -o /dev/null "$BASE/api/v1/auth/email/verify/x/y?expires=1&signature=$SIGNATURE_PROBE"
@@ -91,6 +93,8 @@ curl -sS -o /dev/null "$BASE/login?email=$EMAIL_PROBE"
 curl -sS -o /dev/null -H "Referer: $BASE/reset?signature=$SIGNATURE_PROBE" "$BASE/login"
 sleep 1
 logs="$(docker compose logs --no-color app)"
+# Positive control: the access lines are in this log, with the path but not the query string.
+grep -q '"GET /login HTTP/1.1" 200' <<< "$logs" || fail "no access-log line for GET /login in the app log"
 if grep -q -e "$SIGNATURE_PROBE" -e "$EMAIL_PROBE" -e "$EMAIL" <<< "$logs"; then
   fail "a signature or an email address reached the app log"
 fi

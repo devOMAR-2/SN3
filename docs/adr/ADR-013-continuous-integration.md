@@ -13,7 +13,7 @@ ARCHITECTURE.md §12 lists the CI gates: formatter/linter, static analysis, unit
 
 ### 1. One workflow, seven jobs
 
-`.github/workflows/ci.yml` runs on `pull_request` and `push` for `dev` and `main`. The job names are the required checks:
+`.github/workflows/ci.yml` runs on `pull_request` and `push` for `dev` and `main`. Each job name is a check; the repository ruleset (§6) lists which ones are required:
 
 | Check (job name) | What it runs |
 |---|---|
@@ -74,4 +74,4 @@ The pre-existing "Protect main" ruleset (default branch: PR with one approval, r
 - New PHP code must pass PHPStan level 9 without a baseline. Configuration code that passes `env()` values into typed functions needs an explicit cast.
 - Frontend tests are `*.test.ts` files under `resources/js/`. Pages that use Inertia's `<Head>` need the `$headManager` mock shown in `Welcome.test.ts`.
 - The Docker job builds the image on every PR, but nothing is published. Image publishing is GH-008.
-- E2E (Playwright) joined the pipeline with FND-008 and becomes a required check once the ruleset lists it. The clean Compose install/backup/restore smoke test (ARCHITECTURE.md §12, deployment row) is not part of this pipeline yet; it should be added as a further required check when that task lands.
+- E2E (Playwright) joined the pipeline with FND-008 and is a required check. The clean-host Compose install job joined for the R0 release; it becomes required once the ruleset lists it. Backup/restore (CORE-012) and upgrade (GH-008) rehearsals should extend that job when those tasks land.
