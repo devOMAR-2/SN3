@@ -58,6 +58,14 @@ class IdentityServiceProvider extends ServiceProvider
             'sn3.rate_limits.verification_per_minute',
             'verification:'.self::actorKey($request),
         ) ?? Limit::none());
+
+        // Team export requests (CORE-012, ADR-024 §5): each one reads the whole team, so they are
+        // limited per user per hour, on top of one export in flight per team.
+        RateLimiter::for('team-exports', function (Request $request): Limit {
+            $max = config()->integer('sn3.rate_limits.team_exports_per_hour');
+
+            return $max > 0 ? Limit::perHour($max)->by('team-exports:'.self::actorKey($request)) : Limit::none();
+        });
     }
 
     private static function actorKey(Request $request): string

@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\ProjectMemberController;
 use App\Http\Controllers\Api\V1\ProjectSettingsController;
 use App\Http\Controllers\Api\V1\ProjectStatusController;
 use App\Http\Controllers\Api\V1\TeamController;
+use App\Http\Controllers\Api\V1\TeamExportController;
 use App\Http\Controllers\Api\V1\TeamLifecycleController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
 use App\Http\Controllers\Api\V1\TeamOwnershipController;
@@ -100,4 +101,10 @@ Route::middleware('auth')->group(function (): void {
     Route::post('projects/{project}/restore', [ProjectLifecycleController::class, 'unarchive'])->name('projects.restore');
     Route::delete('projects/{project}', [ProjectLifecycleController::class, 'destroy'])->name('projects.destroy');
     Route::post('projects/{trashedProject}/restore-deleted', [ProjectLifecycleController::class, 'restoreDeleted'])->name('projects.restore-deleted');
+
+    // Team exports (API_SPEC.md §3, §13, §18; ADR-024), Owner only. The download URL is signed and
+    // expires with the export; it also needs the requesting Owner's session.
+    Route::post('teams/{team}/exports', [TeamExportController::class, 'store'])->middleware(['throttle:team-exports', 'idempotent'])->name('teams.exports.store');
+    Route::get('teams/{team}/exports/{export}', [TeamExportController::class, 'show'])->name('teams.exports.show');
+    Route::get('teams/{team}/exports/{export}/download', [TeamExportController::class, 'download'])->middleware('signed')->name('teams.exports.download');
 });

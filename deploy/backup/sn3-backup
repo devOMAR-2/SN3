@@ -1,0 +1,483 @@
+#!/usr/bin/env bash
+# SN3 (سنع) encrypted backups: PostgreSQL logical dump plus the private file storage, with
+# retention, verification, restore and a restore-drill comparison (CORE-012, ADR-024).
+#
+# Runbook: docs/BACKUP_RESTORE.md. Under Docker Compose this runs in the `backup` service
+# (profile `backup`, image postgres:16.15-trixie), which already has pg_dump, pg_restore, psql,
+# gpg, tar and flock. It works the same on any host with those tools.
+#
+# Usage: sn3-backup <command> [arguments]
+#
+#   run                              take one backup set now, verify it, then apply retention
+#   daemon                           run every day at SN3_BACKUP_AT (UTC); catch up at start
+#   list                             list complete backup sets, newest first
+#   verify  <set|latest>             check checksums, decrypt, and read the dump and the archive
+#   restore <set|latest> --database <name>
+#                                    restore the database dump into a NEW database <name>
+#   restore-storage <set|latest> --into <dir> [--force]
+#                                    extract the file storage into <dir> (empty unless --force)
+#   compare [<database-a>] <database-b>
+#                                    exact row counts of every table (database-a defaults to
+#                                    PGDATABASE); exits 1 on a difference
+#   prune                            apply retention only
+#
+# Environment (defaults in brackets):
+#   PGHOST, PGPORT, PGUSER, PGPASSWORD, PGDATABASE   libpq connection to the SN3 database
+#   SN3_BACKUP_DIR                 [/backups]  where backup sets are written (a host bind mount)
+#   SN3_BACKUP_PASSPHRASE_FILE     [/run/secrets/sn3_backup_passphrase]  first line = passphrase
+#                                  (16+ characters). Keep a copy OFF this host: without it no
+#                                  backup can be restored.
+#   SN3_BACKUP_RETENTION_DAYS      [14]  sets older than this are deleted (the newest is kept)
+#   SN3_BACKUP_STORAGE_DIR         [/storage]  the app's storage/app volume; empty = skip files
+#   SN3_BACKUP_AT                  [02:30]  daily time (HH:MM, UTC) for `daemon`
+#   SN3_BACKUP_RETRIES             [3]  after a failed backup, `daemon` retries this many times…
+#   SN3_BACKUP_RETRY_MINUTES       [60]  …this many minutes apart, then waits for the next day
+#   SN3_BACKUP_COMPARE_EXCLUDE     [cache cache_locks sessions jobs]  tables `compare` skips
+#   SN3_BACKUP_STATE_FILE          [/tmp/sn3-backup.state]  `daemon` health state (ok|failed)
+#
+# A backup set is `sn3-<UTC timestamp>` and consists of
+#   <set>.db.dump.gpg          pg_dump custom format, encrypted (AES-256, OpenPGP symmetric)
+#   <set>.storage.tar.gz.gpg   tar.gz of the storage volume without exports/, encrypted
+#   <set>.sha256               SHA-256 of the encrypted files; written last, it marks the set complete
+set -Eeuo pipefail
+umask 077
+
+BACKUP_DIR="${SN3_BACKUP_DIR:-/backups}"
+PASSPHRASE_FILE="${SN3_BACKUP_PASSPHRASE_FILE:-/run/secrets/sn3_backup_passphrase}"
+RETENTION_DAYS="${SN3_BACKUP_RETENTION_DAYS:-14}"
+STORAGE_DIR="${SN3_BACKUP_STORAGE_DIR-/storage}"
+BACKUP_AT="${SN3_BACKUP_AT:-02:30}"
+COMPARE_EXCLUDE="${SN3_BACKUP_COMPARE_EXCLUDE-cache cache_locks sessions jobs}"
+STATE_FILE="${SN3_BACKUP_STATE_FILE:-/tmp/sn3-backup.state}"
+RETRIES="${SN3_BACKUP_RETRIES:-3}"
+RETRY_MINUTES="${SN3_BACKUP_RETRY_MINUTES:-60}"
+SET_PATTERN='^sn3-[0-9]{8}T[0-9]{6}Z$'
+
+log() { printf '%s sn3-backup: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >&2; }
+die() { log "ERROR: $*"; exit 1; }
+
+# --- Encryption ---------------------------------------------------------------------------------
+
+GPG_HOME=""
+cleanup_gpg() {
+  if [ -n "$GPG_HOME" ]; then
+    GNUPGHOME="$GPG_HOME" gpgconf --kill gpg-agent > /dev/null 2>&1 || true
+    rm -rf "$GPG_HOME"
+    GPG_HOME=""
+  fi
+}
+
+require_passphrase() {
+  [ -f "$PASSPHRASE_FILE" ] || die "no passphrase file at $PASSPHRASE_FILE (SN3_BACKUP_PASSPHRASE_FILE); see docs/BACKUP_RESTORE.md"
+  [ -r "$PASSPHRASE_FILE" ] || die "the passphrase file $PASSPHRASE_FILE is not readable"
+  local first
+  first="$(head -n1 "$PASSPHRASE_FILE" | tr -d '\r')"
+  [ "${#first}" -ge 16 ] || die "the passphrase (first line of $PASSPHRASE_FILE) must have at least 16 characters"
+
+  if [ -z "$GPG_HOME" ]; then
+    GPG_HOME="$(mktemp -d /tmp/sn3-gpg.XXXXXX)"
+  fi
+}
+
+gpg_base() {
+  GNUPGHOME="$GPG_HOME" gpg --batch --quiet --no-tty --no-options --pinentry-mode loopback \
+    --passphrase-file "$PASSPHRASE_FILE" "$@"
+}
+
+# stdin → encrypted file $1
+encrypt_to() {
+  gpg_base --yes --symmetric --cipher-algo AES256 --s2k-mode 3 --s2k-digest-algo SHA512 \
+    --s2k-count 65011712 --compress-algo none --output "$1"
+}
+
+# encrypted file $1 → stdout
+decrypt() {
+  gpg_base --decrypt "$1"
+}
+
+# --- Backup sets --------------------------------------------------------------------------------
+
+require_dir() {
+  [ -d "$BACKUP_DIR" ] || die "backup directory $BACKUP_DIR does not exist (SN3_BACKUP_DIR)"
+  [ -w "$BACKUP_DIR" ] || die "backup directory $BACKUP_DIR is not writable"
+}
+
+# Complete sets (those with a .sha256), oldest first.
+complete_sets() {
+  local file name
+  for file in "$BACKUP_DIR"/sn3-*.sha256; do
+    [ -e "$file" ] || continue
+    name="$(basename "$file" .sha256)"
+    [[ "$name" =~ $SET_PATTERN ]] && printf '%s\n' "$name"
+  done | sort
+}
+
+resolve_set() {
+  local wanted="${1:-}" set
+  [ -n "$wanted" ] || die "name a backup set (or 'latest'); see 'sn3-backup list'"
+
+  if [ "$wanted" = latest ]; then
+    set="$(complete_sets | tail -n1)"
+    [ -n "$set" ] || die "no complete backup set in $BACKUP_DIR"
+  else
+    set="$(basename "$wanted")"
+    set="${set%%.*}"
+    [[ "$set" =~ $SET_PATTERN ]] || die "not a backup set name: $wanted"
+    [ -f "$BACKUP_DIR/$set.sha256" ] || die "backup set $set is missing or incomplete in $BACKUP_DIR"
+  fi
+
+  printf '%s\n' "$set"
+}
+
+check_sums() {
+  local set="$1"
+  (cd "$BACKUP_DIR" && sha256sum --quiet --strict -c "$set.sha256") || die "checksum mismatch in $set"
+}
+
+has_storage() {
+  grep -q " $1\.storage\.tar\.gz\.gpg\$" "$BACKUP_DIR/$1.sha256"
+}
+
+storage_tar() {
+  # GNU tar exits 1 when a file changed while it was read; the archive is still usable.
+  local rc=0
+  tar -C "$STORAGE_DIR" --numeric-owner --exclude=./exports --warning=no-file-changed -czf - . || rc=$?
+  [ "$rc" -le 1 ]
+}
+
+verify_set() {
+  local set="$1"
+  require_passphrase
+  check_sums "$set"
+  decrypt "$BACKUP_DIR/$set.db.dump.gpg" | pg_restore --list > /dev/null \
+    || die "$set: the database dump cannot be decrypted or read"
+
+  if has_storage "$set"; then
+    decrypt "$BACKUP_DIR/$set.storage.tar.gz.gpg" | tar -tzf - > /dev/null \
+      || die "$set: the storage archive cannot be decrypted or read"
+  fi
+
+  log "verified $set"
+}
+
+cmd_run() {
+  require_dir
+  require_passphrase
+  [ -z "$STORAGE_DIR" ] || [ -d "$STORAGE_DIR" ] || die "storage directory $STORAGE_DIR does not exist (SN3_BACKUP_STORAGE_DIR, empty to skip)"
+
+  exec 9> "$BACKUP_DIR/.sn3-backup.lock"
+  flock -n 9 || die "another backup is running"
+
+  local set work
+  set="sn3-$(date -u +%Y%m%dT%H%M%SZ)"
+  work="$BACKUP_DIR/.incomplete-$set"
+  [ ! -e "$BACKUP_DIR/$set.sha256" ] || die "backup set $set already exists"
+  mkdir "$work"
+
+  log "starting $set (database ${PGDATABASE:-?} on ${PGHOST:-local socket})"
+
+  # Database first, then files: the files are then at least as new as the rows that reference
+  # them (ARCHITECTURE.md §11.3, ADR-024 §7).
+  pg_dump --format=custom --compress=6 --no-password | encrypt_to "$work/$set.db.dump.gpg" \
+    || { rm -rf "$work"; die "pg_dump failed"; }
+
+  if [ -n "$STORAGE_DIR" ]; then
+    storage_tar | encrypt_to "$work/$set.storage.tar.gz.gpg" \
+      || { rm -rf "$work"; die "archiving $STORAGE_DIR failed"; }
+  fi
+
+  (cd "$work" && sha256sum -- "$set".*.gpg > "$set.sha256.tmp")
+  mv "$work/$set".*.gpg "$BACKUP_DIR/"
+  mv "$work/$set.sha256.tmp" "$BACKUP_DIR/$set.sha256"
+  rmdir "$work"
+
+  verify_set "$set" || die "$set was written but does not verify"
+  log "completed $set ($(du -ch "$BACKUP_DIR/$set".*.gpg | tail -n1 | cut -f1))"
+
+  prune_sets
+}
+
+prune_sets() {
+  [[ "$RETENTION_DAYS" =~ ^[1-9][0-9]*$ ]] || die "SN3_BACKUP_RETENTION_DAYS must be a positive whole number of days"
+
+  local cutoff newest set name stamp
+  cutoff="sn3-$(date -u -d "@$(( $(date +%s) - RETENTION_DAYS * 86400 ))" +%Y%m%dT%H%M%SZ)"
+  newest="$(complete_sets | tail -n1)"
+
+  # Complete sets older than the retention window; never the newest one, so a run of failed
+  # backups cannot leave nothing to restore.
+  while IFS= read -r set; do
+    [ -n "$set" ] || continue
+    if [[ "$set" < "$cutoff" ]] && [ "$set" != "$newest" ]; then
+      rm -f -- "$BACKUP_DIR/$set".*.gpg "$BACKUP_DIR/$set.sha256"
+      log "deleted $set (older than $RETENTION_DAYS days)"
+    fi
+  done < <(complete_sets)
+
+  # Leftovers of interrupted runs, after a day: work directories and files of sets without a
+  # checksum file.
+  find "$BACKUP_DIR" -maxdepth 1 -name '.incomplete-sn3-*' -mmin +1440 -exec rm -rf -- {} + 2> /dev/null || true
+  for name in "$BACKUP_DIR"/sn3-*.gpg; do
+    [ -e "$name" ] || continue
+    stamp="$(basename "$name")"
+    stamp="${stamp%%.*}"
+    if [ ! -e "$BACKUP_DIR/$stamp.sha256" ] && [ -n "$(find "$name" -mmin +1440)" ]; then
+      rm -f -- "$name"
+      log "deleted incomplete $(basename "$name")"
+    fi
+  done
+}
+
+cmd_list() {
+  local set size
+  while IFS= read -r set; do
+    [ -n "$set" ] || continue
+    size="$(du -ch "$BACKUP_DIR/$set".*.gpg | tail -n1 | cut -f1)"
+    printf '%s\t%s\t%s\n' "$set" "$size" "$(has_storage "$set" && echo 'database+files' || echo 'database')"
+  done < <(complete_sets | sort -r)
+}
+
+valid_db_name() {
+  [[ "$1" =~ ^[a-z_][a-z0-9_]{0,62}$ ]] || die "database names are lower-case letters, digits and _: $1"
+}
+
+db_exists() {
+  [ "$(psql -X -d postgres -tAc "select 1 from pg_database where datname = '$1'")" = 1 ]
+}
+
+cmd_restore() {
+  local set target=""
+  set="$(resolve_set "${1:-}")"
+  shift || true
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --database) target="${2:-}"; shift 2 ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+
+  [ -n "$target" ] || die "restore needs --database <new database name>"
+  valid_db_name "$target"
+  db_exists "$target" && die "database $target already exists; restore only into a new database (see docs/BACKUP_RESTORE.md)"
+
+  require_passphrase
+  check_sums "$set"
+
+  log "restoring $set into new database $target"
+  createdb --template=template0 --encoding=UTF8 "$target"
+
+  if ! decrypt "$BACKUP_DIR/$set.db.dump.gpg" \
+      | pg_restore --no-owner --no-privileges --exit-on-error --single-transaction --dbname="$target"; then
+    dropdb --if-exists "$target" || true
+    die "restore of $set failed; $target was removed"
+  fi
+
+  log "restored $set into $target ($(psql -X -d "$target" -tAc 'select count(*) from migrations' 2> /dev/null || echo '?') migrations applied)"
+}
+
+cmd_restore_storage() {
+  local set into="" force=0
+  set="$(resolve_set "${1:-}")"
+  shift || true
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --into) into="${2:-}"; shift 2 ;;
+      --force) force=1; shift ;;
+      *) die "unknown option $1" ;;
+    esac
+  done
+
+  [ -n "$into" ] || die "restore-storage needs --into <directory>"
+  [ -d "$into" ] || die "$into is not a directory"
+  has_storage "$set" || die "$set has no file storage archive"
+
+  if [ "$force" -ne 1 ] && [ -n "$(find "$into" -mindepth 1 -maxdepth 1 ! -name lost+found -print -quit)" ]; then
+    die "$into is not empty; pass --force to extract over it"
+  fi
+
+  require_passphrase
+  check_sums "$set"
+  decrypt "$BACKUP_DIR/$set.storage.tar.gz.gpg" | tar -C "$into" --numeric-owner -xzf - \
+    || die "extracting the storage archive of $set failed"
+
+  log "restored the file storage of $set into $into"
+}
+
+table_counts() {
+  psql -X -d "$1" -tA -F '|' -c "
+    select table_name,
+           (xpath('/row/c/text()', query_to_xml(format('select count(*) as c from %I.%I', table_schema, table_name), false, true, '')))[1]::text
+    from information_schema.tables
+    where table_schema = 'public' and table_type = 'BASE TABLE'
+    order by table_name"
+}
+
+COMPARE_FILES=()
+cleanup_compare() {
+  [ "${#COMPARE_FILES[@]}" -eq 0 ] || rm -f -- "${COMPARE_FILES[@]}"
+  COMPARE_FILES=()
+}
+
+cmd_compare() {
+  local a="${1:-}" b="${2:-}"
+  # One name: compare the live database (PGDATABASE) with it.
+  if [ -n "$a" ] && [ -z "$b" ]; then
+    b="$a"
+    a="${PGDATABASE:-}"
+  fi
+  [ -n "$a" ] && [ -n "$b" ] || die "compare needs a database name (compared with PGDATABASE) or two"
+  valid_db_name "$a"
+  valid_db_name "$b"
+
+  local left right
+  left="$(mktemp)"
+  right="$(mktemp)"
+  COMPARE_FILES=("$left" "$right")
+  table_counts "$a" > "$left" || die "cannot count the rows of $a"
+  table_counts "$b" > "$right" || die "cannot count the rows of $b"
+
+  local excluded="|${COMPARE_EXCLUDE// /|}|" table count other differences=0 tables=0
+  while IFS='|' read -r table count; do
+    [[ "$excluded" == *"|$table|"* ]] && continue
+    tables=$((tables + 1))
+    other="$(grep -m1 "^$table|" "$right" | cut -d'|' -f2 || true)"
+    if [ "$count" != "$other" ]; then
+      printf 'DIFF %-40s %12s %12s\n' "$table" "$count" "${other:-missing}"
+      differences=$((differences + 1))
+    else
+      printf 'ok   %-40s %12s\n' "$table" "$count"
+    fi
+  done < "$left"
+
+  while IFS='|' read -r table _; do
+    [[ "$excluded" == *"|$table|"* ]] && continue
+    if ! grep -q "^$table|" "$left"; then
+      printf 'DIFF %-40s %12s %12s\n' "$table" missing present
+      differences=$((differences + 1))
+    fi
+  done < "$right"
+
+  cleanup_compare
+
+  if [ "$differences" -gt 0 ]; then
+    log "$differences of the compared tables differ between $a and $b"
+    return 1
+  fi
+
+  [ "$tables" -gt 0 ] || die "no tables found in $a"
+  log "$tables tables have identical row counts in $a and $b (skipped: ${COMPARE_EXCLUDE:-none})"
+}
+
+# --- Daemon -------------------------------------------------------------------------------------
+
+state() {
+  printf '%s\n' "$1" > "$STATE_FILE"
+}
+
+HEARTBEAT_PID=""
+stop_heartbeat() {
+  if [ -n "$HEARTBEAT_PID" ]; then
+    kill "$HEARTBEAT_PID" 2> /dev/null || true
+    HEARTBEAT_PID=""
+  fi
+}
+
+next_run() {
+  local today
+  today="$(date -u -d "$(date -u +%F) $BACKUP_AT UTC" +%s)"
+  if [ "$today" -le "$(date -u +%s)" ]; then
+    echo $((today + 86400))
+  else
+    echo "$today"
+  fi
+}
+
+# One backup in a separate process, so `set -e` applies inside the run and its locks and traps
+# are its own. The state file keeps `failed` until a backup succeeds (the healthcheck).
+attempt() {
+  if "$BASH" "$0" run; then
+    state ok
+    return 0
+  fi
+
+  state failed
+  return 1
+}
+
+cmd_daemon() {
+  [[ "$BACKUP_AT" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || die "SN3_BACKUP_AT must be HH:MM (UTC)"
+  [[ "$RETRIES" =~ ^[0-9]+$ ]] || die "SN3_BACKUP_RETRIES must be a whole number"
+  [[ "$RETRY_MINUTES" =~ ^[1-9][0-9]*$ ]] || die "SN3_BACKUP_RETRY_MINUTES must be a positive whole number"
+  require_dir
+  require_passphrase
+  state ok
+  # The healthcheck wants the state file fresh, also while a long backup runs.
+  ( while sleep 60; do touch "$STATE_FILE"; done ) &
+  HEARTBEAT_PID=$!
+  log "daily backups at $BACKUP_AT UTC into $BACKUP_DIR, kept $RETENTION_DAYS days; $RETRIES retries ${RETRY_MINUTES} min apart after a failure"
+
+  # Catch up: no complete set from the last 24 hours (a fresh install, or the service was down).
+  local newest next now daily failures=0
+  newest="$(complete_sets | tail -n1)"
+  if [ -z "$newest" ] || [[ "$newest" < "sn3-$(date -u -d '-24 hours' +%Y%m%dT%H%M%SZ)" ]]; then
+    next="$(date -u +%s)"
+  else
+    next="$(next_run)"
+  fi
+
+  while true; do
+    log "next backup at $(date -u -d "@$next" +%Y-%m-%dT%H:%M:%SZ)"
+    while now="$(date -u +%s)"; [ "$now" -lt "$next" ]; do
+      # In the background, so SIGTERM (docker compose stop) is handled at once.
+      sleep $(( next - now < 60 ? next - now : 60 )) &
+      wait $! || true
+    done
+
+    if attempt; then
+      failures=0
+      next="$(next_run)"
+      continue
+    fi
+
+    failures=$((failures + 1))
+    daily="$(next_run)"
+    if [ "$failures" -le "$RETRIES" ]; then
+      next=$(( $(date -u +%s) + RETRY_MINUTES * 60 ))
+      # A retry never pushes back the regular daily run.
+      [ "$next" -lt "$daily" ] || next="$daily"
+      log "the backup FAILED; retry $failures of $RETRIES"
+    else
+      next="$daily"
+      failures=0
+      log "the backup FAILED $((RETRIES + 1)) times in a row; waiting for the next scheduled time"
+    fi
+  done
+}
+
+# --- Main ---------------------------------------------------------------------------------------
+
+trap 'stop_heartbeat; cleanup_gpg; cleanup_compare' EXIT
+trap 'exit 143' TERM INT
+
+command="${1:-}"
+shift || true
+
+case "$command" in
+  run) cmd_run ;;
+  daemon) cmd_daemon ;;
+  list) cmd_list ;;
+  verify)
+    set_name="$(resolve_set "${1:-}")"
+    verify_set "$set_name"
+    ;;
+  restore) cmd_restore "$@" ;;
+  restore-storage) cmd_restore_storage "$@" ;;
+  compare) cmd_compare "$@" ;;
+  prune) require_dir; prune_sets ;;
+  *)
+    sed -n '/^# Usage:/,/^# Environment/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2
+    [ -z "$command" ] || [ "$command" = help ] || [ "$command" = --help ] || exit 2
+    ;;
+esac

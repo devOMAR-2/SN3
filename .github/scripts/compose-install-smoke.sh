@@ -3,7 +3,11 @@
 #
 # Follows docs/SELF_HOSTING.md steps 1–3 on a fresh checkout, then proves the stack works end to
 # end: readiness, registration through the API with CSRF, the queued mail handled by the worker,
-# sign-in, no secrets in the access log, and data surviving `down` / `up`.
+# sign-in, no secrets in the access log, and data surviving `down` / `up`. Then CORE-012: a team
+# export built by the worker and downloaded, the docs/BACKUP_RESTORE.md restore drill
+# (encrypted backup, verify, restore into a fresh database, row counts, migrations, files,
+# retention, wrong passphrase) and the §6 real restore (database swap, sessions cleared, files
+# back in the app-storage volume, the daily `backup` service turning healthy).
 #
 # CI only: it writes .env in the working tree and starts the default Compose project.
 set -euo pipefail
@@ -19,6 +23,7 @@ PASSWORD="smoke-$(openssl rand -hex 12)"
 SIGNATURE_PROBE="probe$(openssl rand -hex 16)"
 EMAIL_PROBE="leak.$(openssl rand -hex 6)@example.com"
 JAR="$(mktemp)"
+BODY="$(mktemp)"
 
 fail() {
   echo "::error::$1"
@@ -54,10 +59,18 @@ for line in open(sys.argv[1]):
         print(urllib.parse.unquote(parts[6]))' "$JAR"
 }
 
-api_post() { # path, json body → prints the HTTP status
-  curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -c "$JAR" \
+api_post() { # path, json body, [extra header] → prints the HTTP status; the body is in $BODY
+  curl -sS -o "$BODY" -w '%{http_code}' -b "$JAR" -c "$JAR" \
     -H 'Accept: application/json' -H 'Content-Type: application/json' -H "X-XSRF-TOKEN: $(xsrf)" \
-    -X POST "$BASE$1" --data "$2"
+    ${3:+-H "$3"} -X POST "$BASE$1" --data "$2"
+}
+
+json_field() { # dotted path → value from $BODY
+  python3 -c 'import json, sys
+value = json.load(open(sys.argv[1]))
+for key in sys.argv[2].split("."):
+    value = value[key]
+print(value)' "$BODY" "$1"
 }
 
 sign_in() {
@@ -105,5 +118,127 @@ docker compose up -d --wait --wait-timeout 180 || fail "the stack did not come b
 status="$(sign_in)"
 [ "$status" = 200 ] || fail "sign-in after restart answered $status, expected 200"
 
-docker compose ps
-echo "Clean install verified: build, key, migrate, up --wait, register, queued mail, sign-in, log hygiene, restart."
+# --- Team export through the worker (CORE-012) ------------------------------------------------
+psql_sn3() { docker compose exec -T postgres psql -U sn3 -d sn3 -tAc "$1"; }
+psql_sn3 "update users set email_verified_at = now() where email = '$EMAIL'" > /dev/null
+
+status="$(api_post /api/v1/teams '{"name":"Smoke team","slug":"smoke-team"}')"
+[ "$status" = 201 ] || fail "team creation answered $status, expected 201"
+TEAM_ID="$(json_field data.id)"
+status="$(api_post "/api/v1/teams/$TEAM_ID/projects" '{"name":"Secret plan","key":"SEC","visibility":"private"}')"
+[ "$status" = 201 ] || fail "project creation answered $status, expected 201"
+
+status="$(api_post "/api/v1/teams/$TEAM_ID/exports" '{}' "Idempotency-Key: $(python3 -c 'import uuid; print(uuid.uuid4())')")"
+[ "$status" = 202 ] || fail "export request answered $status, expected 202"
+EXPORT_ID="$(json_field data.id)"
+
+for attempt in $(seq 1 30); do
+  curl -fsS -o "$BODY" -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/teams/$TEAM_ID/exports/$EXPORT_ID" \
+    || fail "reading the export status failed (attempt $attempt)"
+  export_status="$(json_field data.status)"
+  [ "$export_status" = ready ] && break
+  [ "$export_status" = failed ] && fail "the worker failed the export"
+  [ "$attempt" = 30 ] && fail "the export was not ready after 60 seconds (status $export_status)"
+  sleep 2
+done
+
+curl -fsS -o export.zip -b "$JAR" "$(json_field data.download_url)" || fail "the export download failed"
+python3 - "$EMAIL" <<'PY' || fail "the export archive is not as expected"
+import json, sys, zipfile
+archive = zipfile.ZipFile("export.zip")
+names = archive.namelist()
+assert names[0] == "manifest.json", names
+manifest = json.loads(archive.read("manifest.json"))
+assert manifest["format"] == "sn3.team-export" and manifest["format_version"] == 1, manifest
+for section in manifest["sections"]:
+    assert section["file"] in names, section
+projects = json.loads(archive.read("data/projects.json"))
+assert [p["key"] for p in projects] == ["SEC"], projects
+content = b"".join(archive.read(name) for name in names)
+assert sys.argv[1].encode() in content, "the member email is missing"
+assert b"$2y$" not in content, "a password hash reached the export"
+PY
+[ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" "$BASE/api/v1/teams/$TEAM_ID/exports/$EXPORT_ID/download")" = 403 ] \
+  || fail "an unsigned export download was not refused"
+echo "::notice title=Team export::built by the worker and downloaded ($(wc -c < export.zip) bytes, $(python3 -c 'import zipfile; print(len(zipfile.ZipFile("export.zip").namelist()))') entries)"
+
+# --- Encrypted backup and restore drill (CORE-012, docs/BACKUP_RESTORE.md) ----------------------
+openssl rand -base64 32 > backup-passphrase
+mkdir -p backups
+backup() { docker compose --profile backup run --rm -T backup "$@"; }
+in_backup() { docker compose --profile backup run --rm -T --entrypoint bash backup -c "$1"; }
+
+docker compose exec -T app sh -c 'mkdir -p storage/app/private/smoke && echo marker > storage/app/private/smoke/marker.txt'
+
+backup run || fail "the backup failed"
+echo "::notice title=Backup::$(backup list | tr '\t' ' ')"
+backup verify latest || fail "the backup does not verify"
+
+# Encrypted at rest: no readable dump, no plaintext email, and a wrong passphrase cannot open it.
+in_backup '! pg_restore --list /backups/*.db.dump.gpg > /dev/null 2>&1' || fail "the dump is readable without decryption"
+in_backup "! grep -q '$EMAIL' /backups/*.gpg" || fail "an email address is readable in the backup"
+openssl rand -base64 32 > wrong-passphrase
+if SN3_BACKUP_PASSPHRASE_HOST_FILE=./wrong-passphrase backup verify latest; then
+  fail "the backup opened with a wrong passphrase"
+fi
+
+# Restore into a fresh database and compare it with the live one.
+backup restore latest --database sn3_restore_drill || fail "the restore failed"
+compare="$(backup compare sn3_restore_drill)" || { echo "$compare"; fail "the restored database differs from the live one"; }
+echo "$compare"
+echo "::notice title=Restore drill::$(grep -c '^ok ' <<< "$compare") tables with identical row counts; users=$(awk '$2 == "users" {print $3}' <<< "$compare"), teams=$(awk '$2 == "teams" {print $3}' <<< "$compare"), projects=$(awk '$2 == "projects" {print $3}' <<< "$compare"), team_exports=$(awk '$2 == "team_exports" {print $3}' <<< "$compare")"
+migrations="$(docker compose run --rm --no-deps -T -e DB_DATABASE=sn3_restore_drill app php artisan migrate:status)"
+grep -q 'Ran' <<< "$migrations" || fail "migrate:status shows no migrations in the restored database"
+if grep -q 'Pending' <<< "$migrations"; then fail "the restored database has pending migrations"; fi
+# Restoring over an existing database is refused.
+if backup restore latest --database sn3_restore_drill; then fail "a restore over an existing database was not refused"; fi
+
+# Files: the storage archive restores, without export archives.
+in_backup 'mkdir /tmp/restore && bash /opt/sn3-backup/sn3-backup restore-storage latest --into /tmp/restore \
+  && grep -qx marker /tmp/restore/private/smoke/marker.txt && test ! -e /tmp/restore/exports' \
+  || fail "the file storage did not restore as expected"
+
+# Retention: sets older than 14 days go, the newest stays.
+# shellcheck disable=SC2016 # expanded inside the container
+in_backup 'cd /backups && for s in sn3-20200101T000000Z sn3-20200102T000000Z; do echo x > $s.db.dump.gpg && sha256sum $s.db.dump.gpg > $s.sha256; done'
+backup prune
+in_backup 'test ! -e /backups/sn3-20200101T000000Z.sha256 && test ! -e /backups/sn3-20200102T000000Z.db.dump.gpg && ls /backups/sn3-*.sha256 | grep -q .' \
+  || fail "retention did not delete the old sets or kept nothing"
+
+docker compose exec -T postgres dropdb -U sn3 sn3_restore_drill
+
+# --- A real restore, as docs/BACKUP_RESTORE.md §6 describes ------------------------------------
+# Changes after the backup that the restore must undo: a new team and a lost file.
+status="$(api_post /api/v1/teams '{"name":"After backup","slug":"after-backup"}')"
+[ "$status" = 201 ] || fail "creating the post-backup team answered $status, expected 201"
+docker compose exec -T app rm storage/app/private/smoke/marker.txt
+
+docker compose --profile backup stop app worker scheduler backup
+backup restore latest --database sn3_restored || fail "the restore into sn3_restored failed"
+docker compose exec -T postgres psql -U sn3 -d postgres \
+  -c 'ALTER DATABASE "sn3" RENAME TO "sn3_before_restore"' -c 'ALTER DATABASE sn3_restored RENAME TO "sn3"' \
+  || fail "swapping the restored database in failed"
+docker compose exec -T postgres psql -U sn3 -d sn3 -c 'TRUNCATE sessions, cache, cache_locks' || fail "TRUNCATE sessions failed"
+docker compose --profile backup run --rm -T -v app-storage:/restore backup restore-storage latest --into /restore --force \
+  || fail "restoring the files into the app-storage volume failed"
+docker compose run --rm -T app php artisan migrate --force --no-interaction
+# Also starts the daily backup service, which must report healthy.
+docker compose --profile backup up -d --wait --wait-timeout 180 || fail "the stack did not come back after the restore"
+
+[ "$(curl -sS -o /dev/null -w '%{http_code}' -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/me")" = 401 ] \
+  || fail "a session from before the restore still works"
+status="$(sign_in)"
+[ "$status" = 200 ] || fail "sign-in after the restore answered $status, expected 200"
+curl -fsS -o "$BODY" -b "$JAR" -H 'Accept: application/json' "$BASE/api/v1/teams" || fail "listing teams after the restore failed"
+python3 - "$BODY" <<'PY' || fail "the restored teams are not those of the backup"
+import json, sys
+slugs = sorted(team["slug"] for team in json.load(open(sys.argv[1]))["data"])
+assert slugs == ["smoke-team"], slugs
+PY
+docker compose exec -T app grep -qx marker storage/app/private/smoke/marker.txt || fail "the restored file is missing in the app"
+docker compose exec -T postgres dropdb -U sn3 sn3_before_restore
+echo "::notice title=Real restore::database swapped in, sessions cleared, files restored into app-storage, post-backup team gone, sign-in works, backup service healthy"
+docker compose --profile backup stop backup
+
+docker compose --profile backup ps
+echo "Clean install verified: build, key, migrate, up --wait, register, queued mail, sign-in, log hygiene, restart, team export, encrypted backup, restore drill, retention, real restore."

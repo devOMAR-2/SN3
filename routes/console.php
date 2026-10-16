@@ -35,3 +35,10 @@ Schedule::command('trash:purge')
     ->onOneServer()
     // The overlap lock expires after 60 minutes, so a crashed run cannot block the next day's.
     ->withoutOverlapping(60);
+
+// Team exports and their archives are deleted 24 hours after they complete (CORE-012, API_SPEC.md
+// §13, ADR-024 §4). Hourly, so an archive outlives its expiry by at most an hour.
+Schedule::command('exports:prune')
+    ->hourlyAt(50)
+    ->onOneServer()
+    ->withoutOverlapping(60);

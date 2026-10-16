@@ -1,6 +1,6 @@
 # Self-hosting SN3 with Docker Compose
 
-> Scope: FND-002 and FND-007 (R0). This covers installing and starting the application, queue worker, scheduler and PostgreSQL, logs and mail, and putting HTTPS in front with an example reverse proxy. Backups and restore (CORE-012) and upgrade guides (GH-008) are added by their own tasks.
+> Scope: FND-002 and FND-007 (R0). This covers installing and starting the application, queue worker, scheduler and PostgreSQL, logs and mail, and putting HTTPS in front with an example reverse proxy. Encrypted backups, restore and the restore drill (CORE-012) are in [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Upgrade guides (GH-008) are added by their own task.
 
 Self-hosted SN3 has the same features as Cloud. Nothing here needs a proprietary or paid service.
 
@@ -20,6 +20,7 @@ Self-hosted SN3 has the same features as Cloud. Nothing here needs a proprietary
 | `scheduler` | same image | Scheduler (`php artisan schedule:work`): periodic maintenance | not published |
 | `postgres` | `postgres:16.15-trixie` | Database | not published |
 | `proxy` (optional, profile `proxy`) | `caddy:2.11.7-alpine` | HTTPS reverse proxy with automatic certificates | `80`, `443` |
+| `backup` (optional, profile `backup`) | `postgres:16.15-trixie` | Encrypted daily backups of the database and `storage/app`, kept 14 days ([BACKUP_RESTORE.md](BACKUP_RESTORE.md)) | not published |
 
 Persistent named volumes:
 
@@ -29,7 +30,7 @@ Persistent named volumes:
 | `sn3_app-storage` | `storage/app` (private files) |
 | `sn3_caddy-data`, `sn3_caddy-config` | Caddy certificates and state (proxy only) |
 
-`docker compose down` keeps the volumes. **`docker compose down -v` deletes all data.**
+`docker compose down` keeps the volumes. **`docker compose down -v` deletes all data.** Volumes are not backups: set up the `backup` service ([BACKUP_RESTORE.md](BACKUP_RESTORE.md)) and copy its sets off the host.
 
 ## 1. Configure
 
@@ -112,6 +113,7 @@ The `scheduler` runs `schedule:work --whisper`, which evaluates `routes/console.
 | `auth:clear-resets` (delete expired password-reset tokens) | daily 03:20 UTC |
 | `model:prune --model=App\Models\ApiIdempotencyRecord` (delete `Idempotency-Key` results older than 24 hours) | daily 03:30 UTC |
 | `trash:purge` (permanently delete teams and projects that have been in the trash for 30 days; local data only, never anything on GitHub) | daily 03:40 UTC |
+| `exports:prune` (delete team exports and their archives 24 hours after they finish) | hourly at :50 |
 
 Run exactly one `scheduler`. Tasks also take a lock in the database cache (`onOneServer`), so an accidental second scheduler doesn't run them twice. You can run more than one `worker` (`docker compose up -d --scale worker=2`).
 
@@ -172,6 +174,22 @@ An error here shows the SMTP problem directly. Use an address you control.
 - **HTTPS:** set `SESSION_SECURE_COOKIE=true` and an `https://` `APP_URL`. Signed verification links are checked against the URL the browser used, so `APP_URL`, the proxy's `X-Forwarded-*` headers and `TRUSTED_PROXIES` must agree.
 - **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset, verification and project create/update (20/minute per user). A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
 - **Sessions** live in the `sessions` table (`SESSION_DRIVER=database`). Signing out deletes the session, and a password reset revokes every stored session of that user.
+
+## Team exports
+
+A team's Owner can export the team (members, projects including private ones, workflows, and later tasks and the rest) through `POST /api/v1/teams/{team}/exports`. The worker builds a zip archive (`manifest.json` plus one JSON file per section, ADR-024) in `storage/app/exports`, part of the `sn3_app-storage` volume (and left out of backups). Only the requesting Owner can download it, through a signed link, and it is deleted 24 hours after it is ready. Offer an export before deleting a team (DECIDED-011).
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SN3_EXPORTS_DISK` | `exports` | Filesystem disk for the archives (`config/filesystems.php`). Use a **dedicated private disk**; SN3 only uses keys under `archives/` on it |
+| `SN3_EXPORTS_WORK_DIR` | `storage/app/exports/work` | Local directory where archives are built; leftovers older than 2 hours are removed |
+| `SN3_RATE_LIMIT_TEAM_EXPORTS_PER_HOUR` | `10` | Export requests per user per hour; `0` disables the limit. At most one export per team runs at a time |
+
+Exports run on the queue worker, within its 60-second job timeout. Today's sections are small; ADR-024 §8 lists what must change before tasks and attachments make archives large.
+
+## Backups
+
+See [BACKUP_RESTORE.md](BACKUP_RESTORE.md): set up the encrypted daily `backup` service, copy the sets off the host, and run the restore drill.
 
 ## Day-to-day commands
 

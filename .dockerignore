@@ -7,6 +7,8 @@
 *.pem
 *.key
 auth.json
+backups
+backup-passphrase
 
 node_modules
 vendor
@@ -20,6 +22,7 @@ storage/framework/sessions/*
 storage/framework/views/*
 storage/app/private/*
 storage/app/public/*
+storage/app/exports
 !**/.gitignore
 
 tests
@@ -34,6 +37,7 @@ coverage
 docs
 assets
 docker-compose.yml
+deploy/backup
 docker-compose.*.yml
 compose.yaml
 .idea
