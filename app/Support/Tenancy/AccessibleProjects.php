@@ -54,10 +54,17 @@ final class AccessibleProjects
                     $memberships->where('user_id', $user->id);
                 },
         ])->afterQuery(
-            /** @param Collection<int, Project> $projects */
-            static function (Collection $projects) use ($user): void {
-                foreach ($projects as $project) {
-                    $project->membershipsLoadedFor = $user->id;
+            // Runs on every model-returning path (get, cursorPaginate, first…). pluck() and other
+            // scalar results also pass through here, so only Project models are marked.
+            static function (mixed $results) use ($user): void {
+                if (! $results instanceof Collection) {
+                    return;
+                }
+
+                foreach ($results as $project) {
+                    if ($project instanceof Project) {
+                        $project->membershipsLoadedFor = $user->id;
+                    }
                 }
             },
         );

@@ -616,7 +616,7 @@ it('lists projects with a constant number of queries', function () {
     expect($countQueries())->toBe($few);
 });
 
-it('answers a taken key with a generic 409 that names no project (ADR-020 §8)', function () {
+it('answers a taken key with a generic 409 that names no project (ADR-020 §10)', function () {
     $private = Project::factory()->for($this->team)->private()->create(['name' => 'Secret merger', 'project_key' => 'SECRET']);
     $admin = $this->members['admin'];
 
@@ -660,4 +660,25 @@ it('rate-limits project create and update per user to slow key probing', functio
     // Reads and other users are unaffected.
     $this->actingAs($admin)->getJson("/api/v1/projects/{$project->id}")->assertOk();
     $this->actingAs($this->owner)->postJson("/api/v1/teams/{$this->team->id}/projects", ['name' => 'Own', 'key' => 'OWN'])->assertCreated();
+});
+
+it('audits key conflicts on update too', function () {
+    Project::factory()->for($this->team)->private()->create(['project_key' => 'SECRET']);
+    $project = Project::factory()->for($this->team)->create(['project_key' => 'OPEN']);
+    $admin = $this->members['admin'];
+    Log::spy();
+
+    $this->actingAs($admin)->patchJson("/api/v1/projects/{$project->id}", ['key' => 'SECRET'], ['If-Match' => '"1"'])
+        ->assertStatus(409);
+
+    Log::shouldHaveReceived('warning')->with('project.key_conflict', ['team_id' => $this->team->id, 'actor_id' => $admin->id])->once();
+    expect($project->refresh()->project_key)->toBe('OPEN');
+});
+
+it('supports scalar queries such as pluck on the visibility query', function () {
+    $visible = Project::factory()->for($this->team)->create();
+    Project::factory()->for($this->team)->private()->create();
+
+    expect(app(AccessibleProjects::class)->inTeam($this->team, $this->members['admin'])->pluck('projects.id')->all())
+        ->toBe([$visible->id]);
 });
