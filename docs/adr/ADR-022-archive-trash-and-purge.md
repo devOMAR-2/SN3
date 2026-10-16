@@ -39,6 +39,7 @@ API_SPEC §3 and §4 are authoritative for the paths. All are under the `auth` g
   - **An archived team freezes its projects' lifecycle too:** archive, unarchive, delete and restore-deleted of a project in an archived team are all `423`.
   - **A project in a trashed team cannot be recovered on its own** (404, because the team is invisible). Recovering the team comes first.
   - **Recovering a team does not recover projects that were trashed on their own** before. They stay in the trash with their own 30-day clock, which keeps running while the team is in the trash.
+  - **An archived team does not pause the trash clock.** A project trashed before its team was archived keeps counting down while the team is archived, and the purge deletes it on schedule, even though the archived team cannot recover it (423) until it is unarchived.
   - **Leaving or being removed from an archived team stays `423`** (ADR-018 §6 left this open for CORE-010). Membership is part of the team's state, and the Owner can unarchive.
 - **Idempotent transitions:** archiving an archived resource, or unarchiving an active one, changes nothing and answers 200 (projects keep their `version`). Retries are therefore harmless without an `Idempotency-Key`, which §1.4 does not require here.
 
@@ -71,22 +72,25 @@ The restore-deleted routes bind `{trashedTeam}` and `{trashedProject}` through `
 - **Re-checks under the lock:** the actions re-check the binding's conclusions on the locked rows (window, visibility, right). Anything that no longer holds is a 404. A resource that a concurrent request already recovered is returned unchanged.
 
 ### 5. Purge: `trash:purge`
-`App\Domain\Trash\PurgeTrash`, run by `php artisan trash:purge` daily at 03:40 UTC (`routes/console.php`, `onOneServer()`, `withoutOverlapping()`).
+`App\Domain\Trash\PurgeTrash`, run by `php artisan trash:purge` daily at 03:40 UTC (`routes/console.php`, `onOneServer()`, `withoutOverlapping(60)`: the overlap lock expires after an hour, so a crashed run cannot block the next day's).
 
 - **Only roots are deleted:** projects first, then teams (a team takes its remaining projects with it). Everything below a root goes by `ON DELETE CASCADE`: today team memberships, projects, project memberships and idempotency records; later statuses, tasks, comments, attachment metadata, notifications, repository links and the GitHub outbox. So the purge "removes application data and queued integration links" (DECIDED-011, DEL-02) without listing tables, and a new descendant table is purged without changing this class.
 - **Deferred keys:** each delete runs in its own transaction with `SET CONSTRAINTS ALL DEFERRED`.
   - `project_memberships_team_id_user_id_foreign` (`DEFERRABLE INITIALLY IMMEDIATE`, ADR-020 §2) would otherwise be checked after the cascade to `team_memberships` and before the one to `projects`, and would refuse the team purge.
   - Deferring `ALL` rather than this one constraint is deliberate. Later keys between two descendants without a cascade will hit the same problem, for example `tasks (team_id, assignee_user_id) → team_memberships` (DATABASE §5) or `tasks (status_id, project_id) → project_statuses`.
   - Only DEFERRABLE constraints are affected, and they are checked at COMMIT, when the whole subtree is gone.
-- **Rule for every later migration** (guarded by `TrashPurgeTest`, which inspects `pg_constraint`):
-  - a foreign key to `teams` or `projects` must be `ON DELETE CASCADE`;
-  - a foreign key between two team-scoped tables that does not cascade must be `DEFERRABLE`.
+- **Rule for every later migration.** `TrashPurgeTest` guards it: it walks `pg_constraint` recursively from `teams` and `projects` through every `ON DELETE CASCADE` key, whatever the tables' columns, to find all the tables a purge deletes from (the subtree). Then:
+  - a foreign key to `teams` or `projects`, from any table, must be `ON DELETE CASCADE`;
+  - a foreign key to any other table of the subtree must cascade or `SET NULL`/`SET DEFAULT`, or be a `DEFERRABLE` NO ACTION key whose source table is itself in the subtree, so that it is checked at COMMIT, when both rows are gone. A `RESTRICT` key cannot be deferred, and a referencing row outside the subtree would still exist at COMMIT, so both block the purge.
+
+  The test also creates probe tables with blocking keys (for example `RESTRICT` to `projects` from a table without `team_id`) and checks that the guard reports them.
 - **Batches and idempotency:**
   - candidates are read by keyset in batches of 100;
   - each row is deleted in its own short transaction, after locking its team row (the writers' lock order, ADR-018 §4);
   - the `DELETE` repeats the trash condition (`deleted_at IS NOT NULL AND deleted_at <= cutoff`), so a row recovered after it was selected survives. The recovery holds the team and project locks, and PostgreSQL re-evaluates the condition once they are released.
 
-  Re-running the purge, or running it concurrently, deletes nothing twice. Partial indexes on `deleted_at WHERE deleted_at IS NOT NULL` (`2026_10_19_000200`) keep the daily lookup cheap.
+  Re-running the purge, or running it concurrently, deletes nothing twice.
+- **One bad row does not stop the purge.** A row whose delete fails, including at COMMIT (a deferred constraint or trigger), is rolled back whole and logged as `trash.purge_failed` (warning; `type`, `id`, `team_id` only, because database error messages may quote values). The run continues with the next row, and `trash:purge` exits non-zero so that the scheduler and monitoring see it. The row is retried on the next run, so a fixed id order cannot make one row block every later run. Partial indexes on `deleted_at WHERE deleted_at IS NOT NULL` (`2026_10_19_000200`) keep the daily lookup cheap.
 - **Freed identifiers:** slugs and project keys stay reserved while the row is in the trash (ADR-018 §2, ADR-020 §2, DEC-018), so recovery never conflicts. The purge frees them.
 - **Never remote:** the purge, and trashing itself, delete local rows only. They never call GitHub or any other service (AGENTS.md §2 and §6.6, DECIDED-005, DECIDED-011), and a test runs the purge under `Http::preventStrayRequests()`. **The GitHub integration (GH-001 onwards) must keep it that way:**
   - repository links, object links, Issue mappings and outbox rows are local rows that cascade from their project;
@@ -107,7 +111,7 @@ The restore-deleted routes bind `{trashedTeam}` and `{trashedProject}` through `
 Until the activity model arrives (CORE-008), these structured `info` events are logged with IDs only, never names (ADR-020 §9):
 - `team.archived`, `team.unarchived`, `team.trashed`, `team.restored_from_trash` (`team_id`, `actor_id`);
 - `project.archived`, `project.unarchived`, `project.trashed`, `project.restored_from_trash` (`team_id`, `project_id`, `actor_id`);
-- `trash.project_purged` (`team_id`, `project_id`) and `trash.team_purged` (`team_id`).
+- `trash.project_purged` (`team_id`, `project_id`) and `trash.team_purged` (`team_id`); `trash.purge_failed` (warning: `type`, `id`, `team_id`).
 
 ## Consequences and follow-ups
 

@@ -45,7 +45,10 @@ final class RecoverableResources
             throw (new ModelNotFoundException)->setModel(Team::class, [$id]);
         }
 
-        $team = Team::onlyTrashed()
+        // Trashed rows only: `deleted_at > cutoff` is never true for a live row (NULL), so it is the
+        // trash filter and the 30-day window at once.
+        $team = Team::query()
+            ->withoutGlobalScope(SoftDeletingScope::class)
             ->whereKey($id)
             ->where('teams.deleted_at', '>', TrashRetention::cutoff())
             ->whereHas('memberships', function (Builder $membership) use ($user): void {
@@ -76,10 +79,11 @@ final class RecoverableResources
             throw (new ModelNotFoundException)->setModel(Project::class, [$id]);
         }
 
-        // The same visibility predicate and eager loads as every other project read, on trashed rows.
+        // The same visibility predicate and eager loads as every other project read, on trashed rows
+        // only: `deleted_at > cutoff` is never true for a live row (NULL), so it is the trash filter
+        // and the 30-day window at once.
         $project = $this->projects->query($user)
             ->withoutGlobalScope(SoftDeletingScope::class)
-            ->whereNotNull('projects.deleted_at')
             ->whereKey($id)
             ->where('projects.deleted_at', '>', TrashRetention::cutoff())
             ->first();

@@ -23,6 +23,14 @@ class PurgeTrashCommand extends Command
 
         $this->info(sprintf('Purged %d project(s) and %d team(s) from the trash.', $purged['projects'], $purged['teams']));
 
+        // Rows that could not be purged are logged (`trash.purge_failed`) and retried on the next run;
+        // a non-zero exit makes the failure visible to the scheduler and to monitoring.
+        if ($purged['failed'] > 0) {
+            $this->error(sprintf('%d row(s) could not be purged; see the trash.purge_failed warnings.', $purged['failed']));
+
+            return self::FAILURE;
+        }
+
         return self::SUCCESS;
     }
 }

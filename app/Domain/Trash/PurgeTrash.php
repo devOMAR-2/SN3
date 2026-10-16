@@ -5,8 +5,10 @@ namespace App\Domain\Trash;
 use App\Models\Project;
 use App\Models\Team;
 use Carbon\CarbonInterface;
+use Closure;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 /**
  * Hard-deletes teams and projects that have been in the trash for 30 days (DECIDED-011, acceptance
@@ -31,6 +33,10 @@ use Illuminate\Support\Facades\Log;
  *   service (AGENTS.md §2, DECIDED-005, DECIDED-011): remote repositories, Issues and pull requests
  *   linked to a purged project stay untouched.
  *
+ * - **One bad row does not block the purge.** A row whose delete fails (also at COMMIT) is rolled
+ *   back, logged as `trash.purge_failed` and skipped; the run continues, reports it in `failed`,
+ *   and `trash:purge` exits non-zero. The row is retried on the next run.
+ *
  * Projects are purged first, then teams (which take their remaining projects with them). Each purge
  * is logged with IDs only.
  */
@@ -38,17 +44,42 @@ final class PurgeTrash
 {
     public const BATCH = 100;
 
+    /** Rows whose delete failed in the current run. */
+    private int $failed = 0;
+
     /**
-     * @return array{projects: int, teams: int}
+     * @return array{projects: int, teams: int, failed: int}
      */
     public function handle(?CarbonInterface $now = null): array
     {
         $cutoff = TrashRetention::cutoff($now);
+        $this->failed = 0;
 
         return [
             'projects' => $this->purgeProjects($cutoff),
             'teams' => $this->purgeTeams($cutoff),
+            'failed' => $this->failed,
         ];
+    }
+
+    /**
+     * Runs one row's delete in its own transaction. A failure, including one raised only at COMMIT
+     * (a deferred constraint or trigger), rolls that row back, is logged with IDs only and skipped,
+     * so one bad row cannot block the rest of this run or every later run. The command then exits
+     * non-zero, and the row is retried on the next run.
+     *
+     * @param  Closure(): int  $delete
+     */
+    private function attempt(string $type, string $id, string $teamId, Closure $delete): ?int
+    {
+        try {
+            return DB::transaction($delete);
+        } catch (Throwable) {
+            // IDs only: database error messages may quote row values.
+            Log::warning('trash.purge_failed', ['type' => $type, 'id' => $id, 'team_id' => $teamId]);
+
+            return null;
+        }
     }
 
     private function purgeProjects(CarbonInterface $cutoff): int
@@ -68,7 +99,7 @@ final class PurgeTrash
             foreach ($batch as $project) {
                 $after = $project->id;
 
-                $deleted = DB::transaction(function () use ($project, $cutoff): int {
+                $deleted = $this->attempt('project', $project->id, $project->team_id, function () use ($project, $cutoff): int {
                     DB::statement('SET CONSTRAINTS ALL DEFERRED');
 
                     Team::withTrashed()->whereKey($project->team_id)->lock(Team::WRITE_LOCK)->first();
@@ -80,7 +111,9 @@ final class PurgeTrash
                         ->delete();
                 });
 
-                if ($deleted > 0) {
+                if ($deleted === null) {
+                    $this->failed++;
+                } elseif ($deleted > 0) {
                     $purged++;
                     Log::info('trash.project_purged', ['team_id' => $project->team_id, 'project_id' => $project->id]);
                 }
@@ -108,7 +141,7 @@ final class PurgeTrash
                 $teamId = $team->id;
                 $after = $teamId;
 
-                $deleted = DB::transaction(function () use ($teamId, $cutoff): int {
+                $deleted = $this->attempt('team', $teamId, $teamId, function () use ($teamId, $cutoff): int {
                     // Team memberships and projects are both cascades of the team; without deferring,
                     // project_memberships_team_id_user_id_foreign is checked in between (ADR-020 §2).
                     DB::statement('SET CONSTRAINTS ALL DEFERRED');
@@ -120,7 +153,9 @@ final class PurgeTrash
                         ->delete();
                 });
 
-                if ($deleted > 0) {
+                if ($deleted === null) {
+                    $this->failed++;
+                } elseif ($deleted > 0) {
                     $purged++;
                     Log::info('trash.team_purged', ['team_id' => $teamId]);
                 }

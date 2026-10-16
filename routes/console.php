@@ -33,4 +33,5 @@ Schedule::command('model:prune', ['--model' => [ApiIdempotencyRecord::class]])
 Schedule::command('trash:purge')
     ->dailyAt('03:40')
     ->onOneServer()
-    ->withoutOverlapping();
+    // The overlap lock expires after 60 minutes, so a crashed run cannot block the next day's.
+    ->withoutOverlapping(60);

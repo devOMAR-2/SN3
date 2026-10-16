@@ -58,7 +58,8 @@ it('schedules the daily trash purge (CORE-010)', function () {
     expect($event)->not->toBeNull()
         ->and($event->expression)->toBe('40 3 * * *')
         ->and($event->onOneServer)->toBeTrue()
-        ->and($event->withoutOverlapping)->toBeTrue();
+        ->and($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(60);
 });
 
 it('lists only the operational tasks', function () {

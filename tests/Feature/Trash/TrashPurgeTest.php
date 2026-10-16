@@ -83,7 +83,7 @@ it('purges a team trashed 30 days ago with its memberships, projects and project
     $recentTeam = Team::factory()->create();
     $recentTeam->forceFill(['deleted_at' => now()->subDays(29)])->save();
 
-    expect(app(PurgeTrash::class)->handle())->toBe(['projects' => 0, 'teams' => 1]);
+    expect(app(PurgeTrash::class)->handle())->toBe(['projects' => 0, 'teams' => 1, 'failed' => 0]);
 
     expect(Team::withTrashed()->whereKey($this->team->id)->exists())->toBeFalse()
         ->and(TeamMembership::query()->where('team_id', $this->team->id)->exists())->toBeFalse()
@@ -120,8 +120,8 @@ it('is idempotent: a second run purges nothing', function () {
     trashedProject($this->team, 45);
     $this->team->forceFill(['deleted_at' => now()->subDays(45)])->save();
 
-    expect(app(PurgeTrash::class)->handle())->toBe(['projects' => 1, 'teams' => 1])
-        ->and(app(PurgeTrash::class)->handle())->toBe(['projects' => 0, 'teams' => 0]);
+    expect(app(PurgeTrash::class)->handle())->toBe(['projects' => 1, 'teams' => 1, 'failed' => 0])
+        ->and(app(PurgeTrash::class)->handle())->toBe(['projects' => 0, 'teams' => 0, 'failed' => 0]);
 
     $this->artisan('trash:purge')->expectsOutputToContain('Purged 0 project(s) and 0 team(s)')->assertSuccessful();
 });
@@ -201,34 +201,109 @@ it('re-checks the trash condition when deleting, so a row recovered after it was
         ->and(projectExists($project))->toBe($table === 'projects');
 })->with(['projects', 'teams']);
 
-it('reaches every descendant by cascade: each key to teams or projects cascades, and others between tenant tables are deferrable', function () {
-    // Foreign keys whose referencing table belongs to a team (has team_id, or is projects).
-    $keys = collect(DB::select(<<<'SQL'
+/**
+ * Every foreign key in the schema: name, source and target table, ON DELETE action
+ * (pg_constraint.confdeltype: c cascade, n set null, d set default, a no action, r restrict) and
+ * whether it is DEFERRABLE.
+ *
+ * @return list<object{conname: string, source: string, target: string, on_delete: string, deferrable: bool}>
+ */
+function foreignKeys(): array
+{
+    return DB::select(<<<'SQL'
         select c.conname, src.relname as source, dst.relname as target, c.confdeltype as on_delete, c.condeferrable as deferrable
         from pg_constraint c
         join pg_class src on src.oid = c.conrelid
         join pg_class dst on dst.oid = c.confrelid
         join pg_namespace n on n.oid = src.relnamespace
         where c.contype = 'f' and n.nspname = current_schema()
-          and exists (select 1 from information_schema.columns col
-                      where col.table_schema = current_schema() and col.table_name = src.relname and col.column_name = 'team_id')
-        SQL));
+        order by c.conname
+        SQL);
+}
 
-    expect($keys)->not->toBeEmpty();
+/**
+ * The tables a purge deletes from: teams and projects, plus every table reachable from them through
+ * ON DELETE CASCADE keys, whatever its columns (a recursive walk).
+ *
+ * @param  list<object{conname: string, source: string, target: string, on_delete: string, deferrable: bool}>  $keys
+ * @return list<string>
+ */
+function purgeSubtree(array $keys): array
+{
+    $subtree = ['teams', 'projects'];
 
-    $tenantTables = collect(DB::select("select table_name from information_schema.columns where table_schema = current_schema() and column_name = 'team_id'"))
-        ->pluck('table_name')
-        ->push('teams')
-        ->all();
+    do {
+        $grown = false;
+
+        foreach ($keys as $key) {
+            if ($key->on_delete === 'c' && in_array($key->target, $subtree, true) && ! in_array($key->source, $subtree, true)) {
+                $subtree[] = $key->source;
+                $grown = true;
+            }
+        }
+    } while ($grown);
+
+    sort($subtree);
+
+    return $subtree;
+}
+
+/**
+ * Keys that would make the purge fail or leave data behind (ADR-022 §5):
+ *
+ * - a key to `teams` or `projects` must be ON DELETE CASCADE, whatever table it comes from;
+ * - a key to any other table of the purge subtree must cascade or SET NULL/DEFAULT, or be a
+ *   DEFERRABLE NO ACTION key from inside the subtree (checked at COMMIT, when both rows are gone;
+ *   RESTRICT cannot be deferred, and a row outside the subtree would still be there).
+ *
+ * @param  list<object{conname: string, source: string, target: string, on_delete: string, deferrable: bool}>  $keys
+ * @return list<string>
+ */
+function purgeBlockingKeys(array $keys): array
+{
+    $subtree = purgeSubtree($keys);
+    $violations = [];
 
     foreach ($keys as $key) {
+        if (! in_array($key->target, $subtree, true)) {
+            continue;
+        }
+
         if (in_array($key->target, ['teams', 'projects'], true)) {
-            // The purge deletes only the root row; anything referencing it must go with it.
-            expect($key->on_delete)->toBe('c', "{$key->conname} must be ON DELETE CASCADE so the trash purge reaches it");
-        } elseif (in_array($key->target, $tenantTables, true) && $key->on_delete !== 'c') {
-            // A key between two descendants without a cascade must be deferrable, or the purge's
-            // cascades trip over it (ADR-020 §2, ADR-022 §5).
-            expect($key->deferrable)->toBeTrue("{$key->conname} must be DEFERRABLE so the trash purge can defer it");
+            if ($key->on_delete !== 'c') {
+                $violations[] = "{$key->conname} ({$key->source} → {$key->target}) must be ON DELETE CASCADE";
+            }
+
+            continue;
+        }
+
+        $releases = in_array($key->on_delete, ['c', 'n', 'd'], true);
+        $deferredInside = $key->on_delete === 'a' && $key->deferrable && in_array($key->source, $subtree, true);
+
+        if (! $releases && ! $deferredInside) {
+            $violations[] = "{$key->conname} ({$key->source} → {$key->target}) must cascade, or be a DEFERRABLE key between two purged tables";
         }
     }
+
+    return $violations;
+}
+
+it('reaches every descendant by cascade, and no key can block the purge (ADR-022 §5)', function () {
+    $keys = foreignKeys();
+
+    // The walk finds today's subtree, including tables without a team_id column if any.
+    expect(purgeSubtree($keys))->toContain('team_memberships', 'project_memberships', 'api_idempotency_records')
+        ->and(purgeBlockingKeys($keys))->toBe([]);
 });
+
+it('flags keys that would block the purge', function (string $table, string $definition) {
+    DB::statement("create table {$table} (id uuid primary key, ref uuid not null, {$definition})");
+
+    expect(purgeBlockingKeys(foreignKeys()))->toHaveCount(1)
+        ->and(purgeBlockingKeys(foreignKeys())[0])->toContain($table);
+})->with([
+    'restrict to projects, from a table without team_id' => ['guard_probe_restrict', 'foreign key (ref) references projects (id) on delete restrict'],
+    'no action to projects' => ['guard_probe_no_action', 'foreign key (ref) references projects (id) deferrable'],
+    'restrict to a descendant' => ['guard_probe_descendant', 'foreign key (ref) references project_memberships (id) on delete restrict'],
+    'deferrable key from outside the subtree to a descendant' => ['guard_probe_outside', 'foreign key (ref) references team_memberships (id) deferrable'],
+]);
