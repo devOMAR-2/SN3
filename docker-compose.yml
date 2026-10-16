@@ -59,8 +59,11 @@ services:
     pull_policy: never
     restart: unless-stopped
     init: true
-    command: ["php", "artisan", "queue:work", "--tries=3", "--backoff=10,60,300", "--timeout=60", "--sleep=3", "--max-time=3600"]
-    # SIGTERM lets the job in progress finish (pcntl); allow longer than --timeout.
+    # --json: per-job status lines on stdout are JSON too.
+    command: ["php", "artisan", "queue:work", "--tries=3", "--backoff=10,60,300", "--timeout=60", "--sleep=3", "--max-time=3600", "--json"]
+    # The base image's STOPSIGNAL is Apache's SIGWINCH. The worker needs SIGTERM to finish
+    # the job in progress and exit (pcntl); allow longer than --timeout.
+    stop_signal: SIGTERM
     stop_grace_period: 75s
     env_file: *app-env-file
     environment: *app-environment
@@ -83,6 +86,7 @@ services:
     # Forwards SIGTERM (schedule:work installs no handler) and reaps schedule:run children.
     init: true
     command: ["php", "artisan", "schedule:work"]
+    stop_signal: SIGTERM
     env_file: *app-env-file
     environment: *app-environment
     volumes: *app-volumes

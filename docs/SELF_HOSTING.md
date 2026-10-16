@@ -95,7 +95,7 @@ The `worker` and `scheduler` containers don't run Apache, so Compose replaces th
 
 Jobs use the PostgreSQL-backed queue (`QUEUE_CONNECTION=database`, the default). Redis is not needed and nothing connects to it by default.
 
-The `worker` runs `queue:work --tries=3 --backoff=10,60,300 --timeout=60 --max-time=3600`:
+The `worker` runs `queue:work --tries=3 --backoff=10,60,300 --timeout=60 --max-time=3600 --json`:
 
 - A job that throws is retried after 10 s and then 60 s. After the third failed attempt it moves to the `failed_jobs` table, where it stays visible until you retry or delete it (pruned after 30 days).
 - A job running longer than 60 s is stopped and counts as a failed attempt. `DB_QUEUE_RETRY_AFTER` (90 s) must stay above that timeout, so a job is never handed to a second worker while the first is still running it.
@@ -130,7 +130,7 @@ The image ships without a Redis client extension, and SN3 needs none. Running th
 
 ## Logs
 
-Every container writes one JSON object per line to stderr (`docker compose logs`). Each line has `message`, `level_name`, `datetime`, `context` and `extra`:
+The application writes one JSON object per line to stderr (`docker compose logs`). Each line has `message`, `level_name`, `datetime`, `context` and `extra`. The worker also prints one JSON status line per job on stdout (`job`, `uuid`, `status`, `attempts`). Apache access lines in the `app` log and the start-up `optimize` output stay plain text:
 
 - `extra.request_id`: the correlation ID of the HTTP request. It is also returned in the `X-Request-Id` response header. If your proxy sends an `X-Request-Id` of 8–64 letters, digits, `.`, `_` or `-`, it is reused; anything else is replaced with a generated `req_…` ID.
 - `extra.job_id`, `extra.job_name`, `extra.job_attempt`: set while the worker runs a job. A job dispatched during a request also carries that request's `request_id`.

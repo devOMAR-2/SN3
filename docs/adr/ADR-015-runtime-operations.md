@@ -14,13 +14,13 @@ FND-002 shipped the web container only. Jobs could be queued but nothing process
 ### Queue
 
 1. **PostgreSQL is the queue** (`QUEUE_CONNECTION=database`, tables from the skeleton migration). Redis stays optional and unused by default. The image ships no Redis extension, so nothing can try to connect at boot.
-2. **Worker defaults** (`docker-compose.yml` `worker` command): `--tries=3 --backoff=10,60,300 --timeout=60 --sleep=3 --max-time=3600`.
+2. **Worker defaults** (`docker-compose.yml` `worker` command): `--tries=3 --backoff=10,60,300 --timeout=60 --sleep=3 --max-time=3600 --json`. `--json` makes the per-job status lines on stdout JSON too.
    - `--timeout` (60 s) is below the connection's `retry_after` (`DB_QUEUE_RETRY_AFTER`, 90 s), so a slow job is killed before another worker could pick up the same row. `MAIL_TIMEOUT` (10 s) keeps an unreachable SMTP server well inside that budget.
    - Only the first two backoff values are used with three tries. The third is there for jobs that raise their own `$tries`.
    - `--max-time` recycles the process hourly; `restart: unless-stopped` starts a new one.
    - A job class may set its own `$tries`, `$backoff` and `$timeout`, which override these defaults.
 3. **Failures stay visible:** after the last attempt a job goes to `failed_jobs` (`database-uuids` driver). Operators use `queue:failed` / `queue:retry` / `queue:forget` (documented in `docs/SELF_HOSTING.md`). The failed-job and batch connection default now falls back to `pgsql` instead of the framework's `sqlite`.
-4. **`pcntl`** is added to the image so `queue:work` handles SIGTERM (finish the current job, then exit) and enforces `--timeout`. The extension is also loaded under mod_php, where nothing calls it. Compose sets `stop_grace_period: 75s` (more than `--timeout`) and `init: true`.
+4. **`pcntl`** is added to the image so `queue:work` handles SIGTERM (finish the current job, then exit) and enforces `--timeout`. The extension is also loaded under mod_php, where nothing calls it. The base image's `STOPSIGNAL` is Apache's `SIGWINCH`, which the worker ignores. Docker would then kill it after the grace period (exit 137, verified), so Compose sets `stop_signal: SIGTERM` for the worker and the scheduler, `stop_grace_period: 75s` (more than `--timeout`) and `init: true`.
 
 ### Scheduler
 
