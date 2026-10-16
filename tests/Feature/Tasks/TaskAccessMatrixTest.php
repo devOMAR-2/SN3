@@ -262,6 +262,19 @@ it('lists my assigned tasks across teams, only where I can still see the project
     $this->actingAs($me)->getJson('/api/v1/me/tasks?sort=position')->assertUnprocessable()
         ->assertJsonPath('error.fields.sort', ['in']);
 
+    // A cursor only fits the sort it was issued for: another sort is a 400, never a 500.
+    $cursor = $this->actingAs($me)->getJson('/api/v1/me/tasks?limit=1')->json('meta.next_cursor');
+    $this->actingAs($me)->getJson('/api/v1/me/tasks?limit=1&sort=priority&cursor='.urlencode($cursor))
+        ->assertStatus(400)
+        ->assertJsonPath('error.code', 'bad_request');
+    // A priority cursor also carries created_at and id: only the bound sort tells them apart.
+    $priorityCursor = $this->actingAs($me)->getJson('/api/v1/me/tasks?limit=1&sort=priority')->json('meta.next_cursor');
+    $this->actingAs($me)->getJson('/api/v1/me/tasks?limit=1&cursor='.urlencode($priorityCursor))
+        ->assertStatus(400);
+    $this->actingAs($me)->getJson('/api/v1/me/tasks?limit=1&sort=created_at&cursor='.urlencode($cursor))
+        ->assertOk()
+        ->assertJsonPath('data.*.id', [$b->id]);
+
     // Visibility is re-evaluated on every request: made private without me, the task disappears.
     $open->forceFill(['visibility' => 'private'])->save();
 

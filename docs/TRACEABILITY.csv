@@ -26,9 +26,9 @@ FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,"Automated: tests/Feature/Project
 FR-TASK-004,CORE-005,Tasks,R1,TEST-FR-TASK-004,"Partially automated: create, edit, assign, status changes (complete = a done status) and delete/restore in tests/Feature/Tasks/{TaskManagementTest,TaskAccessMatrixTest,AssignmentRevocationTest,TaskConcurrencyTest}.php; ordered moves follow with CORE-007"
 FR-TASK-005,CORE-007,Tasks,R1,TEST-FR-TASK-005,Planned; not executed
 FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,"Partially automated: structured task audit events with IDs only in tests/Feature/Tasks/{TaskManagementTest,AssignmentRevocationTest}.php; comments and the activity model follow with CORE-008"
-FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,"Partially automated: subtasks and checklists in tests/Feature/Tasks/{SubtaskTest,ChecklistTest}.php; attachments and mentions follow with CORE-008; task dependencies (API_SPEC section 19) are not yet implemented"
+FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,"Planned: not fully delivered by CORE-005. Subtasks and checklists are automated in tests/Feature/Tasks/{SubtaskTest,ChecklistTest}.php; attachments and mentions follow with CORE-008; task dependencies (API_SPEC section 19) are a follow-up of PR #70 and need an owning task"
 FR-TASK-008,CORE-005,Tasks,R1,TEST-FR-TASK-008,"Partially automated: task detail, project task list, filters, title/key search and my tasks scoped by AccessibleProjects in tests/Feature/Tasks/{TaskAccessMatrixTest,TaskListTest}.php; cross-project search and deep links follow with CORE-006/CORE-009"
-FR-TASK-009,CORE-005,Tasks,R1,TEST-FR-TASK-009,Planned; not executed
+FR-TASK-009,CORE-005,Tasks,R1,TEST-FR-TASK-009,"Planned: not delivered by CORE-005. Bulk actions and saved filters need an owning task (saved views are FLEX-003); the list filters they would store are allowlisted in tests/Feature/Tasks/TaskListTest.php"
 FR-CUST-001,CORE-004,Custom fields,R1,TEST-FR-CUST-001,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest,TaskNumberConcurrencyTest}.php"
 FR-CUST-002,CORE-004,Custom fields,R1,TEST-FR-CUST-002,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest}.php"
 FR-CUST-003,FLEX-001,Custom fields,R2,TEST-FR-CUST-003,Planned; not executed

@@ -3,10 +3,12 @@
 require_once __DIR__.'/TaskHelpers.php';
 
 use App\Domain\Teams\TeamRole;
+use App\Http\Pagination\CursorPagination;
 use App\Models\Label;
 use App\Models\Task;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Pagination\Cursor;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -179,4 +181,67 @@ it('cannot be used to read tasks of another project through filters', function (
     $response = $this->actingAs($this->member)->getJson($this->url.'?status_id[]='.$hidden->status_id.'&assignee_user_id='.$this->owner->id)->assertOk();
 
     expect(taskListedIds($response))->toBe([]);
+});
+
+it('sorts by position in board order: status columns first, then the rank within each, across pages', function () {
+    $done = taskStatusId($this->project, 'done');
+    $doing = taskStatusId($this->project, 'in_progress');
+    $doneFirst = taskIn($this->project, ['status_id' => $done]);
+    $todo = taskIn($this->project);
+    $doingTask = taskIn($this->project, ['status_id' => $doing]);
+    $doneSecond = taskIn($this->project, ['status_id' => $done]);
+    $todoSecond = taskIn($this->project);
+
+    $all = [];
+    $cursor = null;
+
+    do {
+        $response = $this->actingAs($this->member)->getJson($this->url.'?sort=position&limit=2'.($cursor ? '&cursor='.urlencode($cursor) : ''))->assertOk();
+        $all = [...$all, ...taskListedIds($response)];
+        $cursor = $response->json('meta.next_cursor');
+    } while ($cursor !== null);
+
+    expect($all)->toBe([$todo->id, $todoSecond->id, $doingTask->id, $doneFirst->id, $doneSecond->id]);
+
+    // The representation is unchanged by the join (no extra keys).
+    expect(array_keys($response->json('data.0')))->not->toContain('status_position');
+});
+
+it('refuses a cursor reused with another sort order (400, not 500)', function (string $from, string $to) {
+    collect(range(1, 3))->each(fn (int $i) => taskIn($this->project, ['priority' => 'high', 'due_date' => '2026-10-2'.$i]));
+
+    $cursor = $this->actingAs($this->member)->getJson($this->url.'?limit=2'.($from === '' ? '' : '&sort='.$from))
+        ->assertOk()
+        ->json('meta.next_cursor');
+
+    expect($cursor)->toBeString();
+
+    $this->actingAs($this->member)->getJson($this->url.'?limit=2&sort='.$to.'&cursor='.urlencode($cursor))
+        ->assertStatus(400)
+        ->assertJsonPath('error.code', 'bad_request');
+
+    // The cursor still works with the order it was issued for (no sort means created_at).
+    $this->actingAs($this->member)->getJson($this->url.'?limit=2&sort='.($from === '' ? 'created_at' : $from).'&cursor='.urlencode($cursor))
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+})->with([
+    'default to priority' => ['', 'priority'],
+    'default to position' => ['', 'position'],
+    'due date to updated' => ['due_date', 'updated_at'],
+    'position to due date' => ['position', 'due_date'],
+    // A priority cursor carries created_at and id too, so only the bound scope catches this one.
+    'priority to created_at' => ['priority', 'created_at'],
+]);
+
+it('answers 400 to a signed cursor whose keys do not fit the query order (safety net)', function () {
+    taskIn($this->project);
+    $path = ltrim($this->url, '/');
+    $cursor = CursorPagination::encode(
+        new Cursor(['created_at' => now()->toIso8601String(), 'id' => (string) Str::uuid()]),
+        $path.'|sort=priority',
+    );
+
+    $this->actingAs($this->member)->getJson($this->url.'?sort=priority&cursor='.urlencode($cursor))
+        ->assertStatus(400)
+        ->assertJsonPath('error.code', 'bad_request');
 });

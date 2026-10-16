@@ -30,6 +30,6 @@ class MyTasksController extends Controller
             ->with(['labels:id', 'project:id,project_key']);
         TaskQuery::sort($query, $request->sort());
 
-        return CursorPagination::respond($request, $query, fn (Task $task): array => TaskResource::make($task, $task->project));
+        return CursorPagination::respond($request, $query, fn (Task $task): array => TaskResource::make($task, $task->project), scope: 'sort='.$request->sort());
     }
 }

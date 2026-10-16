@@ -78,8 +78,12 @@ it('unassigns a member removed from a private project there only', function () {
 
     expect(taskAssigneeOf($this->privateTask))->toBeNull()
         ->and(taskAssigneeOf($this->trashedTask))->toBeNull()
+        ->and(taskVersionOf($this->privateTask))->toBe(2)
+        ->and(taskVersionOf($this->trashedTask))->toBe(2)
         ->and(taskAssigneeOf($this->openTask))->toBe($this->user->id)
-        ->and(taskAssigneeOf($this->othersTask))->toBe($this->other->id);
+        ->and(taskVersionOf($this->openTask))->toBe(1)
+        ->and(taskAssigneeOf($this->othersTask))->toBe($this->other->id)
+        ->and(taskVersionOf($this->othersTask))->toBe(1);
 });
 
 it('keeps the assignment when a team-visible project membership is removed: access remains', function () {
@@ -95,13 +99,17 @@ it('unassigns a member demoted to Viewer, who may no longer write tasks', functi
 
     expect(taskAssigneeOf($this->openTask))->toBeNull()
         ->and(taskAssigneeOf($this->privateTask))->toBeNull()
-        ->and(taskAssigneeOf($this->othersTask))->toBe($this->other->id);
+        ->and(taskVersionOf($this->openTask))->toBe(2)
+        ->and(taskVersionOf($this->privateTask))->toBe(2)
+        ->and(taskAssigneeOf($this->othersTask))->toBe($this->other->id)
+        ->and(taskVersionOf($this->othersTask))->toBe(1);
 });
 
 it('keeps assignments on a role change that keeps write access', function () {
     $this->actingAs($this->owner)->patchJson("/api/v1/teams/{$this->team->id}/members/{$this->user->id}", ['role' => 'admin'])->assertOk();
 
-    expect(taskAssigneeOf($this->openTask))->toBe($this->user->id)->and(taskAssigneeOf($this->privateTask))->toBe($this->user->id);
+    expect(taskAssigneeOf($this->openTask))->toBe($this->user->id)->and(taskAssigneeOf($this->privateTask))->toBe($this->user->id)
+        ->and(taskVersionOf($this->openTask))->toBe(1)->and(taskVersionOf($this->privateTask))->toBe(1);
 });
 
 it('unassigns non-members when a project is made private, and keeps its members', function () {
@@ -113,8 +121,11 @@ it('unassigns non-members when a project is made private, and keeps its members'
     $this->actingAs($this->owner)->patchJson("/api/v1/projects/{$this->open->id}", ['visibility' => 'private'], ['If-Match' => '"1"'])->assertOk();
 
     expect(taskAssigneeOf($task))->toBeNull()
+        ->and(taskVersionOf($task))->toBe(2)
         ->and(taskAssigneeOf($this->openTask))->toBe($this->user->id)
-        ->and(taskAssigneeOf($ownerTask))->toBe($this->owner->id);
+        ->and(taskVersionOf($this->openTask))->toBe(1)
+        ->and(taskAssigneeOf($ownerTask))->toBe($this->owner->id)
+        ->and(taskVersionOf($ownerTask))->toBe(1);
 });
 
 it('unassigns the former Owner from private projects they are not a member of after a transfer', function () {
@@ -123,7 +134,10 @@ it('unassigns the former Owner from private projects they are not a member of af
 
     $this->actingAs($this->owner)->postJson("/api/v1/teams/{$this->team->id}/ownership-transfer", ['new_owner_user_id' => $this->other->id])->assertOk();
 
-    expect(taskAssigneeOf($ownersPrivate))->toBeNull()->and(taskAssigneeOf($ownersOpen))->toBe($this->owner->id);
+    expect(taskAssigneeOf($ownersPrivate))->toBeNull()
+        ->and(taskVersionOf($ownersPrivate))->toBe(2)
+        ->and(taskAssigneeOf($ownersOpen))->toBe($this->owner->id)
+        ->and(taskVersionOf($ownersOpen))->toBe(1);
 });
 
 it('logs the release with IDs and a reason only', function () {

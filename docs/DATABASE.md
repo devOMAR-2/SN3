@@ -392,7 +392,7 @@ This section is normative and supersedes earlier provisional statements, questio
 - Add `version bigint NOT NULL DEFAULT 1` to `projects`, `tasks`, `sprints`, `project_statuses`, and `github_issue_mappings`; successful updates increment it atomically. `If-Match` checks this field.
 - Add `tasks.story_points smallint NULL CHECK (story_points BETWEEN 1 AND 100)`.
 - Add `deleted_at timestamptz NULL` to `teams` and `projects`; `archived_at` is independent read-only archive state. Purge deleted rows after 30 days.
-- Add `api_idempotency_records` (`id uuid PK`, `actor_user_id`, `team_id NULL`, `route_key`, `idempotency_key uuid`, `request_digest`, `response_status`, `response_json jsonb`, `expires_at`, timestamps), unique `(actor_user_id,route_key,idempotency_key)`; retain 24 hours.
+- Add `api_idempotency_records` (`id uuid PK`, `actor_user_id`, `team_id NULL`, `route_key`, `idempotency_key uuid`, `request_digest`, `response_status`, `response_json jsonb`, `expires_at`, timestamps), unique `(actor_user_id,route_key,idempotency_key)`; retain 24 hours. *(CORE-005, ADR-023 §9: plus `response_headers jsonb NULL`, the allowlisted headers such as `ETag` that a replay returns with the stored body.)*
 - Add `team_exports` (`id uuid PK`, `team_id`, `requested_by`, `status`, `storage_key`, `expires_at`, timestamps) for async exports.
 - Use PostgreSQL `citext` extension for case-insensitive email columns (no alternative schema branch).
 - `project_templates.visibility`: `draft|published`; `project_views.visibility`: `personal|project`; enforce scoping and authorization.

@@ -186,6 +186,8 @@ it('replays a create with the same Idempotency-Key and body, and refuses a diffe
     postTask($this->project, $this->member, ['title' => 'Once'], $key)
         ->assertCreated()
         ->assertHeader('Idempotent-Replayed', 'true')
+        // The replay carries the original's ETag, the version the next If-Match needs.
+        ->assertHeader('ETag', '"1"')
         ->assertJsonPath('data.id', $first['data']['id'])
         ->assertJsonPath('data.key', 'WEB-1');
 

@@ -25,8 +25,9 @@ use Throwable;
  *   concurrent duplicate waits and then replays the committed result instead of running twice.
  * - Only successful (2xx) results are stored; anything else rolls the whole request back and
  *   leaves the key unused, so the client can fix the request and retry with the same key.
- * - A stored key with the same payload replays the stored status and body (with
- *   `Idempotent-Replayed: true`); a different payload is 409 `idempotency_key_reused`.
+ * - A stored key with the same payload replays the stored status, body and allowlisted headers
+ *   (`ETag`, `Location`), with `Idempotent-Replayed: true`; a different payload is 409
+ *   `idempotency_key_reused`.
  *
  * Jobs dispatched by these routes should use ->afterCommit() so a queue other than the database
  * driver cannot run them before the request commits.
@@ -34,6 +35,9 @@ use Throwable;
 final class EnforceIdempotency
 {
     public const HEADER = 'Idempotency-Key';
+
+    /** Response headers stored with the result and replayed with it (e.g. a created task's version). */
+    private const REPLAYED_HEADERS = ['ETag', 'Location'];
 
     public function handle(Request $request, Closure $next): Response
     {
@@ -96,6 +100,7 @@ final class EnforceIdempotency
                 'response_status' => $response->getStatusCode(),
                 // A successful response without a JSON body (204, or 202 without content) replays empty.
                 'response_json' => $response instanceof JsonResponse ? $response->getData(true) : [],
+                'response_headers' => self::storedHeaders($response),
                 'expires_at' => now()->addHours(ApiIdempotencyRecord::TTL_HOURS),
             ])->save();
 
@@ -111,11 +116,29 @@ final class EnforceIdempotency
 
     private static function replay(ApiIdempotencyRecord $stored): Response
     {
-        $headers = ['Idempotent-Replayed' => 'true'];
+        $headers = [...($stored->response_headers ?? []), 'Idempotent-Replayed' => 'true'];
 
         return $stored->response_status === Response::HTTP_NO_CONTENT
             ? new Response('', Response::HTTP_NO_CONTENT, $headers)
             : new JsonResponse($stored->response_json, $stored->response_status, $headers);
+    }
+
+    /**
+     * @return array<string, string>|null
+     */
+    private static function storedHeaders(Response $response): ?array
+    {
+        $headers = [];
+
+        foreach (self::REPLAYED_HEADERS as $name) {
+            $value = $response->headers->get($name);
+
+            if (is_string($value) && $value !== '') {
+                $headers[$name] = $value;
+            }
+        }
+
+        return $headers === [] ? null : $headers;
     }
 
     /**

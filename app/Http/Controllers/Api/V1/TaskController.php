@@ -43,10 +43,12 @@ class TaskController extends Controller
     {
         $filters = $request->filters();
 
+        $sort = $filters['sort'] ?? 'created_at';
         $query = TaskQuery::filter($project->tasks()->getQuery()->with('labels:id'), $project, $filters);
-        TaskQuery::sort($query, $filters['sort'] ?? 'created_at');
+        TaskQuery::sort($query, $sort);
 
-        return CursorPagination::respond($request, $query, fn (Task $task): array => TaskResource::make($task, $project));
+        // A cursor is bound to its sort order too: its keys only fit the order it came from.
+        return CursorPagination::respond($request, $query, fn (Task $task): array => TaskResource::make($task, $project), scope: 'sort='.$sort);
     }
 
     public function store(StoreTaskRequest $request, Project $project, CreateTask $createTask): JsonResponse

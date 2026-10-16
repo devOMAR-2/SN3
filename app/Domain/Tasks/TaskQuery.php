@@ -13,9 +13,11 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  * AccessibleTasks::constrain()), so filters only ever narrow what the caller may see, and counts,
  * cursors and pages never include anything else (§1.1).
  *
- * Every order ends with `id`, so keyset pages are stable. Priority and due-date orders use the
- * generated `priority_rank` and `due_sort` columns, so tasks without a due date sort last and keyset
- * pagination never compares NULLs.
+ * Every order ends with `id`, so keyset pages are stable. `position` is board order: the status's
+ * position, then the task's rank within its status. Priority and due-date orders use the generated
+ * `priority_rank` and `due_sort` columns, so tasks without a due date sort last and keyset
+ * pagination never compares NULLs. Cursors are bound to the sort (TaskController, MyTasksController),
+ * because their keys only fit the order they were issued for.
  */
 final class TaskQuery
 {
@@ -70,7 +72,14 @@ final class TaskQuery
             'updated_at' => $query->orderByDesc('updated_at')->orderByDesc('id'),
             'due_date' => $query->orderBy('due_sort')->orderBy('id'),
             'priority' => $query->orderByDesc('priority_rank')->orderByDesc('created_at')->orderByDesc('id'),
-            'position' => $query->orderBy('position')->orderBy('id'),
+            // Board order: the status column first, then the task's rank in it.
+            'position' => $query
+                ->join('project_statuses', 'project_statuses.id', '=', 'tasks.status_id')
+                ->select('tasks.*')
+                ->addSelect('project_statuses.position as status_position')
+                ->orderBy('status_position')
+                ->orderBy('tasks.position')
+                ->orderBy('tasks.id'),
             default => $query->orderByDesc('created_at')->orderByDesc('id'),
         };
     }

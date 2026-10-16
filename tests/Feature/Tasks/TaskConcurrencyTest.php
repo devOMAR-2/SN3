@@ -22,6 +22,9 @@ use Illuminate\Support\Facades\Process;
 // - An assignment racing the assignee's removal from the team never leaves a task assigned to a
 //   non-member and never fails with a database error: either the assignment lands first and the
 //   removal clears it, or the removal lands first and the assignment is 422.
+// - DATABASE.md §5 "reject cycles transactionally … with concurrency tests": two re-parentings that
+//   are each valid but together form a cycle, or together go deeper than three levels, never both
+//   commit; the project write lock serialises them, so the second sees the first and is 422.
 
 const TASK_RACE_BARRIER_KEY = 640_005;
 
@@ -157,4 +160,44 @@ it('never leaves a task assigned to someone who left the team, whichever commits
 
     expect($task->refresh()->assignee_user_id)->toBeNull()
         ->and(TeamMembership::query()->where('team_id', $this->team->id)->where('user_id', $this->member->id)->exists())->toBeFalse();
+});
+
+it('never commits two re-parentings that together form a cycle (A under B racing B under A)', function () {
+    $a = taskIn($this->project);
+    $b = taskIn($this->project);
+
+    $outcomes = taskRaceInProcesses([
+        updateTaskSnippet($a, $this->owner, 1, sprintf('["parent_task_id" => "%s"]', $b->id)),
+        updateTaskSnippet($b, $this->member, 1, sprintf('["parent_task_id" => "%s"]', $a->id)),
+    ]);
+
+    expect($outcomes)->toBe(['ValidationException', 'updated']);
+
+    $a->refresh();
+    $b->refresh();
+    expect($a->parent_task_id === null || $b->parent_task_id === null)->toBeTrue();
+});
+
+it('never commits two re-parentings that together go deeper than three levels', function () {
+    // r → c1, x → y, and w. Alone, x under c1 reaches depth 3 (y), and r under w reaches depth 2 (c1).
+    // Together they would put y at depth 4.
+    $r = taskIn($this->project);
+    $c1 = taskIn($this->project, ['parent_task_id' => $r->id]);
+    $x = taskIn($this->project);
+    taskIn($this->project, ['parent_task_id' => $x->id]);
+    $w = taskIn($this->project);
+
+    $outcomes = taskRaceInProcesses([
+        updateTaskSnippet($x, $this->owner, 1, sprintf('["parent_task_id" => "%s"]', $c1->id)),
+        updateTaskSnippet($r, $this->member, 1, sprintf('["parent_task_id" => "%s"]', $w->id)),
+    ]);
+
+    expect($outcomes)->toBe(['ValidationException', 'updated']);
+
+    $deepest = DB::selectOne(
+        'WITH RECURSIVE down (id, depth) AS (SELECT id, 0 FROM tasks WHERE parent_task_id IS NULL AND project_id = ? '
+        .'UNION ALL SELECT t.id, down.depth + 1 FROM tasks AS t JOIN down ON t.parent_task_id = down.id) SELECT max(depth) AS depth FROM down',
+        [$this->project->id],
+    );
+    expect((int) $deepest->depth)->toBeLessThanOrEqual(3);
 });
