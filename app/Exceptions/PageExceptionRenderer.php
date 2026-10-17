@@ -14,9 +14,10 @@ use Throwable;
  * team, project or task and a missing one get the same generic "unavailable" page
  * (DESIGN_SYSTEM.md §6, §9.4): the page shows only the status, never the resource.
  *
- * /api/v1 keeps its JSON envelope (ApiExceptionRenderer). Requests that never reached the web
- * middleware (no route, so no session or locale) and server errors in debug mode keep the default
- * response.
+ * Only GET and HEAD page loads get it. /api/v1 keeps its JSON envelope (ApiExceptionRenderer); other
+ * methods (a 419 or 429 on `PUT /locale`, say), requests that never reached the web middleware (no
+ * route, so no session or locale), server errors in debug mode, and any failure while rendering the
+ * page (the database being down, for instance) keep the default response.
  */
 final class PageExceptionRenderer
 {
@@ -31,14 +32,27 @@ final class PageExceptionRenderer
             return $response;
         }
 
+        // Only page loads get the page. A failed PUT/POST/DELETE (419 CSRF, 429 throttle, …) keeps the
+        // framework's answer: the URL of a non-GET request is no page to show or reload.
+        if (! $request->isMethod('GET') && ! $request->isMethod('HEAD')) {
+            return $response;
+        }
+
         if ($request->route() === null || ! $request->hasSession() || ($status >= 500 && config()->boolean('app.debug'))) {
             return $response;
         }
 
-        // A route-binding 404 can be thrown before HandleInertiaRequests ran (SubstituteBindings sorts
-        // earlier), so the shared props (locale, auth, workspace) are shared here explicitly.
-        Inertia::share(app(HandleInertiaRequests::class)->share($request));
-        $page = Inertia::render('Error', ['status' => $status])->toResponse($request);
+        try {
+            // A route-binding 404 can be thrown before HandleInertiaRequests ran (SubstituteBindings sorts
+            // earlier), so the shared props (locale, auth, workspace) are shared here explicitly.
+            Inertia::share(app(HandleInertiaRequests::class)->share($request));
+            $page = Inertia::render('Error', ['status' => $status])->toResponse($request);
+        } catch (Throwable) {
+            // The shared props need the database (auth, workspace); when it is down, or anything else
+            // fails here, the framework's own error response is still a correct answer.
+            return $response;
+        }
+
         $page->setStatusCode($status);
 
         if ($response->headers->has('Retry-After')) {

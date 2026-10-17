@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/vue';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/vue';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { globalMocks, sharedProps } from '@/test/pageHarness';
 import type { Team, TeamAbilities, TeamMember } from '@/types/domain';
@@ -108,6 +108,36 @@ describe('Team members page', () => {
 
     await waitFor(() => expect(screen.getByText('server message for forbidden')).toBeTruthy());
     expect((screen.getByRole('combobox', { name: 'Role of Omar Other' }) as HTMLSelectElement).value).toBe('viewer');
+  });
+
+  it('offers every member as the new Owner, reading all pages of the list', async () => {
+    const page2: TeamMember = { user_id: 'far', name: 'Fatima Far', role: 'member', joined_at: '2026-10-04T09:00:00Z' };
+    http.get.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
+      if (url.includes('/projects')) {
+        return { data: { data: [], meta: { next_cursor: null, has_more: false } } };
+      }
+
+      // The page's own list: one page of 50 with more behind it.
+      if (config?.params?.limit === 50) {
+        return { data: { data: members, meta: { next_cursor: 'c1', has_more: true } } };
+      }
+
+      // The transfer dialog reads 100 at a time until the end.
+      return config?.params?.cursor === 'p2'
+        ? { data: { data: [page2], meta: { next_cursor: null, has_more: false } } }
+        : { data: { data: members, meta: { next_cursor: 'p2', has_more: true } } };
+    });
+    renderMembers(
+      { ...none, change_member_roles: true, remove_other_members: true, transfer_ownership: true, leave: false },
+      'owner',
+    );
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Transfer ownership' }));
+
+    const select = await screen.findByRole('combobox', { name: 'New Owner' });
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'Fatima Far' })).toBeTruthy());
+    expect(within(select).queryByRole('option', { name: 'Olivia Owner' })).toBeNull();
+    expect(within(select).getByRole('option', { name: 'Me' })).toBeTruthy();
   });
 
   it('marks where the invitations panel (CORE-002) plugs in', async () => {

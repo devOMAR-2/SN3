@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { formatDate, suggestProjectKey } from './format';
-import { classifyWriteError, ifMatch, newIdempotencyKey } from './http';
+import { classifyWriteError, createRetryKey, ifMatch, newIdempotencyKey } from './http';
 import { ApiError } from './api';
 import { pages } from './routes';
 
@@ -43,6 +43,20 @@ describe('request helpers', () => {
   it('creates UUID idempotency keys', () => {
     expect(newIdempotencyKey()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(newIdempotencyKey()).not.toBe(newIdempotencyKey());
+  });
+
+  it('keeps an Idempotency-Key for retries of the same request until it succeeds', () => {
+    let n = 0;
+    const key = createRetryKey(() => `key-${++n}`);
+
+    expect(key.for('export')).toBe('key-1');
+    // Failed, retried: the same key, so the server replays instead of creating twice.
+    expect(key.for('export')).toBe('key-1');
+    // A different request gets a new key.
+    expect(key.for('another title')).toBe('key-2');
+    key.settle();
+    // After a success the next request is new.
+    expect(key.for('another title')).toBe('key-3');
   });
 
   it('maps statuses to what the page does next', () => {

@@ -106,6 +106,7 @@ function renderTask(can: TaskAbilities, locale: 'ar' | 'en' = 'en') {
       labels: [],
       checklist: [],
       assignees: [],
+      assigneesTruncated: false,
       parent: null,
       subtasks: [],
       can,

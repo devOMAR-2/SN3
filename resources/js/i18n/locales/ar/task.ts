@@ -24,6 +24,7 @@ export default {
   labels_done: 'تم',
   new_label: 'تصنيف جديد',
   create_label: 'إنشاء',
+  assignees_truncated: 'تظهر هنا أول {count} شخص فقط مرتبين بالاسم.',
   unassigned: 'بلا مسؤول',
   clear_due_date: 'مسح',
   due_on: 'الاستحقاق {date}',

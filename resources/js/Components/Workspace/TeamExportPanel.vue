@@ -6,7 +6,7 @@ import AppButton from '@/Components/ui/AppButton.vue';
 import { useAction } from '@/Composables/useAction';
 import { useI18n } from '@/i18n';
 import { api, toApiError, type ApiEnvelope } from '@/lib/api';
-import { newIdempotencyKey } from '@/lib/http';
+import { createRetryKey } from '@/lib/http';
 import type { TeamExport } from '@/types/domain';
 
 /**
@@ -23,6 +23,8 @@ const current = ref<TeamExport | null>(null);
 const pollError = ref(false);
 let timer: ReturnType<typeof setTimeout> | null = null;
 let attempts = 0;
+// Kept until an export is accepted: retrying after a failure never queues a second export.
+const exportKey = createRetryKey();
 
 const busy = computed(() => current.value?.status === 'pending' || current.value?.status === 'processing');
 
@@ -67,12 +69,13 @@ async function request(): Promise<void> {
     async () =>
       (
         await api.post<ApiEnvelope<TeamExport>>(`/teams/${props.teamId}/exports`, undefined, {
-          headers: { 'Idempotency-Key': newIdempotencyKey() },
+          headers: { 'Idempotency-Key': exportKey.for('export') },
         })
       ).data.data,
   );
 
   if (created) {
+    exportKey.settle();
     current.value = created;
     await poll();
   }

@@ -25,13 +25,45 @@ export function newIdempotencyKey(): string {
 }
 
 /**
+ * An `Idempotency-Key` that survives retries (API_SPEC.md §1.4): the same request (same fingerprint)
+ * reuses its key until it succeeds, so a retry after a timeout or a network error replays instead of
+ * creating a second resource. A changed request, or the next one after a success, gets a new key.
+ */
+export interface RetryKey {
+  for(fingerprint: string): string;
+  /** Call after the server accepted the request. */
+  settle(): void;
+}
+
+export function createRetryKey(generate: () => string = newIdempotencyKey): RetryKey {
+  let key: string | null = null;
+  let keyFor: string | null = null;
+
+  return {
+    for(fingerprint) {
+      if (key === null || keyFor !== fingerprint) {
+        key = generate();
+        keyFor = fingerprint;
+      }
+
+      return key;
+    },
+    settle() {
+      key = null;
+      keyFor = null;
+    },
+  };
+}
+
+/**
  * How a page should react to a failed write:
  * - `conflict`: 412, someone changed the resource; reload and reapply (the local draft is kept);
  * - `locked`: 423, the team or project is archived and read-only;
  * - `gone`: 404, the resource is no longer visible (deleted, made private, access removed);
- * - `forbidden`: 403, or 409 after losing a right while the request waited;
+ * - `forbidden`: 403;
  * - `invalid`: 422 with field errors;
- * - `error`: anything else (network, rate limit, server).
+ * - `error`: anything else, shown with the server's translated message: 409 (a conflict such as a
+ *   taken key, or a right lost while the request waited), 429, network and server errors.
  */
 export type WriteOutcome = 'conflict' | 'locked' | 'gone' | 'forbidden' | 'invalid' | 'error';
 

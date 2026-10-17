@@ -187,3 +187,44 @@ it('lists only the recoverable deleted projects of the team', function () {
     expect($page)->not->toContain('Secret trashed');
     expect($live->exists)->toBeTrue();
 });
+
+it('resolves a key that exists in two of the user’s teams to the project of the team in the URL', function () {
+    $user = $this->team->owner;
+    $second = Team::factory()->ownedBy($user)->create();
+    $mine = pageProject($this->team, 'team', ['project_key' => 'WEB', 'name' => 'Alpha website']);
+    $theirs = pageProject($second, 'team', ['project_key' => 'WEB', 'name' => 'Beta website']);
+
+    $first = $this->actingAs($user)->get("/t/{$this->team->slug}/p/WEB")->assertOk();
+    $first->assertInertia(fn (Assert $page) => $page->where('project.id', $mine->id)->where('team.id', $this->team->id));
+    expect($first->getContent())->not->toContain('Beta website')->not->toContain($theirs->id);
+
+    $other = $this->actingAs($user)->get("/t/{$second->slug}/p/web")->assertOk();
+    $other->assertInertia(fn (Assert $page) => $page->where('project.id', $theirs->id)->where('team.id', $second->id));
+    expect($other->getContent())->not->toContain('Alpha website')->not->toContain($mine->id);
+
+    // The settings page resolves the same way.
+    $this->actingAs($user)->get("/t/{$this->team->slug}/p/WEB/settings")
+        ->assertInertia(fn (Assert $page) => $page->where('project.id', $mine->id));
+});
+
+it('applies the restore rule before the 100-row limit of the deleted-projects list', function () {
+    $admin = pageTeamMember($this->team, TeamRole::Admin);
+    // The oldest deletion is the one the Admin may restore (as its Project Manager)…
+    $restorable = pageProject($this->team, 'team', ['name' => 'Restorable']);
+    pageProjectMember($restorable, $admin, ProjectRole::Manager);
+    $restorable->delete();
+    $restorable->forceFill(['deleted_at' => now()->subDays(2)])->save();
+
+    // …and 101 newer team-visible deletions they can see but may not restore come first in the order.
+    foreach (range(1, 101) as $n) {
+        $project = Project::factory()->for($this->team)->create(['deleted_at' => now()->subMinutes($n)]);
+        expect($project->trashed())->toBeTrue();
+    }
+
+    $this->actingAs($admin)->get("/t/{$this->team->slug}/projects")
+        ->assertInertia(fn (Assert $page) => $page->has('deletedProjects', 1)->where('deletedProjects.0.id', $restorable->id));
+
+    // The Owner may restore all of them and sees the newest 100.
+    $this->actingAs($this->team->owner)->get("/t/{$this->team->slug}/projects")
+        ->assertInertia(fn (Assert $page) => $page->has('deletedProjects', 100));
+});

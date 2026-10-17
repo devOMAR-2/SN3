@@ -54,6 +54,8 @@ const props = defineProps<{
   labels: Label[];
   checklist: ChecklistItem[];
   assignees: Assignee[];
+  /** More people may be assigned than the page lists (TaskPageController::ASSIGNEE_LIMIT). */
+  assigneesTruncated: boolean;
   parent: TaskSummary | null;
   subtasks: TaskSummary[];
   can: TaskAbilities;
@@ -426,6 +428,7 @@ const projectUrl = computed(() => pages.project(props.team.slug, props.project.k
             <SelectField
               v-model="fields.assignee_user_id"
               :label="t('task.fields.assignee_user_id')"
+              :hint="assigneesTruncated ? t('task.assignees_truncated', { count: 200 }) : undefined"
               :disabled="saving"
               @change="saveField('assignee_user_id')"
             >

@@ -24,21 +24,23 @@ beforeEach(function () {
 });
 
 /**
- * [team role, visibility, project role, can view, can edit]
+ * [team role, visibility, project role, can view, can edit, can manage labels]
  */
 dataset('task page matrix', [
-    'Owner, private' => ['owner', 'private', null, true, true],
-    'Admin, team' => ['admin', 'team', null, true, true],
-    'Admin, private' => ['admin', 'private', null, false, false],
-    'Admin, private, contributor' => ['admin', 'private', 'contributor', true, true],
-    'Member, team' => ['member', 'team', null, true, true],
-    'Member, private' => ['member', 'private', null, false, false],
-    'Viewer, team' => ['viewer', 'team', null, true, false],
-    'Viewer, private, manager' => ['viewer', 'private', 'manager', true, false],
-    'other team' => ['outsider', 'team', null, false, false],
+    'Owner, private' => ['owner', 'private', null, true, true, true],
+    'Admin, team' => ['admin', 'team', null, true, true, false],
+    'Admin, team, manager' => ['admin', 'team', 'manager', true, true, true],
+    'Admin, private' => ['admin', 'private', null, false, false, false],
+    'Admin, private, contributor' => ['admin', 'private', 'contributor', true, true, false],
+    'Member, team' => ['member', 'team', null, true, true, false],
+    'Member, private, manager' => ['member', 'private', 'manager', true, true, true],
+    'Member, private' => ['member', 'private', null, false, false, false],
+    'Viewer, team' => ['viewer', 'team', null, true, false, false],
+    'Viewer, private, manager' => ['viewer', 'private', 'manager', true, false, false],
+    'other team' => ['outsider', 'team', null, false, false, false],
 ]);
 
-it('renders task detail by access and 404s for hidden tasks', function (string $role, string $visibility, ?string $projectRole, bool $view, bool $edit) {
+it('renders task detail by access and 404s for hidden tasks', function (string $role, string $visibility, ?string $projectRole, bool $view, bool $edit, bool $labels) {
     $project = pageProject($this->team, $visibility);
     $task = Task::factory()->for($project)->create(['title' => 'Fix login validation', 'description' => 'Private body']);
     $actor = pageActor($this->team, $role, $this->other);
@@ -55,6 +57,7 @@ it('renders task detail by access and 404s for hidden tasks', function (string $
 
         // Hidden in the UI, refused by the server.
         $this->actingAs($actor)->patchJson("/api/v1/tasks/{$task->id}", ['title' => 'x'], ['If-Match' => '"1"'])->assertNotFound();
+        $this->actingAs($actor)->postJson("/api/v1/projects/{$project->id}/labels", ['name' => 'Probe'])->assertNotFound();
 
         return;
     }
@@ -68,10 +71,15 @@ it('renders task detail by access and 404s for hidden tasks', function (string $
         ->has('statuses', 3)
         ->where('can.edit', $edit)
         ->where('can.delete', $edit)
+        ->where('can.manage_labels', $labels)
         ->where('lock', null));
 
     $patch = $this->actingAs($actor)->patchJson("/api/v1/tasks/{$task->id}", ['priority' => 'high'], ['If-Match' => '"'.$task->fresh()?->version.'"']);
     $edit ? $patch->assertOk() : $patch->assertForbidden();
+
+    // Creating a label from the task's picker: offered only with `manage_labels`, refused otherwise.
+    $label = $this->actingAs($actor)->postJson("/api/v1/projects/{$project->id}/labels", ['name' => 'Probe']);
+    $labels ? $label->assertCreated() : $label->assertForbidden();
 })->with('task page matrix');
 
 it('offers exactly the eligible assignees', function () {
@@ -148,4 +156,27 @@ it('keeps another team’s data out of the page', function () {
 
     expect($content)->not->toContain('Foreign project')->not->toContain('Foreign task')->not->toContain($this->other->name);
     expect($shared->exists)->toBeTrue();
+});
+
+it('caps the assignee list, says so, and keeps the current assignee selectable', function () {
+    $project = pageProject($this->team);
+    $this->team->owner->forceFill(['name' => 'B owner'])->save();
+    // 201 eligible members besides the Owner, named so that the last one sorts past the cap.
+    foreach (range(1, 200) as $n) {
+        pageTeamMember($this->team)->forceFill(['name' => sprintf('A member %03d', $n)])->save();
+    }
+    $last = pageTeamMember($this->team);
+    $last->forceFill(['name' => 'Zz last member'])->save();
+    $task = Task::factory()->for($project)->assignedTo($last)->create();
+
+    $props = $this->actingAs($this->team->owner)->get("/tasks/{$task->id}")->viewData('page')['props'];
+    $ids = collect($props['assignees'])->pluck('user_id');
+
+    expect($props['assigneesTruncated'])->toBeTrue()
+        ->and($ids)->toHaveCount(201)
+        ->and($ids->last())->toBe($last->id);
+
+    $small = Task::factory()->for(pageProject($this->other))->create();
+    $this->actingAs($this->other->owner)->get("/tasks/{$small->id}")
+        ->assertInertia(fn (Assert $page) => $page->where('assigneesTruncated', false)->has('assignees', 1));
 });

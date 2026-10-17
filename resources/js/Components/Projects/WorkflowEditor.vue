@@ -30,6 +30,8 @@ const props = defineProps<{
   initialWorkflowVersion: number;
   editable: boolean;
 }>();
+// A write answered 423 (archived meanwhile): the page switches to read-only.
+const emit = defineEmits<{ locked: [] }>();
 
 const { t } = useI18n();
 const statuses = ref<ProjectStatus[]>([...props.initialStatuses]);
@@ -48,6 +50,12 @@ async function refresh(): Promise<void> {
 }
 
 async function afterFailure(): Promise<void> {
+  if (action.error.value?.status === 423) {
+    emit('locked');
+
+    return;
+  }
+
   if (action.error.value?.status === 412 || action.error.value?.status === 409) {
     conflict.value = true;
     await refresh().catch(() => undefined);
@@ -93,6 +101,8 @@ async function add(): Promise<void> {
     addForm.reset();
     await refresh();
     showToast(t('workflow.added', { name: created.name }));
+  } else if (addForm.error.value?.status === 423) {
+    emit('locked');
   }
 }
 
@@ -124,6 +134,9 @@ async function saveEdit(): Promise<void> {
     editOpen.value = false;
     await refresh();
     showToast(t('ui.saved'));
+  } else if (editForm.error.value?.status === 423) {
+    editOpen.value = false;
+    emit('locked');
   } else if (editForm.error.value?.status === 412) {
     conflict.value = true;
     editOpen.value = false;
@@ -163,6 +176,9 @@ async function confirmRemove(): Promise<void> {
     removeOpen.value = false;
     await refresh();
     showToast(t('workflow.deleted', { name: status.name }));
+  } else if (remove.error.value?.status === 423) {
+    removeOpen.value = false;
+    emit('locked');
   } else if (remove.error.value?.status === 412) {
     removeOpen.value = false;
     conflict.value = true;

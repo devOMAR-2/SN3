@@ -23,6 +23,7 @@ export default {
   labels_done: 'Done',
   new_label: 'New label',
   create_label: 'Create',
+  assignees_truncated: 'Only the first {count} people, by name, are listed.',
   unassigned: 'Unassigned',
   clear_due_date: 'Clear',
   due_on: 'Due {date}',

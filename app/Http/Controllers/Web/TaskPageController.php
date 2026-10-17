@@ -33,6 +33,9 @@ class TaskPageController extends Controller
     /** Subtasks listed on the page; more stay reachable through the project's task list. */
     public const SUBTASK_LIMIT = 100;
 
+    /** Assignees offered by name (ADR-026 §5); a larger team shows the first ones and says so. */
+    public const ASSIGNEE_LIMIT = 200;
+
     public function show(Request $request, Task $task): Response
     {
         /** @var User $user */
@@ -61,6 +64,22 @@ class TaskPageController extends Controller
 
         $projectCan = Abilities::project($user, $project);
 
+        $assignees = TaskAssignments::eligibleUsers($project->id, self::ASSIGNEE_LIMIT + 1);
+        $assigneesTruncated = count($assignees) > self::ASSIGNEE_LIMIT;
+        $assignees = array_slice($assignees, 0, self::ASSIGNEE_LIMIT);
+
+        // The current assignee is always eligible (ADR-023 §5) but may sort past the cap: keep them
+        // selectable, so the picker never shows an empty value for an assigned task.
+        $assigneeId = $task->assignee_user_id;
+
+        if ($assigneeId !== null && ! in_array($assigneeId, array_column($assignees, 'user_id'), true)) {
+            $current = User::query()->whereKey($assigneeId)->first();
+
+            if ($current instanceof User) {
+                $assignees[] = ['user_id' => $current->id, 'name' => $current->name];
+            }
+        }
+
         return Inertia::render('Tasks/Show', [
             'team' => TeamResource::make($team, $user),
             'project' => ProjectResource::make($project, $user),
@@ -68,7 +87,8 @@ class TaskPageController extends Controller
             'statuses' => $statuses->map(fn (ProjectStatus $status): array => ProjectStatusResource::make($status))->values()->all(),
             'labels' => $labels->map(fn (Label $label): array => LabelResource::make($label))->values()->all(),
             'checklist' => $checklist->map(fn (TaskChecklistItem $item): array => ChecklistItemResource::make($item))->values()->all(),
-            'assignees' => TaskAssignments::eligibleUsers($project->id),
+            'assignees' => $assignees,
+            'assigneesTruncated' => $assigneesTruncated,
             'parent' => $parent === null ? null : $this->summary($parent, $project),
             'subtasks' => $subtasks->map(fn (Task $child): array => $this->summary($child, $project))->values()->all(),
             'can' => [

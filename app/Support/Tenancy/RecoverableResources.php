@@ -2,6 +2,7 @@
 
 namespace App\Support\Tenancy;
 
+use App\Domain\Projects\ProjectRole;
 use App\Domain\Teams\TeamRole;
 use App\Domain\Trash\TrashRetention;
 use App\Models\Project;
@@ -73,7 +74,9 @@ final class RecoverableResources
     /**
      * The trashed teams the user may still recover (their Owner, within 30 days), most recently
      * deleted first, for the "Deleted teams" list (CORE-006, ADR-026 §6). The same predicate as
-     * team(); at most `$limit` rows.
+     * team(); at most `$limit` rows. The predicate (an Owner membership) is TeamPolicy::restore itself
+     * and runs in SQL before the limit, so only restorable teams count towards it; the Gate check
+     * afterwards is a guard.
      *
      * @return list<Team>
      */
@@ -112,11 +115,30 @@ final class RecoverableResources
         $projects = $this->projects->inTeam($team, $user)
             ->withoutGlobalScope(SoftDeletingScope::class)
             ->where('projects.deleted_at', '>', TrashRetention::cutoff())
+            // ProjectPolicy::restoreDeleted in SQL, before the limit, so rows the user may not restore
+            // never crowd out ones they may: the Team Owner, or a Team Admin or Member holding the
+            // project's `manager` role (a Team Viewer never qualifies).
+            ->where(function (Builder $restorable) use ($user): void {
+                $restorable
+                    ->whereHas('team.memberships', function (Builder $membership) use ($user): void {
+                        $membership->where('user_id', $user->id)->where('role', TeamRole::Owner->value);
+                    })
+                    ->orWhere(function (Builder $manager) use ($user): void {
+                        $manager
+                            ->whereHas('memberships', function (Builder $membership) use ($user): void {
+                                $membership->where('user_id', $user->id)->where('project_role', ProjectRole::Manager->value);
+                            })
+                            ->whereHas('team.memberships', function (Builder $membership) use ($user): void {
+                                $membership->where('user_id', $user->id)->whereIn('role', [TeamRole::Admin->value, TeamRole::Member->value]);
+                            });
+                    });
+            })
             ->orderByDesc('projects.deleted_at')
             ->orderByDesc('projects.id')
             ->limit($limit)
             ->get();
 
+        // The policy again, as a guard: the SQL above must never list more than it allows.
         return array_values($projects->filter(fn (Project $project): bool => Gate::forUser($user)->allows('restoreDeleted', $project))->all());
     }
 

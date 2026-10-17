@@ -4,7 +4,7 @@ import AppButton from '@/Components/ui/AppButton.vue';
 import TextField from '@/Components/ui/TextField.vue';
 import { useApiForm } from '@/Composables/useApiForm';
 import { useI18n } from '@/i18n';
-import { newIdempotencyKey } from '@/lib/http';
+import { createRetryKey } from '@/lib/http';
 import type { Task } from '@/types/domain';
 
 /**
@@ -19,20 +19,13 @@ const emit = defineEmits<{ created: [Task] }>();
 
 const { t } = useI18n();
 const form = useApiForm('task', { title: '' });
-let key: string | null = null;
-let keyFor = '';
+const createKey = createRetryKey();
 
 async function submit(): Promise<void> {
   const title = form.data.title.trim();
 
   if (title === '') {
     return;
-  }
-
-  // Same title, same key: a retry replays instead of creating a duplicate.
-  if (key === null || keyFor !== title) {
-    key = newIdempotencyKey();
-    keyFor = title;
   }
 
   const body: Record<string, unknown> = { title };
@@ -43,11 +36,12 @@ async function submit(): Promise<void> {
 
   Object.assign(form.data, body);
   const task = await form.submit<Task>('post', `/projects/${props.projectId}/tasks`, {
-    headers: { 'Idempotency-Key': key },
+    // Same title, same key: a retry replays instead of creating a duplicate.
+    headers: { 'Idempotency-Key': createKey.for(title) },
   });
 
   if (task) {
-    key = null;
+    createKey.settle();
     form.data.title = '';
     delete (form.data as Record<string, unknown>).parent_task_id;
     emit('created', task);

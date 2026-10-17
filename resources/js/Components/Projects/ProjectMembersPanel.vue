@@ -20,7 +20,7 @@ import type { ProjectMember, ProjectRole, TeamMember } from '@/types/domain';
  * member, change a role or remove for the Owner and Project Managers (`editable`, from the server).
  */
 const props = defineProps<{ projectId: string; teamId: string; editable: boolean; isPrivate: boolean }>();
-const emit = defineEmits<{ changed: [] }>();
+const emit = defineEmits<{ changed: []; locked: [] }>();
 
 const { t } = useI18n();
 const members = useCursorList<ProjectMember>(
@@ -57,6 +57,8 @@ async function put(userId: string, role: ProjectRole): Promise<boolean> {
   if (saved) {
     await members.reload();
     emit('changed');
+  } else if (action.error.value?.status === 423) {
+    emit('locked');
   }
 
   return saved !== null;
@@ -99,6 +101,9 @@ async function confirmRemove(): Promise<void> {
     members.replace((item) => item.user_id === member.user_id, null);
     showToast(t('project.members.removed', { name: member.name }));
     emit('changed');
+  } else if (removal.error.value?.status === 423) {
+    removeOpen.value = false;
+    emit('locked');
   }
 }
 </script>

@@ -2,6 +2,7 @@
 
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
+use App\Models\TeamMembership;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -222,4 +223,40 @@ it('lists the Owner’s recoverable deleted teams only', function () {
 
     // An Admin of a deleted team cannot recover it, so it is not listed for them.
     $this->actingAs($member)->get('/teams')->assertInertia(fn (Assert $page) => $page->has('deletedTeams', 0));
+});
+
+it('lists restorable deleted teams even behind more than 100 deleted teams the user may not restore', function () {
+    $user = pageTeamMember($this->other, TeamRole::Member);
+    $owned = Team::factory()->ownedBy($user)->create(['name' => 'Mine, deleted long ago']);
+    $owned->delete();
+    $owned->forceFill(['deleted_at' => now()->subDays(2)])->save();
+
+    // 101 newer deleted teams in which the user is an Admin: visible to them before, not restorable.
+    foreach (range(1, 101) as $n) {
+        $team = Team::factory()->create();
+        TeamMembership::factory()->for($team)->role(TeamRole::Admin)->create(['user_id' => $user->id]);
+        $team->delete();
+        $team->forceFill(['deleted_at' => now()->subMinutes($n)])->save();
+    }
+
+    $this->actingAs($user)->get('/teams')
+        ->assertInertia(fn (Assert $page) => $page->has('deletedTeams', 1)->where('deletedTeams.0.id', $owned->id));
+});
+
+it('offers Admin invitations to the Owner only', function (string $role, bool $invite, bool $inviteAdmin) {
+    $this->actingAs(pageActor($this->team, $role, $this->other))
+        ->get("/t/{$this->team->slug}/members")
+        ->assertInertia(fn (Assert $page) => $page->where('can.invite', $invite)->where('can.invite_admin', $inviteAdmin));
+})->with([
+    'Owner' => ['owner', true, true],
+    'Admin' => ['admin', true, false],
+    'Member' => ['member', false, false],
+    'Viewer' => ['viewer', false, false],
+]);
+
+it('offers no invitations in an archived team', function () {
+    $this->team->forceFill(['archived_at' => now()])->save();
+
+    $this->actingAs($this->team->owner)->get("/t/{$this->team->slug}/members")
+        ->assertInertia(fn (Assert $page) => $page->where('can.invite', false)->where('can.invite_admin', false));
 });

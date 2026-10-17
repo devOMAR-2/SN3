@@ -19,7 +19,7 @@ import { showToast } from '@/Composables/useToast';
 import { useI18n } from '@/i18n';
 import { api, type ApiEnvelope } from '@/lib/api';
 import { pages } from '@/lib/routes';
-import type { Lock, Team, TeamAbilities, TeamMember, TeamRole } from '@/types/domain';
+import type { CursorPage, Lock, Team, TeamAbilities, TeamMember, TeamRole } from '@/types/domain';
 
 /**
  * `/t/{team_slug}/members` (CORE-006): the member list (GET /api/v1/teams/{team}/members), role changes,
@@ -68,6 +68,9 @@ async function changeRole(member: TeamMember, role: string): Promise<void> {
 
   if (updated) {
     showToast(t('team.members.role_changed', { name: member.name }));
+  } else if (roleAction.error.value?.status === 423) {
+    // Archived meanwhile: reload the server's abilities, which hide every control.
+    router.reload();
   }
 }
 
@@ -109,17 +112,53 @@ async function confirmRemove(): Promise<void> {
   showToast(t('team.members.removed', { name: member.name }));
 }
 
-// Ownership transfer.
+// Ownership transfer. The candidates are every member of the team, not only the pages loaded in the list:
+// they are read page by page (100 at a time) when the dialog opens.
 const transfer = useAction();
 const transferOpen = ref(false);
 const newOwner = ref('');
-const candidates = computed(() => list.items.value.filter((member) => member.user_id !== me.value));
+const allMembers = ref<TeamMember[]>([]);
+const loadingCandidates = ref(false);
+const candidates = computed(() => allMembers.value.filter((member) => member.user_id !== me.value));
 const newOwnerName = computed(() => candidates.value.find((member) => member.user_id === newOwner.value)?.name ?? '');
+// The button needs someone else in the team; the loaded list is enough to know that.
+const hasOtherMembers = computed(
+  () => list.items.value.some((member) => member.user_id !== me.value) || list.hasMore.value,
+);
+
+async function loadAllMembers(): Promise<void> {
+  loadingCandidates.value = true;
+  const collected: TeamMember[] = [];
+  let cursor: string | null = null;
+
+  const done = await transfer.run(async () => {
+    do {
+      const response: { data: CursorPage<TeamMember> } = await api.get<CursorPage<TeamMember>>(
+        `/teams/${props.team.id}/members`,
+        {
+          params: { limit: 100, ...(cursor ? { cursor } : {}) },
+        },
+      );
+      collected.push(...response.data.data);
+      cursor = response.data.meta.has_more ? response.data.meta.next_cursor : null;
+    } while (cursor !== null);
+
+    return true;
+  });
+
+  if (done) {
+    allMembers.value = collected;
+  }
+
+  loadingCandidates.value = false;
+}
 
 function askTransfer(): void {
   transfer.clear();
   newOwner.value = '';
+  allMembers.value = [];
   transferOpen.value = true;
+  void loadAllMembers();
 }
 
 async function confirmTransfer(): Promise<void> {
@@ -150,7 +189,7 @@ async function confirmTransfer(): Promise<void> {
     <LockBanner :lock="lock" />
     <PageHeader :title="t('nav.members')">
       <template #actions>
-        <AppButton v-if="can.transfer_ownership && candidates.length > 0" variant="secondary" @click="askTransfer">
+        <AppButton v-if="can.transfer_ownership && hasOtherMembers" variant="secondary" @click="askTransfer">
           {{ t('team.members.transfer') }}
         </AppButton>
       </template>
@@ -250,7 +289,7 @@ async function confirmTransfer(): Promise<void> {
         <option value="" disabled>{{ t('ui.choose') }}</option>
         <option v-for="member in candidates" :key="member.user_id" :value="member.user_id">{{ member.name }}</option>
       </SelectField>
-      <p v-if="list.hasMore.value" class="text-caption text-text-muted">{{ t('team.members.transfer_more') }}</p>
+      <p v-if="loadingCandidates" class="text-caption text-text-muted" role="status">{{ t('common.loading') }}</p>
     </ConfirmDialog>
   </WorkspaceLayout>
 </template>

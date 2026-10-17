@@ -50,7 +50,6 @@ export default {
     transfer: 'Transfer ownership',
     transfer_body: 'The new Owner gets full control of the team. You become an Admin.',
     transfer_submit: 'Transfer',
-    transfer_more: 'Only the members loaded on this page are listed. Load more to see everyone.',
     transferred: '{name} is now the Owner.',
     new_owner: 'New Owner',
   },

@@ -14,7 +14,7 @@ import { useAction } from '@/Composables/useAction';
 import { useApiForm } from '@/Composables/useApiForm';
 import { showToast } from '@/Composables/useToast';
 import { useI18n } from '@/i18n';
-import { api } from '@/lib/api';
+import { api, type ApiError } from '@/lib/api';
 import { pages } from '@/lib/routes';
 import type { Lock, Team, TeamAbilities } from '@/types/domain';
 
@@ -25,6 +25,23 @@ import type { Lock, Team, TeamAbilities } from '@/types/domain';
  */
 const props = defineProps<{ team: Team; can: TeamAbilities; lock: Lock }>();
 const { t } = useI18n();
+
+// A write answered 423 (the team was archived meanwhile): show the read-only banner at once, and reload
+// the server's abilities so the editors disappear.
+const lockedNow = ref(false);
+
+function lockedBy(error: ApiError | null): boolean {
+  if (error?.status !== 423) {
+    return false;
+  }
+
+  lockedNow.value = true;
+  archiveOpen.value = false;
+  deleteOpen.value = false;
+  router.reload();
+
+  return true;
+}
 
 const form = useApiForm('team', {
   name: props.team.name,
@@ -38,6 +55,8 @@ async function save(): Promise<void> {
   const updated = await form.submit<Team>('patch', `/teams/${props.team.id}`);
 
   if (!updated) {
+    lockedBy(form.error.value);
+
     return;
   }
 
@@ -62,6 +81,8 @@ async function setArchived(archived: boolean): Promise<void> {
     archiveOpen.value = false;
     showToast(t(archived ? 'team.danger.archived' : 'team.danger.unarchived'));
     router.reload();
+  } else {
+    lockedBy(archive.error.value);
   }
 }
 
@@ -84,6 +105,8 @@ async function confirmDelete(): Promise<void> {
     deleteOpen.value = false;
     showToast(t('team.danger.deleted'));
     router.visit(pages.teams());
+  } else {
+    lockedBy(remove.error.value);
   }
 }
 </script>
@@ -95,7 +118,7 @@ async function confirmDelete(): Promise<void> {
     :team-can="can"
     :breadcrumbs="[{ label: team.name, href: pages.team(team.slug) }, { label: t('nav.settings') }]"
   >
-    <LockBanner :lock="lock" />
+    <LockBanner :lock="lock ?? (lockedNow ? 'read_only' : null)" />
     <PageHeader :title="t('team.settings.title')" />
 
     <section aria-labelledby="team-general" class="mb-10 flex flex-col gap-4">

@@ -16,7 +16,7 @@ import { useApiForm } from '@/Composables/useApiForm';
 import { invalidateNavProjects } from '@/Composables/useNavProjects';
 import { showToast } from '@/Composables/useToast';
 import { useI18n } from '@/i18n';
-import { api, type ApiEnvelope } from '@/lib/api';
+import { api, type ApiEnvelope, type ApiError } from '@/lib/api';
 import { ifMatch } from '@/lib/http';
 import { pages } from '@/lib/routes';
 import type {
@@ -53,6 +53,27 @@ watch(
   (value) => (version.value = value),
 );
 const conflict = ref(false);
+
+// A write answered 423 (the project or its team was archived meanwhile): show the read-only banner at
+// once, and reload the server's abilities so the editors disappear.
+const lockedNow = ref(false);
+
+function onLocked(): void {
+  lockedNow.value = true;
+  archiveOpen.value = false;
+  deleteOpen.value = false;
+  router.reload();
+}
+
+function lockedBy(error: ApiError | null): boolean {
+  if (error?.status !== 423) {
+    return false;
+  }
+
+  onLocked();
+
+  return true;
+}
 const visibilityName = `visibility-${useId()}`;
 
 function reload(): void {
@@ -78,6 +99,7 @@ async function save(): Promise<void> {
 
   if (!updated) {
     conflict.value = form.error.value?.status === 412;
+    lockedBy(form.error.value);
 
     return;
   }
@@ -113,6 +135,7 @@ async function toggleSprints(): Promise<void> {
     showToast(t('ui.saved'));
   } else {
     conflict.value = sprints.error.value?.status === 412;
+    lockedBy(sprints.error.value);
   }
 }
 
@@ -134,6 +157,7 @@ async function setArchived(archived: boolean): Promise<void> {
     router.reload();
   } else {
     conflict.value = lifecycle.error.value?.status === 412;
+    lockedBy(lifecycle.error.value);
   }
 }
 
@@ -149,6 +173,7 @@ async function confirmDelete(): Promise<void> {
     router.visit(pages.projects(props.team.slug));
   } else {
     conflict.value = lifecycle.error.value?.status === 412;
+    lockedBy(lifecycle.error.value);
   }
 }
 
@@ -170,7 +195,7 @@ function openDelete(): void {
       { label: t('project.settings.title') },
     ]"
   >
-    <LockBanner :lock="lock" />
+    <LockBanner :lock="lock ?? (lockedNow ? 'read_only' : null)" />
     <PageHeader :title="t('project.settings.title')" :subtitle="project.name" />
 
     <AppAlert v-if="conflict" variant="warning" :title="t('conflict.title')" class="mb-6">
@@ -268,6 +293,7 @@ function openDelete(): void {
         :initial-statuses="statuses"
         :initial-workflow-version="workflowVersion"
         :editable="can.manage_workflow"
+        @locked="onLocked"
       />
     </section>
 
@@ -278,6 +304,7 @@ function openDelete(): void {
         :team-id="team.id"
         :editable="can.manage_members"
         :is-private="project.visibility === 'private'"
+        @locked="onLocked"
       />
     </section>
 
