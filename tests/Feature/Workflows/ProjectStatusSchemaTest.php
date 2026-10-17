@@ -133,6 +133,10 @@ it('gives every existing project the default workflow on upgrade, in its creator
         'database/migrations/2026_10_20_000100_create_tasks_table.php',
         'database/migrations/2026_10_20_000110_create_labels_tables.php',
         'database/migrations/2026_10_20_000120_create_task_checklist_items_table.php',
+        // CORE-008: comments, attachments and activity reference tasks.
+        'database/migrations/2026_10_21_000200_create_task_comments_tables.php',
+        'database/migrations/2026_10_21_000210_create_task_attachments_table.php',
+        'database/migrations/2026_10_21_000220_create_task_activities_table.php',
     ];
     Artisan::call('migrate:rollback', ['--path' => $dependents, '--force' => true]);
     Artisan::call('migrate:rollback', ['--path' => $core004, '--force' => true]);

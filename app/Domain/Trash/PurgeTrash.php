@@ -2,6 +2,8 @@
 
 namespace App\Domain\Trash;
 
+use App\Domain\Trash\Events\ProjectPurged;
+use App\Domain\Trash\Events\TeamPurged;
 use App\Models\Project;
 use App\Models\Team;
 use Carbon\CarbonInterface;
@@ -38,7 +40,8 @@ use Throwable;
  *   and `trash:purge` exits non-zero. The row is retried on the next run.
  *
  * Projects are purged first, then teams (which take their remaining projects with them). Each purge
- * is logged with IDs only.
+ * is logged with IDs only and announced after its COMMIT (ProjectPurged, TeamPurged), so that what
+ * is not a row goes too: stored attachment files (DeletePurgedAttachmentFiles, CORE-008).
  */
 final class PurgeTrash
 {
@@ -116,6 +119,8 @@ final class PurgeTrash
                 } elseif ($deleted > 0) {
                     $purged++;
                     Log::info('trash.project_purged', ['team_id' => $project->team_id, 'project_id' => $project->id]);
+                    // After COMMIT: listeners delete what is not a row, e.g. attachment files (CORE-008).
+                    ProjectPurged::dispatch($project->team_id, $project->id);
                 }
             }
         } while ($batch->count() === self::BATCH);
@@ -158,6 +163,7 @@ final class PurgeTrash
                 } elseif ($deleted > 0) {
                     $purged++;
                     Log::info('trash.team_purged', ['team_id' => $teamId]);
+                    TeamPurged::dispatch($teamId);
                 }
             }
         } while ($batch->count() === self::BATCH);

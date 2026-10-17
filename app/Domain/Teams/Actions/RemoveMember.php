@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Invitations\InvitationRevocations;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
@@ -12,7 +13,6 @@ use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Removes a member or lets a member leave (FR-TEAM-005/006, API_SPEC.md §3).
@@ -51,7 +51,7 @@ final class RemoveMember
                 throw new DomainConflictException('Team ownership changed; reload and try again.');
             }
 
-            $revoked = ProjectMembership::query()
+            ProjectMembership::query()
                 ->where('team_id', $team->id)
                 ->where('user_id', $locked->user_id)
                 ->delete();
@@ -64,12 +64,8 @@ final class RemoveMember
             // An invitation never grants more than its issuer could grant today (ADR-025 §5).
             InvitationRevocations::revokeIssuedBy($team->id, $locked->user_id, 'team_member_removed');
 
-            Log::info('team.member_removed', [
-                'team_id' => $team->id,
-                'user_id' => $locked->user_id,
-                'actor_id' => $actor->id,
-                'project_memberships_revoked' => $revoked,
-            ]);
+            // A team entry: no count of the member's project memberships, which may be private.
+            Activity::team($team->id, $actor, 'team.member_removed', ['user_id' => $locked->user_id]);
         });
     }
 }

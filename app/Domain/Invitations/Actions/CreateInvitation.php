@@ -2,6 +2,7 @@
 
 namespace App\Domain\Invitations\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Invitations\InvitationToken;
 use App\Domain\Invitations\InvitationType;
 use App\Domain\Teams\TeamRole;
@@ -16,7 +17,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Notification;
 use InvalidArgumentException;
 
@@ -98,10 +98,8 @@ final class CreateInvitation
                 ));
             }
 
-            Log::info('team.invitation_created', [
-                'team_id' => $locked->id,
+            Activity::team($locked->id, $actor, 'team.invitation_created', [
                 'invitation_id' => $invitation->id,
-                'actor_id' => $actor->id,
                 'type' => $type->value,
                 'role' => $role->value,
             ]);

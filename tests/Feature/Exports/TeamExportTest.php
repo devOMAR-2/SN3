@@ -1,5 +1,6 @@
 <?php
 
+use App\Domain\Activity\Activity;
 use App\Domain\Exports\Actions\RequestTeamExport;
 use App\Domain\Exports\Sections\LabelsSection;
 use App\Domain\Exports\Sections\StatusesSection;
@@ -18,7 +19,9 @@ use App\Models\Label;
 use App\Models\Project;
 use App\Models\ProjectMembership;
 use App\Models\Task;
+use App\Models\TaskAttachment;
 use App\Models\TaskChecklistItem;
+use App\Models\TaskComment;
 use App\Models\Team;
 use App\Models\TeamExport;
 use App\Models\TeamMembership;
@@ -43,6 +46,7 @@ uses(RefreshDatabase::class);
 
 beforeEach(function () {
     Storage::fake('exports');
+    Storage::fake('attachments');
     $this->workRoot = sys_get_temp_dir().'/sn3-export-work-test-'.Str::random(8);
     config(['sn3.exports.work_dir' => $this->workRoot]);
 
@@ -151,6 +155,7 @@ it('exports the team asynchronously for its Owner: 202, then a ready export with
     expect(array_keys($entries))->toBe([
         'manifest.json', 'data/team.json', 'data/members.json', 'data/projects.json', 'data/project_members.json', 'data/statuses.json',
         'data/labels.json', 'data/tasks.json', 'data/task_labels.json', 'data/task_checklist_items.json',
+        'data/comments.json', 'data/activity.json', 'data/attachments.json',
     ]);
 
     $context = ['team_id' => $this->team->id, 'export_id' => $id, 'actor_id' => $this->owner->id];
@@ -172,7 +177,7 @@ it('writes a versioned manifest and one JSON array per section, with counts and 
         'requested_by' => $this->owner->id,
     ])->and($manifest['generated_at'])->toMatch('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/');
 
-    expect(array_column($manifest['sections'], 'name'))->toBe(['team', 'members', 'projects', 'project_members', 'statuses', 'labels', 'tasks', 'task_labels', 'task_checklist_items']);
+    expect(array_column($manifest['sections'], 'name'))->toBe(['team', 'members', 'projects', 'project_members', 'statuses', 'labels', 'tasks', 'task_labels', 'task_checklist_items', 'comments', 'activity', 'attachments']);
 
     foreach ($manifest['sections'] as $section) {
         $content = $entries[$section['file']];
@@ -235,6 +240,10 @@ it('never includes another team, trashed projects or anything secret (DB-T01, DA
     $label = Label::factory()->for($this->private)->create();
     DB::table('task_labels')->insert(['task_id' => $task->id, 'project_id' => $this->private->id, 'label_id' => $label->id]);
     TaskChecklistItem::factory()->for($task)->create();
+    // CORE-008: a comment, an activity entry and an attachment with its file.
+    TaskComment::factory()->for($task)->create();
+    Activity::task($task, $this->owner, 'task.trashed');
+    TaskAttachment::factory()->for($task)->create();
     $this->owner->forceFill(['remember_token' => 'remember-'.Str::random(40)])->save();
     DB::table('sessions')->insert(['id' => 'session-'.Str::random(30), 'user_id' => $this->owner->id, 'payload' => 'payload-secret', 'last_activity' => time()]);
 
@@ -257,7 +266,10 @@ it('never includes another team, trashed projects or anything secret (DB-T01, DA
 
     // No field anywhere is named like a credential.
     $keys = [];
-    $decoded = array_map(fn (string $json) => json_decode($json, true, flags: JSON_THROW_ON_ERROR), $entries);
+    // Every JSON entry; stored files (`files/<id>`, CORE-008) are not JSON.
+    $json = array_filter($entries, fn (string $name) => ! str_starts_with($name, 'files/'), ARRAY_FILTER_USE_KEY);
+    expect(count($json))->toBe(count($entries) - 1);
+    $decoded = array_map(fn (string $json) => json_decode($json, true, flags: JSON_THROW_ON_ERROR), $json);
     $collect = function (mixed $value) use (&$collect, &$keys): void {
         if (is_array($value)) {
             foreach ($value as $key => $inner) {

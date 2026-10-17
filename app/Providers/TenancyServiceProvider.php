@@ -4,8 +4,10 @@ namespace App\Providers;
 
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\TaskAttachment;
 use App\Models\Team;
 use App\Models\User;
+use App\Support\Tenancy\AccessibleAttachments;
 use App\Support\Tenancy\AccessibleProjects;
 use App\Support\Tenancy\AccessibleTasks;
 use App\Support\Tenancy\AccessibleTeams;
@@ -31,6 +33,7 @@ class TenancyServiceProvider extends ServiceProvider
         $this->app->singleton(AccessibleTeams::class);
         $this->app->singleton(AccessibleProjects::class);
         $this->app->singleton(AccessibleTasks::class);
+        $this->app->singleton(AccessibleAttachments::class);
         $this->app->singleton(RecoverableResources::class);
     }
 
@@ -71,6 +74,12 @@ class TenancyServiceProvider extends ServiceProvider
 
         Route::bind('trashedTask', function (string $value): Task {
             return $this->app->make(AccessibleTasks::class)->findTrashedOrFail($this->user(), $value);
+        });
+
+        // `{attachment}` resolves only to live attachments of live tasks the user can see (CORE-008,
+        // ADR-027 §5): a hidden project's file is a 404, and access is re-checked on every download.
+        Route::bind('attachment', function (string $value): TaskAttachment {
+            return $this->app->make(AccessibleAttachments::class)->findOrFail($this->user(), $value);
         });
 
         // Only `POST …/restore-deleted` reaches the trash (CORE-010, ADR-022 §4): a trashed team for its

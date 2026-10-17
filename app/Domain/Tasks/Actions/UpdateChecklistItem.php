@@ -2,13 +2,13 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Tasks\Checklist;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -31,7 +31,7 @@ final class UpdateChecklistItem
     public function handle(Task $task, TaskChecklistItem $item, User $actor, array $changes): TaskChecklistItem
     {
         return DB::transaction(function () use ($task, $item, $actor, $changes): TaskChecklistItem {
-            ['project' => $project, 'task' => $locked, 'items' => $items] = Checklist::lock($task, $actor);
+            ['task' => $locked, 'items' => $items] = Checklist::lock($task, $actor);
 
             $row = $items->firstWhere('id', $item->id)
                 ?? throw (new ModelNotFoundException)->setModel(TaskChecklistItem::class, [$item->id]);
@@ -67,18 +67,15 @@ final class UpdateChecklistItem
             }
 
             if ($moved || $row->wasChanged()) {
-                Log::info('task.checklist_item_updated', [
-                    'team_id' => $project->team_id,
-                    'project_id' => $project->id,
-                    'task_id' => $locked->id,
+                Activity::task($locked, $actor, 'task.checklist_item_updated', array_filter([
                     'item_id' => $row->id,
-                    'actor_id' => $actor->id,
                     'fields' => array_values(array_filter([
                         $row->wasChanged('content') ? 'text' : null,
                         $row->wasChanged('is_done') ? 'checked' : null,
                         $moved ? 'position' : null,
                     ])),
-                ]);
+                    'checked' => $row->wasChanged('is_done') ? $row->is_done : null,
+                ], fn (mixed $value): bool => $value !== null));
             }
 
             return $row->refresh();

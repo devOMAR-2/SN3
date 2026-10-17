@@ -5,11 +5,13 @@ namespace App\Http\Middleware;
 use App\Http\Responses\ApiResponse;
 use App\Models\ApiIdempotencyRecord;
 use App\Models\Project;
+use App\Models\Task;
 use App\Models\Team;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -176,11 +178,46 @@ final class EnforceIdempotency
     private static function digest(Request $request): string
     {
         $body = $request->isJson() ? $request->json()->all() : $request->post();
+        $payload = ['query' => self::canonical($request->query()), 'body' => self::canonical($body)];
 
-        return hash('sha256', (string) json_encode(
-            ['query' => self::canonical($request->query()), 'body' => self::canonical($body)],
-            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
-        ));
+        // Multipart uploads (attachments, CORE-008): the files are part of the payload, so the same
+        // key with another file is `idempotency_key_reused`, never a replay of the first upload.
+        $files = self::files($request->allFiles());
+
+        if ($files !== []) {
+            ksort($files, SORT_STRING);
+            $payload['files'] = $files;
+        }
+
+        return hash('sha256', (string) json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Each uploaded file as its client name, size and content SHA-256, keyed by field path.
+     *
+     * @param  array<array-key, mixed>  $files
+     * @return array<string, array{name: string, size: int|false, sha256: string|false}>
+     */
+    private static function files(array $files, string $prefix = ''): array
+    {
+        $digests = [];
+
+        foreach ($files as $field => $file) {
+            $path = $prefix === '' ? (string) $field : $prefix.'.'.$field;
+
+            if (is_array($file)) {
+                $digests = [...$digests, ...self::files($file, $path)];
+            } elseif ($file instanceof UploadedFile) {
+                $real = $file->getRealPath();
+                $digests[$path] = [
+                    'name' => $file->getClientOriginalName(),
+                    'size' => $real === false ? false : filesize($real),
+                    'sha256' => $real === false ? false : hash_file('sha256', $real),
+                ];
+            }
+        }
+
+        return $digests;
     }
 
     private static function canonical(mixed $value): mixed
@@ -207,6 +244,13 @@ final class EnforceIdempotency
         // Project-scoped creates (tasks, CORE-005): the record goes with the project's team.
         $project = $request->route('project');
 
-        return $project instanceof Project ? $project->team_id : null;
+        if ($project instanceof Project) {
+            return $project->team_id;
+        }
+
+        // Task-scoped creates (attachment uploads, CORE-008).
+        $task = $request->route('task');
+
+        return $task instanceof Task ? $task->team_id : null;
     }
 }

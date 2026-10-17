@@ -5,6 +5,7 @@ use App\Domain\Invitations\Actions\RevokeInvitation;
 use App\Domain\Invitations\InvitationToken;
 use App\Domain\Invitations\InvitationType;
 use App\Domain\Teams\TeamRole;
+use App\Models\TaskActivity;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\TeamMembership;
@@ -103,7 +104,7 @@ it('stores only the hash of the token: no table and no log holds the raw token',
         ->assertCreated();
     $token = $response->json('data.token');
 
-    foreach (['team_invitations', 'api_idempotency_records', 'jobs'] as $table) {
+    foreach (['team_invitations', 'api_idempotency_records', 'jobs', 'task_activities'] as $table) {
         $rows = DB::table($table)->get()->map(fn ($row) => json_encode(array_map(
             fn ($value) => is_resource($value) ? bin2hex((string) stream_get_contents($value)) : $value,
             (array) $row,
@@ -114,11 +115,12 @@ it('stores only the hash of the token: no table and no log holds the raw token',
 
     expect(bin2hex((string) stream_get_contents(DB::table('team_invitations')->value('token_hash'))))->toBe(hash('sha256', $token));
 
-    Log::shouldHaveReceived('info')->withArgs(function (string $message, array $context) use ($token): bool {
-        expect(json_encode($context))->not->toContain($token);
+    // Audited as a team activity entry with IDs, type and role only (CORE-008, ADR-027 §3).
+    $entry = TaskActivity::query()->where('action', 'team.invitation_created')->sole();
+    expect($entry->changes)->toEqual(['invitation_id' => $response->json('data.id'), 'type' => 'email', 'role' => 'member'])
+        ->and(json_encode($entry->changes))->not->toContain('example.com');
 
-        return $message === 'team.invitation_created';
-    })->once();
+    Log::shouldNotHaveReceived('info', fn (string $message, array $context = []) => str_contains((string) json_encode($context), $token));
 });
 
 it('mails an email invitation to the address, queued after commit and encrypted, with the token in the fragment', function () {

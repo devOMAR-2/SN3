@@ -5,12 +5,12 @@ require_once __DIR__.'/TaskHelpers.php';
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Teams\TeamRole;
 use App\Models\Task;
+use App\Models\TaskActivity;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 // CORE-005: what happens to a task's assignee who loses access or write capability (ADR-023 §5).
 // The specs only say who may be assigned (API_SPEC.md §6.1, DATABASE.md §19); the assignment is
@@ -140,13 +140,16 @@ it('unassigns the former Owner from private projects they are not a member of af
         ->and(taskVersionOf($ownersOpen))->toBe(1);
 });
 
-it('logs the release with IDs and a reason only', function () {
-    Log::spy();
-
+it('records each release in the task\'s activity with IDs and a reason only (CORE-008)', function () {
     $this->actingAs($this->owner)->deleteJson("/api/v1/projects/{$this->private->id}/members/{$this->user->id}")->assertNoContent();
 
-    Log::shouldHaveReceived('info')->withArgs(fn (string $event, array $context) => $event === 'task.assignments_released'
-        && $context === ['team_id' => $this->team->id, 'project_id' => $this->private->id, 'user_id' => $this->user->id, 'reason' => 'project_member_removed', 'tasks' => 2])->once();
+    $entries = TaskActivity::query()->where('action', 'task.assignee_released')->orderBy('task_id')->get();
+
+    expect($entries)->toHaveCount(2)
+        ->and($entries->pluck('project_id')->unique()->all())->toBe([$this->private->id])
+        ->and($entries->pluck('actor_user_id')->unique()->all())->toBe([null])
+        ->and($entries->pluck('source')->unique()->all())->toBe(['system'])
+        ->and($entries->pluck('changes')->unique()->values()->all())->toBe([['from' => $this->user->id, 'reason' => 'project_member_removed']]);
 });
 
 it('does not restore an assignee who lost access while the task was in the trash', function () {

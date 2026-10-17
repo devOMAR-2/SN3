@@ -44,6 +44,8 @@ use Illuminate\Support\Carbon;
  * @property-read ProjectStatus $status
  * @property-read Collection<int, Label> $labels
  * @property-read Collection<int, TaskChecklistItem> $checklistItems
+ * @property-read Collection<int, TaskComment> $comments
+ * @property-read Collection<int, TaskAttachment> $attachments
  */
 class Task extends Model
 {
@@ -124,6 +126,26 @@ class Task extends Model
     public function checklistItems(): HasMany
     {
         return $this->hasMany(TaskChecklistItem::class);
+    }
+
+    /**
+     * Comments (CORE-008); live ones only unless `withTrashed()`.
+     *
+     * @return HasMany<TaskComment, $this>
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(TaskComment::class);
+    }
+
+    /**
+     * Attachments (CORE-008), including those being removed; use `->live()` for the visible ones.
+     *
+     * @return HasMany<TaskAttachment, $this>
+     */
+    public function attachments(): HasMany
+    {
+        return $this->hasMany(TaskAttachment::class);
     }
 
     /**

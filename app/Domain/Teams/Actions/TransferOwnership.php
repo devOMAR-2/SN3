@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Invitations\InvitationRevocations;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
@@ -11,7 +12,6 @@ use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -75,11 +75,7 @@ final class TransferOwnership
             // An Admin may not invite Admins: the former Owner's pending Admin invitations go (ADR-025 §5).
             InvitationRevocations::revokeIssuedBy($locked->id, $currentOwner->id, 'ownership_transferred', adminInvitationsOnly: true);
 
-            Log::info('team.ownership_transferred', [
-                'team_id' => $locked->id,
-                'from_user_id' => $currentOwner->id,
-                'to_user_id' => $newOwnerId,
-            ]);
+            Activity::team($locked->id, $currentOwner, 'team.ownership_transferred', ['from_user_id' => $currentOwner->id, 'to_user_id' => $newOwnerId]);
 
             return $locked->setRelation('memberships', $locked->memberships()->where('user_id', $currentOwner->id)->get());
         });

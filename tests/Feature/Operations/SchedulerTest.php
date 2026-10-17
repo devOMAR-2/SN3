@@ -48,6 +48,8 @@ it('schedules daily pruning of expired idempotency records', function () {
 
     expect($event)->not->toBeNull()
         ->and($event->command)->toContain('ApiIdempotencyRecord')
+        // CORE-008: deleted comments past the 30-day recovery window.
+        ->and($event->command)->toContain('TaskComment')
         ->and($event->expression)->toBe('30 3 * * *')
         ->and($event->onOneServer)->toBeTrue();
 });
@@ -62,8 +64,18 @@ it('schedules the daily trash purge (CORE-010)', function () {
         ->and($event->expiresAt)->toBe(60);
 });
 
+it('schedules the hourly attachment sweep (CORE-008)', function () {
+    $event = scheduledCommand('attachments:sweep');
+
+    expect($event)->not->toBeNull()
+        ->and($event->expression)->toBe('35 * * * *')
+        ->and($event->onOneServer)->toBeTrue()
+        ->and($event->withoutOverlapping)->toBeTrue()
+        ->and($event->expiresAt)->toBe(60);
+});
+
 it('lists only the operational tasks', function () {
-    expect(app(Schedule::class)->events())->toHaveCount(6);
+    expect(app(Schedule::class)->events())->toHaveCount(7);
 
     $this->artisan('schedule:list')
         ->expectsOutputToContain('queue:prune-failed --hours=720')
@@ -72,6 +84,7 @@ it('lists only the operational tasks', function () {
         ->expectsOutputToContain('model:prune')
         ->expectsOutputToContain('trash:purge')
         ->expectsOutputToContain('exports:prune')
+        ->expectsOutputToContain('attachments:sweep')
         ->assertSuccessful();
 });
 

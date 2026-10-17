@@ -2,6 +2,9 @@
 
 namespace App\Domain\Exports;
 
+use App\Domain\Exports\Sections\ActivitySection;
+use App\Domain\Exports\Sections\AttachmentsSection;
+use App\Domain\Exports\Sections\CommentsSection;
 use App\Domain\Exports\Sections\LabelsSection;
 use App\Domain\Exports\Sections\MembersSection;
 use App\Domain\Exports\Sections\ProjectMembersSection;
@@ -17,8 +20,8 @@ use App\Domain\Exports\Sections\TeamSection;
  *
  * A zip archive with `manifest.json` and one `data/<section>.json` file per section, in this order.
  * Later tasks append their sections here (CORE-005: labels, tasks, task labels, checklist items;
- * CORE-008: comments, attachment manifests; …). Appending a section or a field is backwards
- * compatible and keeps VERSION; anything else bumps it.
+ * CORE-008: comments, activity, attachments, whose files go under `files/<id>`; …). Appending a
+ * section or a field is backwards compatible and keeps VERSION; anything else bumps it.
  */
 final class TeamExportFormat
 {
@@ -40,5 +43,9 @@ final class TeamExportFormat
         TasksSection::class,
         TaskLabelsSection::class,
         TaskChecklistItemsSection::class,
+        // CORE-008 (ADR-027 §7): comments, the activity log, and attachments with their files.
+        CommentsSection::class,
+        ActivitySection::class,
+        AttachmentsSection::class,
     ];
 }
