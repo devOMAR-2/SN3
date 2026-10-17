@@ -25,14 +25,23 @@ The password is public, so the seeder throws unless `APP_ENV` is `local`, `testi
 php artisan migrate:fresh --seed --seeder="Database\Seeders\E2ETenantSeeder"
 ```
 
-Add a user or team in `tenants.json` when a later task needs one (private projects arrive with CORE-003). Tests read the fixture rather than hard-coding IDs.
+Add a user, team or project in `tenants.json` when a later task needs one. Tests read the fixture rather than hard-coding IDs.
 
-Tenant isolation is proved twice:
+`projects` (CORE-011) seeds, per team, a team-visible and a private project, each with a task, label, checklist item, comment with mentions, attachment, extra status and inbox notifications. Every text field carries the project's **canary** (`CNRY-ALPHA-PRIV`, …), so a test can assert that a response holds no canary its viewer may not see. In both private projects the Team Admin has no membership (`alpha_admin`, and `shared` in beta), and was mentioned there, so they hold notifications they must never see.
+
+Tenant isolation is proved at three levels:
 
 - **`tests/Feature/Tenancy/SeededTenantIsolationTest.php` (Pest):** every user × every team through the API and the policies. Fast, and part of `composer test`.
 - **`e2e/tests/tenant-isolation.spec.ts` (Playwright):** the same matrix (`/me/teams`, `/teams`, `/teams/{id}`) through the running app with real sessions and CSRF. A foreign team must look exactly like a missing one.
 
 Both were checked by mutation: removing the membership filter from `AccessibleTeams` makes them fail.
+- **`tests/Feature/Isolation/` (Pest, CORE-011):** the whole application against the seeded world.
+  - `RouteInventoryTest`: every registered route is listed in `IsolationRoutes`, as `SCOPED` (it names a tenant resource) or `OPEN` with its kind. A new route fails the suite until it is classified, and every parameter of a scoped route must have a value in the world.
+  - `CrossTenantMatrixTest`: every scoped route, for every seeded resource, by every user who may not see it: `404`, no canary in the body, no change to any table. The same URL then works for a user who may see it (a positive control, so a 404 is never just a wrong URL); guests get `401` or the sign-in redirect.
+  - `GuessedIdentifierTest`: another tenant's real ID, a random UUID, and uppercased, suffixed, malformed and injection-shaped IDs get identical answers.
+  - `ListingLeakTest`: every page, list and search each user can open holds no canary they may not see; search finds exactly the visible tasks; the inbox and unread count list exactly the visible notifications.
+  - Checked by mutation: letting a Team Admin see private projects, unscoping teams, the attachment lookup, the inbox project check or `/me/tasks` each fails the suite.
+- **`e2e/tests/isolation.spec.ts` (Playwright, CORE-011):** for every seeded user and every project hidden from them, the page URLs, API, attachment download, searches and inbox through the running app. A browser walk (`@ui`) shows a non-member Team Admin the team project and never the private one.
 
 ## Running the E2E suite locally
 
