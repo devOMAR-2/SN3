@@ -120,6 +120,8 @@ export interface ProjectMember {
 export interface Assignee {
   user_id: string;
   name: string;
+  /** `false` for a current assignee who may no longer be assigned: shown, not offered. */
+  eligible?: boolean;
 }
 
 export interface TeamExport {

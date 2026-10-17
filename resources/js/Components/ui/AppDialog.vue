@@ -9,7 +9,15 @@ import { useI18n } from '@/i18n';
  * page inert and closes on Escape; focus returns to the element that opened it. The title and description
  * are announced through aria-labelledby / aria-describedby. Bottom-aligned full-width sheet on mobile.
  */
-const props = withDefaults(defineProps<{ title: string; description?: string }>(), { description: undefined });
+const props = withDefaults(
+  defineProps<{
+    title: string;
+    description?: string;
+    /** Where focus goes on close, when the opener may be gone (e.g. re-rendered elsewhere); else the opener. */
+    returnFocus?: () => HTMLElement | null;
+  }>(),
+  { description: undefined, returnFocus: undefined },
+);
 const open = defineModel<boolean>('open', { default: false });
 
 const { t } = useI18n();
@@ -40,7 +48,8 @@ watch(
 
 function onClose(): void {
   open.value = false;
-  opener?.focus();
+  const target = props.returnFocus?.() ?? null;
+  (target ?? opener)?.focus();
   opener = null;
 }
 

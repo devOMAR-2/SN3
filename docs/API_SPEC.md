@@ -313,7 +313,7 @@ Create body:
 
 **Implementation contract (CORE-005, ADR-023).** These points settle details §6.1 leaves open:
 
-- **Representation:** `id`, `project_id`, `key` (`{project_key}-{number}`), `number`, `title`, `description`, `status_id`, `priority`, `assignee_user_id`, `due_date` (`YYYY-MM-DD` or `null`), `label_ids` (sorted), `parent_task_id`, `created_by`, `version`, `created_at`, `updated_at`. Single-task responses carry `ETag: "<version>"`. `sprint_id` and `story_points` join it with FLEX-005, the board `position` with `/move` (CORE-007).
+- **Representation:** `id`, `project_id`, `key` (`{project_key}-{number}`), `number`, `title`, `description`, `status_id`, `priority`, `assignee_user_id`, `due_date` (`YYYY-MM-DD` or `null`), `label_ids` (sorted), `parent_task_id`, `created_by`, `version`, `created_at`, `updated_at`. Single-task responses carry `ETag: "<version>"`. `sprint_id` and `story_points` join it with FLEX-005. The board rank is not part of it (ADR-028 §2): order comes from `sort=position`.
 - **Create:** requires `Idempotency-Key` (§1.4); missing or malformed is `400 bad_request`. `status_id` is optional: without it (or `null`) the task starts in the project's default status (§5). `title` is trimmed; a blank `description` is `null`. `due_date` must be a real date, not before `1000-01-01`. `label_ids` is a list of at most 20 distinct label IDs. `sprint_id` and `story_points` accept only `null` until FLEX-005 (`prohibited`). `key` and any other field are `unknown_field`. A new task goes to the end of its status column.
 - **References:** a status, label or parent of another (or hidden) project and an ineligible assignee are all `422` with `exists` on the field, exactly like a random ID. Eligible assignees are those who may write tasks in the project (§12): the Team Owner; a Team Admin or Member on a team-visible project; on a private project, a Team Admin or Member with an explicit membership. A Team Viewer, another team's user or a disabled account never is.
 - **Subtasks:** a parent inside the task's own subtree (or the task itself) is `422 cycle`; a tree deeper than three levels below its root is `422 max_depth`.
@@ -325,7 +325,14 @@ Create body:
 - **Idempotent replay:** a replayed create returns the original status, body and `ETag`, with `Idempotent-Replayed: true`.
 - **Status codes:** an archived team or project is `423` on every task, label and checklist write; a trashed one, or a task the caller cannot see, is `404`. A caller who can see the project but may not write gets `403` whatever the body. One who lost access while the request waited gets `404`, one who lost the right `409`.
 - **`GET /tasks/{task_id}/activity` (CORE-008, ADR-027 §4):** the task's entries, newest first, cursor-paginated, for anyone who can see the task (§9 representation).
-- **Not yet implemented:** `/move` (CORE-007), `/watchers` (CORE-009), dependencies (§19).
+- **Not yet implemented:** `/watchers` (CORE-009), dependencies (§19).
+
+**Implementation contract (CORE-007, ADR-028): `POST /tasks/{task_id}/move`.**
+
+- **Body:** `status_id` (required, a status of the task's project), and at most one of `before_task_id` (the task goes just before it) and `after_task_id` (just after it); neither means the end of the column. Both is `422 prohibits`. An anchor must be a live task of the same project in the target status, otherwise `422 exists` (the same answer for another project's task, a trashed task and a random ID); the task itself is `422 different`. Other fields are `unknown_field`.
+- **Concurrency:** requires `If-Match` (`428` / `412`, no write); no `Idempotency-Key`. Locks team → project → task; `423` (archived) wins over `412`; lost visibility `404`, lost the right `409`. A Viewer gets `403` whatever the body.
+- **Answer:** `200` with the task and its `ETag`. A real move increments `version`; a move to where the task already is changes nothing and keeps it.
+- **Ranks:** the midpoint of the neighbours' ranks (`numeric(20,10)`); when the gap has run out, the column is renumbered in the same transaction. Renumbering does not change versions. Trashed tasks keep their rank and are never anchors.
 
 ### 6.2 Comments and checklist
 

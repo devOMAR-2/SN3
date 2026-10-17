@@ -433,7 +433,12 @@ const projectUrl = computed(() => pages.project(props.team.slug, props.project.k
               @change="saveField('assignee_user_id')"
             >
               <option value="">{{ t('task.unassigned') }}</option>
-              <option v-for="person in assignees" :key="person.user_id" :value="person.user_id">
+              <option
+                v-for="person in assignees"
+                :key="person.user_id"
+                :value="person.user_id"
+                :disabled="person.eligible === false"
+              >
                 {{ person.name }}
               </option>
             </SelectField>

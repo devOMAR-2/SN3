@@ -93,6 +93,7 @@ it('enforces the task permission matrix on every endpoint', function (string $te
     $writes = [
         fn () => $this->postJson("/api/v1/projects/{$project->id}/tasks", ['title' => 'New'], taskIdempotencyHeader()),
         fn () => $this->patchJson("/api/v1/tasks/{$task->id}", ['title' => 'Edited'], taskIfMatch(1)),
+        fn () => $this->postJson("/api/v1/tasks/{$task->id}/move", ['status_id' => taskStatusId($project, 'done')], taskIfMatch($task)),
         fn () => $this->postJson("/api/v1/tasks/{$task->id}/checklist", ['text' => 'Step']),
         fn () => $this->patchJson("/api/v1/tasks/{$task->id}/checklist/{$item->id}", ['checked' => true]),
         fn () => $this->deleteJson("/api/v1/tasks/{$task->id}/checklist/{$item->id}"),

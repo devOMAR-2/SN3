@@ -11,10 +11,10 @@ import type { Task } from '@/types/domain';
  * Quick add (DESIGN_SYSTEM.md §5.2): type a title, Enter creates, Escape clears. The Idempotency-Key is kept
  * until the task is created, so retrying after a network failure never creates it twice (API_SPEC §1.4).
  */
-const props = withDefaults(defineProps<{ projectId: string; parentTaskId?: string | null; label?: string }>(), {
-  parentTaskId: null,
-  label: undefined,
-});
+const props = withDefaults(
+  defineProps<{ projectId: string; parentTaskId?: string | null; statusId?: string | null; label?: string }>(),
+  { parentTaskId: null, statusId: null, label: undefined },
+);
 const emit = defineEmits<{ created: [Task] }>();
 
 const { t } = useI18n();
@@ -34,16 +34,22 @@ async function submit(): Promise<void> {
     body.parent_task_id = props.parentTaskId;
   }
 
+  // A board column's quick add creates the task in that column (CORE-007).
+  if (props.statusId) {
+    body.status_id = props.statusId;
+  }
+
   Object.assign(form.data, body);
   const task = await form.submit<Task>('post', `/projects/${props.projectId}/tasks`, {
     // Same title, same key: a retry replays instead of creating a duplicate.
-    headers: { 'Idempotency-Key': createKey.for(title) },
+    headers: { 'Idempotency-Key': createKey.for(`${props.statusId ?? ''}|${title}`) },
   });
 
   if (task) {
     createKey.settle();
     form.data.title = '';
     delete (form.data as Record<string, unknown>).parent_task_id;
+    delete (form.data as Record<string, unknown>).status_id;
     emit('created', task);
   }
 }

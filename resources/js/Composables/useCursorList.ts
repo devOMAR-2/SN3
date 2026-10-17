@@ -22,6 +22,21 @@ export interface CursorList<T> {
   replace: (match: (item: T) => boolean, next: T | null) => void;
 }
 
+/**
+ * Appends a page, skipping items already loaded (by `id`). Keyset pages can return a row the client already
+ * shows when it moved past the cursor meanwhile (a board card moved below the last loaded one).
+ */
+function appendNew<T>(loaded: T[], page: T[]): T[] {
+  const idOf = (item: T): unknown => {
+    const value: unknown = item;
+
+    return typeof value === 'object' && value !== null && 'id' in value ? value.id : undefined;
+  };
+  const seen = new Set<unknown>(loaded.map(idOf).filter((id) => id !== undefined));
+
+  return [...loaded, ...page.filter((item) => idOf(item) === undefined || !seen.has(idOf(item)))];
+}
+
 export function useCursorList<T>(
   url: () => string,
   params: () => Record<string, unknown> = () => ({}),
@@ -49,7 +64,7 @@ export function useCursorList<T>(
         return;
       }
 
-      items.value = append ? [...items.value, ...response.data.data] : response.data.data;
+      items.value = append ? appendNew(items.value, response.data.data) : response.data.data;
       cursor = response.data.meta.next_cursor;
       hasMore.value = response.data.meta.has_more;
     } catch (thrown) {
