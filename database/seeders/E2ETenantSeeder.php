@@ -90,7 +90,7 @@ class E2ETenantSeeder extends Seeder
             }
         });
 
-        $this->seedProjects($fixture);
+        $this->seedProjects($fixture['users'], $fixture['teams'], $fixture['projects'] ?? []);
     }
 
     /**
@@ -99,22 +99,28 @@ class E2ETenantSeeder extends Seeder
      * notifications, all with fixed IDs. Every text carries the project's canary, so the isolation suite can
      * assert that a response holds no canary its viewer may not see.
      *
-     * @param  array<string, mixed>  $fixture
+     * @param  list<array{key: string, id: string}>  $userRows
+     * @param  list<array{key: string, id: string}>  $teamRows
+     * @param  list<array{key: string, team: string, project_key: string, visibility: string, canary: string, members: array<string, string>, ids: array<string, string>, assignee: string|null, mentions: list<string>, notifications: list<array{to: string, type: string, actor: string, id: string}>}>  $projects
      */
-    private function seedProjects(array $fixture): void
+    private function seedProjects(array $userRows, array $teamRows, array $projects): void
     {
-        $users = collect([...$fixture['users']])->mapWithKeys(fn (array $u): array => [$u['key'] => $u['id']])->all();
-        $teams = collect($fixture['teams'])->mapWithKeys(fn (array $t): array => [$t['key'] => $t['id']])->all();
+        $users = [];
+        foreach ($userRows as $row) {
+            $users[$row['key']] = $row['id'];
+        }
 
-        /** @var list<array{key: string, team: string, project_key: string, visibility: string, canary: string, members: array<string, string>, ids: array<string, string>, assignee: string|null, mentions: list<string>, notifications: list<array{to: string, type: string, actor: string, id: string}>}> $projects */
-        $projects = $fixture['projects'] ?? [];
+        $teams = [];
+        foreach ($teamRows as $row) {
+            $teams[$row['key']] = $row['id'];
+        }
 
         foreach ($projects as $data) {
             DB::transaction(function () use ($data, $users, $teams): void {
                 $canary = $data['canary'];
                 $ids = $data['ids'];
                 $teamId = $teams[$data['team']];
-                $owner = Team::query()->findOrFail($teamId)->owner_user_id;
+                $owner = Team::query()->whereKey($teamId)->firstOrFail()->owner_user_id;
 
                 $project = Project::factory()->withDefaultStatuses()->create([
                     'id' => $ids['project'],
@@ -126,7 +132,7 @@ class E2ETenantSeeder extends Seeder
                 ]);
 
                 foreach ($data['members'] as $userKey => $role) {
-                    ProjectMembership::factory()->for($project)->member(User::query()->findOrFail($users[$userKey]))->role(ProjectRole::from($role))->create();
+                    ProjectMembership::factory()->for($project)->member(User::query()->whereKey($users[$userKey])->firstOrFail())->role(ProjectRole::from($role))->create();
                 }
 
                 $status = new ProjectStatus;
@@ -136,7 +142,7 @@ class E2ETenantSeeder extends Seeder
                     'team_id' => $teamId,
                     'name' => "Status {$canary}",
                     'category' => StatusCategory::InProgress,
-                    'position' => (int) $project->statuses()->max('position') + 1,
+                    'position' => $project->statuses()->count(),
                 ])->save();
 
                 $task = Task::factory()->create([
@@ -165,7 +171,7 @@ class E2ETenantSeeder extends Seeder
                 TaskAttachment::factory()->for($task)->withContent("File content {$canary}", "file-{$canary}.txt", 'text/plain')
                     ->create(['id' => $ids['attachment']]);
 
-                Activity::task($task, User::query()->findOrFail($owner), 'task.created', ['status_id' => $task->status_id]);
+                Activity::task($task, User::query()->whereKey($owner)->firstOrFail(), 'task.created', ['status_id' => $task->status_id]);
 
                 foreach ($data['notifications'] as $note) {
                     $mention = $note['type'] === 'comment.mentioned';
@@ -188,7 +194,7 @@ class E2ETenantSeeder extends Seeder
     }
 
     /**
-     * @return array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, journey_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>}
+     * @return array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, journey_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>, projects?: list<array{key: string, team: string, project_key: string, visibility: string, canary: string, members: array<string, string>, ids: array<string, string>, assignee: string|null, mentions: list<string>, notifications: list<array{to: string, type: string, actor: string, id: string}>}>}
      */
     public static function fixture(): array
     {
@@ -198,7 +204,7 @@ class E2ETenantSeeder extends Seeder
             throw new RuntimeException('Cannot read '.self::FIXTURE.'.');
         }
 
-        /** @var array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, journey_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>} $fixture */
+        /** @var array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, journey_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>, projects?: list<array{key: string, team: string, project_key: string, visibility: string, canary: string, members: array<string, string>, ids: array<string, string>, assignee: string|null, mentions: list<string>, notifications: list<array{to: string, type: string, actor: string, id: string}>}>} $fixture */
         $fixture = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
 
         return $fixture;
