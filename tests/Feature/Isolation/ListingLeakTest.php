@@ -48,8 +48,9 @@ function isolationCrawl(array $world, string $userKey): array
             $urls[] = $url;
 
             if (str_ends_with($url, '/tasks') && str_contains($url, '/projects/')) {
-                foreach ($canaries as $canary) {
-                    $urls[] = "{$url}?q={$canary}";
+                // Search by text, by number and by key (TaskQuery::search has a branch for each).
+                foreach ([...$canaries, '1', ...array_map(fn (array $p): string => $p['model']->project_key.'-1', $world['projects'])] as $q) {
+                    $urls[] = "{$url}?q=".rawurlencode($q);
                 }
             }
         }
@@ -67,16 +68,14 @@ it('never shows a user anything of a project or team they may not see, anywhere 
 
         foreach (isolationCrawl($world, $userKey) as $url) {
             $response = isolationCall($user, 'GET', $url);
-            $body = (string) $response->getContent();
+            $body = isolationWithoutEcho((string) $response->getContent(), $url);
 
             if ($response->getStatusCode() >= 500) {
                 $failures[] = "{$userKey} {$url}: {$response->getStatusCode()}";
             }
 
-            foreach ($hidden as $canary) {
-                if (str_contains($body, $canary)) {
-                    $failures[] = "{$userKey} {$url}: contains {$canary}";
-                }
+            foreach (isolationLeaks($body, $hidden) as $leak) {
+                $failures[] = "{$userKey} {$url}: contains {$leak}";
             }
 
             app('auth')->forgetGuards();
@@ -86,7 +85,7 @@ it('never shows a user anything of a project or team they may not see, anywhere 
     expect($failures)->toBe([]);
 });
 
-it('finds each visible task by search, and no other', function () {
+it('finds each visible task by search (text, number, key), and no other', function () {
     $world = isolationWorld();
 
     foreach ($world['users'] as $userKey => $user) {
@@ -105,6 +104,21 @@ it('finds each visible task by search, and no other', function () {
 
                 expect($titles)->toBe($expected, "{$userKey} searching {$projectKey} for {$otherKey}")
                     ->and(count($titles))->toBeGreaterThanOrEqual($otherKey === $projectKey ? 1 : 0);
+            }
+        }
+
+        // By number and by key: only the project's own task with that number, never another project's.
+        foreach ($world['projects'] as $projectKey => $project) {
+            if (! isolationCanSee($world, $userKey, $projectKey)) {
+                continue;
+            }
+
+            $own = Task::query()->where('project_id', $project['model']->id)->where('task_number', 1)->pluck('id')->all();
+            foreach (['1', ...array_map(fn (array $p): string => $p['model']->project_key.'-1', $world['projects'])] as $q) {
+                $ids = $this->actingAs($user)->getJson("/api/v1/projects/{$project['model']->id}/tasks?q=".rawurlencode($q))->assertOk()->json('data.*.id');
+                $expected = $q === '1' || $q === $project['model']->project_key.'-1' ? $own : [];
+
+                expect($ids)->toBe($expected, "{$userKey} searching {$projectKey} for {$q}");
             }
         }
 

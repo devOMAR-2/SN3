@@ -8,6 +8,7 @@
 // a seeded project carries its canary. This file adds what has no fixed ID in the fixture (a trashed team,
 // project and task, a team export, an invitation) and the access rules the suite checks against.
 
+use App\Domain\Activity\Activity;
 use App\Domain\Exports\TeamExportStatus;
 use App\Domain\Invitations\InvitationToken;
 use App\Domain\Projects\ProjectVisibility;
@@ -60,6 +61,12 @@ function isolationWorld(): array
         ]);
         $trashedProject->forceFill(['deleted_at' => now()])->save();
 
+        // A private project in the trash, with no member: only the Owner may see it, even in the trash.
+        $trashedPrivate = Project::factory()->for($team)->withDefaultStatuses()->private()->create([
+            'name' => "{$canary}-TRASHED-PRIVATE",
+        ]);
+        $trashedPrivate->forceFill(['deleted_at' => now()])->save();
+
         $trashedTeam = Team::factory()->ownedBy($owner)->create(['name' => "{$canary}-TRASHED-TEAM"]);
         $trashedTeam->forceFill(['deleted_at' => now()])->save();
 
@@ -92,6 +99,8 @@ function isolationWorld(): array
         $teams[$data['key']] = [
             'model' => $team,
             'canary' => $canary,
+            'trashed_private' => ['canary' => "{$canary}-TRASHED-PRIVATE", 'id' => $trashedPrivate->id],
+            'ids' => [$team->id, $trashedProject->id, $trashedTeam->id, $trashedPrivate->id, $export->id, $invitation->id],
             'members' => $members,
             'params' => [
                 'team' => $team->id,
@@ -117,7 +126,10 @@ function isolationWorld(): array
         // API; it proves that lists like /me/tasks filter by visibility, not by assignment alone.
         if ($data['visibility'] === 'private') {
             $admin = array_search('admin', $teams[$data['team']]['members'], true);
-            Task::factory()->for($project)->assignedTo($users[$admin])->create(['title' => "{$data['canary']}-STALE-ASSIGNMENT"]);
+            $stale = Task::factory()->for($project)->assignedTo($users[$admin])->create(['title' => "{$data['canary']}-STALE-ASSIGNMENT"]);
+            // And an activity entry by that Admin, from a time they could see the project: their own
+            // activity feed must not return it now (ADR-027 §4).
+            Activity::task($task, $users[$admin], 'task.updated', ['fields' => ['title']]);
         }
 
         // A project member to remove or change (team projects have none in the fixture), and the Team
@@ -134,8 +146,15 @@ function isolationWorld(): array
             'created_at' => now(),
         ]);
 
+        $hiddenIds = [$project->id, $task->id, $trashedTask->id, $data['ids']['comment'], $data['ids']['attachment'], $data['ids']['label'], $data['ids']['status']];
+        if (isset($stale)) {
+            $hiddenIds[] = $stale->id;
+            unset($stale);
+        }
+
         $projects[$data['key']] = [
             'model' => $project,
+            'ids' => $hiddenIds,
             'team' => $data['team'],
             'canary' => $data['canary'],
             'visibility' => $data['visibility'],
@@ -183,8 +202,10 @@ function isolationCanSee(array $world, string $userKey, string $projectKey): boo
 }
 
 /**
- * Every canary the user may not see: projects they cannot see, and the extra rows of teams they are not in
- * (the trashed rows of their own teams are theirs to see in the trash, so they are not counted).
+ * Everything the user may not see, as strings no response to them may contain: for each project they
+ * cannot see, its canary and the IDs of its rows; for each team they are not in, its name, slug, canary and
+ * IDs; the private trashed project of their teams unless they are its Owner; and every person they share no
+ * team with (name, email, ID).
  *
  * @return list<string>
  */
@@ -194,18 +215,64 @@ function isolationHiddenCanaries(array $world, string $userKey): array
 
     foreach ($world['projects'] as $key => $project) {
         if (! isolationCanSee($world, $userKey, $key)) {
-            $hidden[] = $project['canary'];
+            array_push($hidden, $project['canary'], ...$project['ids']);
         }
     }
 
     foreach ($world['teams'] as $key => $team) {
         if (! isolationInTeam($world, $userKey, $key)) {
-            $hidden[] = $team['canary'];
-            $hidden[] = $team['model']->name;
+            array_push($hidden, $team['canary'], $team['model']->name, $team['model']->slug, ...$team['ids']);
+        } elseif ($team['members'][$userKey] !== 'owner') {
+            array_push($hidden, $team['trashed_private']['canary'], $team['trashed_private']['id']);
         }
     }
 
-    return $hidden;
+    foreach ($world['users'] as $otherKey => $other) {
+        $shared = array_filter(array_keys($world['teams']), fn (string $t): bool => isolationInTeam($world, $userKey, $t) && isolationInTeam($world, $otherKey, $t));
+        if ($otherKey !== $userKey && $shared === []) {
+            array_push($hidden, $other->name, $other->email, $other->id);
+        }
+    }
+
+    return array_values(array_unique($hidden));
+}
+
+/**
+ * The body without echoes of the request's own URL (Inertia pages carry it in `url`): what the caller sent
+ * is not something the response disclosed.
+ */
+function isolationWithoutEcho(string $body, string $url): string
+{
+    $json = substr((string) json_encode($url), 1, -1);
+
+    return str_replace(array_unique([$url, $json, htmlspecialchars($json, ENT_QUOTES), htmlspecialchars($url, ENT_QUOTES)]), '', $body);
+}
+
+/**
+ * Which of the needles occur in a response body, as written or as JSON encodes them: API bodies and
+ * Inertia's `data-page` escape non-ASCII text (`\u0641…`) and slashes, and `data-page` is also
+ * HTML-escaped, so a plain search would never find an Arabic name.
+ *
+ * @param  list<string>  $needles
+ * @return list<string>
+ */
+function isolationLeaks(string $body, array $needles): array
+{
+    $found = [];
+
+    foreach ($needles as $needle) {
+        $json = substr((string) json_encode($needle), 1, -1);
+        $variants = array_unique([$needle, $json, htmlspecialchars($json, ENT_QUOTES), htmlspecialchars($needle, ENT_QUOTES)]);
+
+        foreach ($variants as $variant) {
+            if ($variant !== '' && str_contains($body, $variant)) {
+                $found[] = $needle;
+                break;
+            }
+        }
+    }
+
+    return $found;
 }
 
 /**
@@ -251,9 +318,13 @@ function isolationSnapshot(): string
 {
     $tables = ['teams', 'team_memberships', 'team_invitations', 'team_exports', 'projects', 'project_memberships',
         'project_statuses', 'labels', 'tasks', 'task_labels', 'task_checklist_items', 'task_comments',
-        'task_comment_mentions', 'task_attachments', 'task_watchers', 'notifications', 'task_activities', 'user_preferences', 'users'];
+        'task_comment_mentions', 'task_attachments', 'task_watchers', 'notifications', 'task_activities', 'user_preferences', 'users',
+        'api_idempotency_records', 'jobs', 'failed_jobs', 'password_reset_tokens'];
 
-    return md5(implode('|', array_map(
+    $files = [...Storage::disk('attachments')->allFiles(), ...Storage::disk((string) config('sn3.exports.disk'))->allFiles()];
+    $queued = array_sum(array_map('count', Queue::pushedJobs()));
+
+    return md5(implode('|', $files).'|'.$queued.'|'.implode('|', array_map(
         fn (string $table): string => (string) DB::selectOne("SELECT md5(coalesce(string_agg(t::text, ',' ORDER BY t::text), '')) AS h FROM {$table} t")->h,
         $tables,
     )));
@@ -305,13 +376,13 @@ function isolationTargets(array $world, Route $route): array
     } as $key) {
         if (isolationScope($route) === 'team') {
             $team = $world['teams'][$key];
-            $projectCanaries = array_values(array_map(fn (array $p): string => $p['canary'], array_filter($world['projects'], fn (array $p): bool => $p['team'] === $key)));
+            $projectCanaries = array_merge(...array_values(array_map(fn (array $p): array => [$p['canary'], ...$p['ids']], array_filter($world['projects'], fn (array $p): bool => $p['team'] === $key))));
             $targets[] = [
                 'label' => "team {$key}",
                 'params' => $team['params'],
                 'hidden' => array_values(array_filter($userKeys, fn (string $u): bool => ! isolationInTeam($world, $u, $key))),
                 'reader' => array_search('owner', $team['members'], true),
-                'canaries' => fn (string $u): array => [$team['canary'], $team['model']->name, ...$projectCanaries],
+                'canaries' => fn (string $u): array => [$team['canary'], $team['model']->name, $team['model']->slug, ...$team['ids'], ...$projectCanaries],
             ];
 
             continue;
@@ -320,8 +391,8 @@ function isolationTargets(array $world, Route $route): array
         $project = $world['projects'][$key];
         $team = $world['teams'][$project['team']];
         $canaries = fn (string $u): array => isolationInTeam($world, $u, $project['team'])
-            ? [$project['canary']]
-            : [$project['canary'], $team['canary'], $team['model']->name];
+            ? [$project['canary'], ...$project['ids']]
+            : [$project['canary'], ...$project['ids'], $team['canary'], $team['model']->name, $team['model']->slug];
 
         if (isolationScope($route) === 'notification') {
             foreach ($project['notifications'] as $note) {

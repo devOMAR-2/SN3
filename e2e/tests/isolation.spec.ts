@@ -81,6 +81,31 @@ for (const user of USERS) {
   });
 }
 
+test('the same URLs answer the Team Owner, so a refusal above is never just a wrong URL', async ({ page }) => {
+  await signIn(page, 'beta_owner');
+  const hidden = project('beta_private');
+
+  for (const path of [
+    `/projects/${hidden.ids.project}`,
+    `/projects/${hidden.ids.project}/tasks`,
+    `/tasks/${hidden.ids.task}`,
+    `/tasks/${hidden.ids.task}/comments`,
+    `/tasks/${hidden.ids.task}/attachments`,
+  ]) {
+    const response = await apiGet(page, path);
+    expect(response.status(), path).toBe(200);
+    expect(await response.text(), path).toContain(hidden.canary);
+  }
+
+  const file = await apiGet(page, `/attachments/${hidden.ids.attachment}/download`);
+  expect(file.status()).toBe(200);
+  expect(await file.text()).toBe(`File content ${hidden.canary}`);
+
+  for (const path of [`/t/${team('beta').slug}/p/${hidden.project_key}`, `/tasks/${hidden.ids.task}`]) {
+    expect((await page.goto(path))?.status(), path).toBe(200);
+  }
+});
+
 test.describe('the inbox and project pages in the browser @ui', () => {
   test('a team Admin without membership sees the team project, never the private one', async ({ page }) => {
     // `shared` is a beta Admin with no membership of the private beta project, and was mentioned there.
@@ -94,7 +119,7 @@ test.describe('the inbox and project pages in the browser @ui', () => {
     expect(await page.content()).not.toContain(privateProject.canary);
 
     await page.goto(`/t/${team('beta').slug}/projects`);
-    await expect(page.getByText(`Project ${teamProject.canary}`)).toBeVisible();
+    await expect(page.getByRole('main').getByText(`Project ${teamProject.canary}`)).toBeVisible();
     expect(await page.content()).not.toContain(privateProject.canary);
 
     // Searching the visible project for the private task finds nothing.

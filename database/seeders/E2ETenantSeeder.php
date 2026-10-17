@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Domain\Activity\Activity;
+use App\Domain\Attachments\AttachmentStorage;
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Projects\ProjectVisibility;
 use App\Domain\Teams\TeamRole;
@@ -169,7 +170,11 @@ class E2ETenantSeeder extends Seeder
                 }
 
                 TaskAttachment::factory()->for($task)->withContent("File content {$canary}", "file-{$canary}.txt", 'text/plain')
-                    ->create(['id' => $ids['attachment']]);
+                    // A fixed key (the attachment ID), so a rerun overwrites the file instead of adding one.
+                    ->create([
+                        'id' => $ids['attachment'],
+                        'storage_key' => app(AttachmentStorage::class)->projectPrefix($teamId, $project->id).'/'.str_replace('-', '', $ids['attachment']),
+                    ]);
 
                 Activity::task($task, User::query()->whereKey($owner)->firstOrFail(), 'task.created', ['status_id' => $task->status_id]);
 

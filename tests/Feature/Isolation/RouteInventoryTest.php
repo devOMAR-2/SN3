@@ -14,8 +14,10 @@ it('lists every registered route exactly once, and nothing else', function () {
     $registered = [];
 
     foreach (app('router')->getRoutes()->getRoutes() as $route) {
-        if (str_starts_with($route->uri(), '_') || str_starts_with($route->uri(), 'storage') || str_starts_with($route->uri(), 'sanctum')) {
-            continue; // framework routes (debug tools, local file serving), not the application's
+        // Laravel's signed local-disk route (filesystems.php `local` serve: true); attachments and exports
+        // are never served this way (`serve: false`). Matched exactly, so no application route is skipped.
+        if ($route->uri() === 'storage/{path}') {
+            continue;
         }
 
         foreach (array_diff($route->methods(), ['HEAD']) as $method) {
@@ -51,4 +53,15 @@ it('knows a value for every parameter of a scoped route, and no open route names
     }
 
     expect(array_unique(array_values(IsolationRoutes::OPEN)))->each->toBeIn(['self', 'guest', 'token', 'health']);
+});
+
+it('finds a hidden value however a response encodes it', function () {
+    $name = 'فريق ألفا';
+    $page = '<div data-page="'.htmlspecialchars((string) json_encode(['props' => ['team' => $name, 'url' => '/t/a/b']]), ENT_QUOTES).'"></div>';
+
+    expect(isolationLeaks((string) json_encode(['name' => $name]), [$name]))->toBe([$name])
+        ->and(isolationLeaks($page, [$name]))->toBe([$name])
+        ->and(isolationLeaks((string) json_encode(['path' => 'a/b']), ['a/b']))->toBe(['a/b'])
+        ->and(isolationLeaks('{"name":"Beta Studio"}', ['فريق ألفا']))->toBe([])
+        ->and(isolationLeaks(isolationWithoutEcho($page, '/t/a/b'), ['/t/a/b']))->toBe([]);
 });
