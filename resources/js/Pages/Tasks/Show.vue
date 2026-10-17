@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Eye, EyeOff, X } from '@lucide/vue';
+import { Check, Eye, X } from '@lucide/vue';
 import { Link, router } from '@inertiajs/vue3';
 import { computed, nextTick, reactive, ref, useTemplateRef } from 'vue';
 import QuickAddTask from '@/Components/Tasks/QuickAddTask.vue';
@@ -522,7 +522,7 @@ const projectUrl = computed(() => pages.project(props.team.slug, props.project.k
 
           <div v-if="canWatch" class="flex flex-col gap-1.5">
             <AppButton
-              class="self-start"
+              class="self-start aria-pressed:border-primary aria-pressed:bg-surface-hover"
               variant="secondary"
               size="sm"
               :aria-pressed="watching"
@@ -530,8 +530,10 @@ const projectUrl = computed(() => pages.project(props.team.slug, props.project.k
               :loading="watchAction.processing.value"
               @click="toggleWatch"
             >
-              <component :is="watching ? EyeOff : Eye" class="size-4" aria-hidden="true" />
-              {{ watching ? t('task.watching') : t('task.watch') }}
+              <!-- One constant name with aria-pressed (WAI-ARIA toggle button): the state is the pressed
+                   state, never a second label. Sighted users see it in the icon and the pressed style. -->
+              <component :is="watching ? Check : Eye" class="size-4" aria-hidden="true" />
+              {{ t('task.watch') }}
             </AppButton>
             <p id="task-watch-hint" class="text-caption text-text-muted">{{ t('task.watch_hint') }}</p>
             <p v-if="watchAction.message.value" class="text-small text-danger" role="alert">

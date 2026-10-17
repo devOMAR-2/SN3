@@ -109,10 +109,57 @@ describe('Inbox', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
     await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Marked as read.'));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('WEB-7 marked as read.'));
     expect(http.post).toHaveBeenCalledWith('/notifications/n1/read');
     expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'Inbox, 1 unread' }).length).toBeGreaterThan(0);
+    expect(http.get).not.toHaveBeenCalledWith('/notifications/unread-count');
+  });
+
+  it('announces every mark as read as a change, even the same text twice in a row', async () => {
+    // Both unread items are about WEB-7: the second announcement has the same words as the first.
+    http.post.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: { data: { ...items[url.includes('n1') ? 0 : 1]!, read_at: '2026-10-17T12:00:00Z' } },
+      }),
+    );
+    renderInbox();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
+
+    const region = screen.getByRole('status');
+    const said: string[] = [];
+    const observer = new MutationObserver(() => said.push(region.textContent ?? ''));
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+    await waitFor(() => expect(region.textContent).toBe('WEB-7 marked as read.'));
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+    await waitFor(() => expect(said.filter((text) => text === 'WEB-7 marked as read.')).toHaveLength(2));
+    observer.disconnect();
+
+    // Cleared in between, so the second one is a new announcement.
+    expect(said).toEqual(['WEB-7 marked as read.', '', 'WEB-7 marked as read.']);
+  });
+
+  it('names the task or the team in the announcement', async () => {
+    http.post.mockResolvedValue({ data: { data: { ...items[0], read_at: '2026-10-17T12:00:00Z' } } });
+    renderInbox('ar');
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'تعليم كمقروء' })).toHaveLength(2));
+    await fireEvent.click(screen.getAllByRole('button', { name: 'تعليم كمقروء' })[0]!);
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('عُلّمت WEB-7 كمقروءة.'));
+  });
+
+  it('asks the server for the count again when it is at the cap (100 means 100 or more)', async () => {
+    http.post.mockResolvedValue({ data: { data: { ...items[0], read_at: '2026-10-17T12:00:00Z' } } });
+    renderInbox('en', 100);
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
+    expect(screen.getAllByRole('link', { name: 'Inbox, 99+ unread' }).length).toBeGreaterThan(0);
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+
+    await waitFor(() => expect(http.get).toHaveBeenCalledWith('/notifications/unread-count'));
   });
 
   it('opens the task through its route after marking the notification read', async () => {

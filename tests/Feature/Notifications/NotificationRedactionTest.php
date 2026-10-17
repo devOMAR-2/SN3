@@ -184,6 +184,35 @@ it('hides a mention once its comment is deleted', function () {
         ->and(unreadCountOf($this->bob))->toBe(3);
 });
 
+it('hides a mention from a user an edit no longer mentions, and keeps it for those still mentioned', function () {
+    $carol = taskTeamMember($this->team);
+    $dave = taskTeamMember($this->team);
+    $comment = notifyComment($this->alice, $this->openTask, "@{$carol->id} and @{$dave->id}")->json('data.id');
+    expect(inboxTypes($carol))->toBe(['comment.mentioned'])->and(inboxTypes($dave))->toBe(['comment.mentioned']);
+
+    // The comment still mentions someone (Dave), just not Carol any more.
+    $this->actingAs($this->alice)->patchJson("/api/v1/tasks/{$this->openTask->id}/comments/{$comment}", ['body' => "Only @{$dave->id} now"])->assertOk();
+
+    expect(inboxOf($carol)->json('data'))->toBe([])
+        ->and(unreadCountOf($carol))->toBe(0)
+        ->and(storedNotificationsOf($carol))->toHaveCount(1)
+        ->and(inboxTypes($dave))->toBe(['comment.mentioned']);
+});
+
+it('shows a disabled account nothing, of any kind', function () {
+    DB::table('users')->where('id', $this->bob->id)->update(['disabled_at' => now()]);
+    $this->bob->refresh();
+
+    expect(inboxOf($this->bob)->json('data'))->toBe([])
+        ->and(unreadCountOf($this->bob))->toBe(0);
+    $this->actingAs($this->bob)->postJson("/api/v1/notifications/{$this->secretIds[0]}/read")->assertNotFound();
+    $this->actingAs($this->bob)->postJson('/api/v1/notifications/read-all')->assertOk()->assertJsonPath('data.marked_read', 0);
+
+    // Enabled again: everything is back, nothing was marked read meanwhile.
+    DB::table('users')->where('id', $this->bob->id)->update(['disabled_at' => null]);
+    expect(unreadCountOf($this->bob->refresh()))->toBe(4);
+});
+
 it('never shows a Team Admin outside the private project, or another team, anything about it', function () {
     // Rows that should never have been written (as if by a bug) are still invisible to them.
     $outsider = Team::factory()->create()->owner;

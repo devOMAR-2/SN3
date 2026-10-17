@@ -40,7 +40,9 @@ const unread = useUnreadCount();
       <Link
         :href="pages.inbox()"
         class="relative flex size-9 items-center justify-center rounded-control hover:bg-surface-hover pointer-coarse:size-11"
-        :aria-label="unread.count.value > 0 ? t('inbox.link_unread', { count: unread.count.value }) : t('nav.inbox')"
+        :aria-label="
+          unread.count.value > 0 ? t('inbox.link_unread', { count: badgeText(unread.count.value) }) : t('nav.inbox')
+        "
         :title="t('nav.inbox')"
       >
         <Bell class="size-5" aria-hidden="true" />
