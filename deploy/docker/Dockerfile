@@ -10,6 +10,8 @@ FROM composer:2.10.3 AS composer-bin
 # ---------------------------------------------------------------------------
 # PHP runtime base: required extensions only, build toolchain removed afterwards.
 # pcntl lets the queue worker stop gracefully on SIGTERM and enforce job timeouts (ADR-015).
+# fileinfo (attachment type sniffing) and zlib (export compression) are bundled with PHP and only
+# checked (CORE-008, ADR-027).
 # ---------------------------------------------------------------------------
 FROM php:8.3.35-apache-trixie AS php-base
 
@@ -27,7 +29,9 @@ RUN set -eux; \
     rm -rf /var/lib/apt/lists/*; \
     php -m | grep -qi '^pdo_pgsql$'; \
     php -m | grep -qi '^intl$'; \
-    php -m | grep -qi '^pcntl$'
+    php -m | grep -qi '^pcntl$'; \
+    php -m | grep -qi '^fileinfo$'; \
+    php -m | grep -qi '^zlib$'
 
 # ---------------------------------------------------------------------------
 # PHP dependencies (production only), resolved from composer.lock.
