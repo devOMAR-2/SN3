@@ -83,6 +83,26 @@ it('notifies watchers of real edits with the changed field names, never the edit
     expect(inboxOf($this->bob)->json('data.0.event_count'))->toBe(1);
 });
 
+it('notifies watchers when a board move changes the status, not when it only reorders (CORE-007)', function () {
+    notifyWatch($this->bob, $this->task)->assertCreated();
+    $other = taskIn($this->project, ['title' => 'Other']);
+    $todo = $this->task->status_id;
+    $done = taskStatusId($this->project, 'done');
+
+    // Reorder within the column: no notification.
+    $this->actingAs($this->alice)->postJson("/api/v1/tasks/{$this->task->id}/move", ['status_id' => $todo, 'after_task_id' => $other->id], taskIfMatch($this->task))->assertOk();
+    expect(storedNotificationsOf($this->bob))->toBeEmpty();
+
+    $this->task->refresh();
+    $this->actingAs($this->alice)->postJson("/api/v1/tasks/{$this->task->id}/move", ['status_id' => $done], taskIfMatch($this->task))->assertOk();
+
+    $item = inboxOf($this->bob)->json('data.0');
+    expect($item['type'])->toBe('task.updated')
+        ->and($item['fields'])->toBe(['status_id'])
+        ->and($item['actor']['id'])->toBe($this->alice->id)
+        ->and(storedNotificationsOf($this->alice))->toBeEmpty();
+});
+
 it('collapses noisy edits into one unread notification and starts a new one once it is read', function () {
     notifyWatch($this->bob, $this->task)->assertCreated();
 

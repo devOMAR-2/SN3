@@ -30,15 +30,16 @@ test.describe('core journey', () => {
     await page.getByLabel('Project key').fill('WEB');
     await page.getByRole('button', { name: 'Create project' }).click();
 
-    await expect(page).toHaveURL(/\/t\/journey-[a-z0-9-]+\/p\/WEB$/);
+    await expect(page).toHaveURL(/\/t\/journey-[a-z0-9-]+\/p\/WEB(\?view=board)?$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Website' })).toBeVisible();
-    await expect(page.getByText('No tasks yet')).toBeVisible();
+    await expect(page.getByRole('tab', { name: 'Board', selected: true })).toBeVisible();
+    await expect(page.getByText('No tasks').first()).toBeVisible();
 
-    // Quick add: title, then Enter.
-    const quickAdd = page.getByLabel('Add task');
+    // Quick add in the To do column: title, then Enter.
+    const quickAdd = page.getByLabel('Add task to To do');
     await quickAdd.fill('Fix login validation');
     await quickAdd.press('Enter');
-    const taskLink = page.getByRole('link', { name: /WEB-1\s*Fix login validation/ });
+    const taskLink = page.getByRole('link', { name: 'Fix login validation' });
     await expect(taskLink).toBeVisible();
 
     // Open and edit it.

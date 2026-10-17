@@ -136,6 +136,7 @@ Route::middleware('auth')->group(function (): void {
     Route::get('tasks/{task}', [TaskController::class, 'show'])->name('tasks.show');
     Route::patch('tasks/{task}', [TaskController::class, 'update'])->name('tasks.update');
     Route::delete('tasks/{task}', [TaskController::class, 'destroy'])->name('tasks.destroy');
+    Route::post('tasks/{task}/move', [TaskController::class, 'move'])->name('tasks.move');
     Route::post('tasks/{trashedTask}/restore', [TaskController::class, 'restore'])->name('tasks.restore');
 
     Route::get('projects/{project}/labels', [LabelController::class, 'index'])->name('projects.labels.index');

@@ -96,7 +96,7 @@ Rows are deleted only with what they name (ADR-022 §5 cascades: team, project, 
 
 ## Consequences and follow-ups
 
-- **CORE-007** (`POST /tasks/{id}/move`) must dispatch `TaskChanged` with `status_id` when a move changes the status, so watchers hear about it; a reorder within a column is not a change worth a notification.
+- **CORE-007** (`POST /tasks/{id}/move`, merged first) dispatches `TaskChanged` with `status_id` when a move changes the status, so watchers hear about it; a reorder within a column notifies nobody (`NotificationTriggersTest`).
 - **GitHub (GH-\*)** changes made by the integration (`source: integration`) can use the same events with a null actor; `Notifier` would need an actor-less variant.
 - **Cross-project search** (FR-TASK-008, TRACEABILITY "search … follows with CORE-009") is not part of CORE-009 (DEVELOPMENT_PLAN: "Inbox notifications and user preferences"); it stays open for a later task.
 - Team exports (ADR-024) do not include notifications or watches: they are personal to members, not team content.

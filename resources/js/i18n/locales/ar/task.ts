@@ -43,9 +43,6 @@ export default {
   back_to_project: 'العودة إلى المشروع',
   list: {
     title: 'المهام',
-    simple_notice: 'قائمة بسيطة بترتيب اللوحة. عرضا اللوحة والقائمة قادمان.',
-    filter_status: 'الحالة',
-    all_statuses: 'كل الحالات',
   },
   priorities: {
     none: 'بلا',

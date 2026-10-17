@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Tasks\TaskAssignments;
 use App\Http\Controllers\Controller;
 use App\Http\Pages\Abilities;
 use App\Http\Pages\Workspace;
+use App\Http\Resources\LabelResource;
 use App\Http\Resources\ProjectResource;
 use App\Http\Resources\ProjectSettingsResource;
 use App\Http\Resources\ProjectStatusResource;
 use App\Http\Resources\TeamResource;
+use App\Models\Label;
 use App\Models\Project;
 use App\Models\ProjectStatus;
 use App\Models\Team;
@@ -57,10 +60,24 @@ class ProjectPageController extends Controller
         ]);
     }
 
-    /** `/t/{team_slug}/p/{project_key}`: the project with its (deliberately simple) task list. */
+    /**
+     * `/t/{team_slug}/p/{project_key}`: the board and the list (CORE-007, ADR-028 §3). Tasks come page by page from /api/v1; the page
+     * props carry the bounded lists the filters and cards need: labels (at most 100 per project) and
+     * the people tasks can be assigned to (capped like the task page, ADR-026 §5).
+     */
     public function show(Request $request, Team $teamSlug, Project $projectKey): Response
     {
-        return Inertia::render('Projects/Show', $this->props($request, $teamSlug, $projectKey));
+        $props = $this->props($request, $teamSlug, $projectKey);
+
+        $assignees = TaskAssignments::eligibleUsers($projectKey->id, TaskPageController::ASSIGNEE_LIMIT + 1);
+
+        return Inertia::render('Projects/Show', [
+            ...$props,
+            'labels' => $projectKey->labels()->orderBy('name')->orderBy('id')->get()
+                ->map(fn (Label $label): array => LabelResource::make($label))->values()->all(),
+            'assignees' => array_slice($assignees, 0, TaskPageController::ASSIGNEE_LIMIT),
+            'assigneesTruncated' => count($assignees) > TaskPageController::ASSIGNEE_LIMIT,
+        ]);
     }
 
     /**

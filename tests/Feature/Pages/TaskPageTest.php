@@ -180,3 +180,16 @@ it('caps the assignee list, says so, and keeps the current assignee selectable',
     $this->actingAs($this->other->owner)->get("/tasks/{$small->id}")
         ->assertInertia(fn (Assert $page) => $page->where('assigneesTruncated', false)->has('assignees', 1));
 });
+
+it('shows a current assignee who is no longer eligible, marked as not selectable', function () {
+    $project = pageProject($this->team);
+    $disabled = pageTeamMember($this->team);
+    $disabled->forceFill(['name' => 'Gone member'])->save();
+    $task = Task::factory()->for($project)->assignedTo($disabled)->create();
+    $disabled->forceFill(['disabled_at' => now()])->save();
+
+    $assignees = collect($this->actingAs($this->team->owner)->get("/tasks/{$task->id}")->viewData('page')['props']['assignees']);
+
+    expect($assignees->firstWhere('user_id', $disabled->id))->toBe(['user_id' => $disabled->id, 'name' => 'Gone member', 'eligible' => false])
+        ->and($assignees->where('user_id', '!=', $disabled->id)->pluck('eligible')->filter()->all())->toBe([]);
+});

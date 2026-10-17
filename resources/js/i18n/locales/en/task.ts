@@ -43,9 +43,6 @@ export default {
   back_to_project: 'Back to the project',
   list: {
     title: 'Tasks',
-    simple_notice: 'A simple list in board order. Board and List views are coming.',
-    filter_status: 'Status',
-    all_statuses: 'All statuses',
   },
   priorities: {
     none: 'None',

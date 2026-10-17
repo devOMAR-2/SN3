@@ -136,6 +136,13 @@
       "name": "Inbox Member",
       "email": "inbox.member.mobile@sn3.test",
       "locale": "en"
+    },
+    {
+      "key": "board_en",
+      "id": "0192a000-0000-7000-8000-00000000f002",
+      "name": "Board Mover",
+      "email": "board.en@sn3.test",
+      "locale": "en"
     }
   ]
 }

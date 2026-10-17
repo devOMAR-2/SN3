@@ -2,6 +2,7 @@
 // then add one line to each index. The Arabic index must satisfy `Messages`, so a missing key fails typecheck.
 import account from './account';
 import auth from './auth';
+import board from './board';
 import common from './common';
 import invitations from './invitations';
 import layout from './layout';
@@ -27,6 +28,7 @@ import inbox from './inbox';
 const en = {
   account,
   auth,
+  board,
   common,
   invitations,
   layout,

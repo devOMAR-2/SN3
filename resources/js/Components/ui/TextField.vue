@@ -4,7 +4,7 @@ import { computed, useId } from 'vue';
 
 defineOptions({ inheritAttrs: false });
 
-export type TextFieldType = 'text' | 'email' | 'password' | 'search' | 'tel' | 'url' | 'number';
+export type TextFieldType = 'text' | 'email' | 'password' | 'search' | 'tel' | 'url' | 'number' | 'date';
 
 const props = withDefaults(
   defineProps<{
