@@ -80,15 +80,15 @@ final class TeamExportWriter
         // Stored files the records refer to (attachments, CORE-008), streamed from their disk once
         // and stored as they are.
         foreach ($withFiles as $section) {
-            foreach ($section->files($context) as $entry => $stream) {
+            foreach ($section->files($context) as $entry => $file) {
                 if (preg_match('#^files/[0-9a-f-]{36}$#', $entry) !== 1) {
                     throw new LogicException('Invalid export file entry name.');
                 }
 
                 try {
-                    $zip->addStream($entry, $stream, deflate: false);
+                    $zip->addStream($entry, $file['stream'], deflate: false, size: $file['size']);
                 } finally {
-                    fclose($stream);
+                    fclose($file['stream']);
                 }
             }
         }

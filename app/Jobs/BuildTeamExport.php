@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Domain\Exports\ExportTooLargeException;
 use App\Domain\Exports\TeamExportContext;
 use App\Domain\Exports\TeamExportStatus;
 use App\Domain\Exports\TeamExportStorage;
@@ -99,9 +98,6 @@ final class BuildTeamExport implements ShouldQueue
             }
 
             $refusal = $this->complete($export, $key, $size, $sha256);
-        } catch (ExportTooLargeException) {
-            // Beyond what a zip archive without ZIP64 holds (CORE-008, ADR-027 §7): retrying cannot help.
-            $refusal = 'too_large';
         } catch (Throwable $e) {
             if ($stored) {
                 $storage->disk()->delete($key);

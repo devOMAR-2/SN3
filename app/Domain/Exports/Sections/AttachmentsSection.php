@@ -24,7 +24,7 @@ use Throwable;
  */
 final class AttachmentsSection implements TeamExportFiles, TeamExportSection
 {
-    /** @var array<string, array{disk: string, key: string}> entry => where the file is */
+    /** @var array<string, array{disk: string, key: string, size: int}> entry => where the file is */
     private array $files = [];
 
     public function __construct(private readonly AttachmentStorage $storage) {}
@@ -53,7 +53,7 @@ final class AttachmentsSection implements TeamExportFiles, TeamExportSection
             $present = $this->exists($attachment);
 
             if ($present) {
-                $this->files[$entry] = ['disk' => $attachment->storage_disk, 'key' => $attachment->storage_key];
+                $this->files[$entry] = ['disk' => $attachment->storage_disk, 'key' => $attachment->storage_key, 'size' => $attachment->size_bytes];
             }
 
             yield [
@@ -79,7 +79,7 @@ final class AttachmentsSection implements TeamExportFiles, TeamExportSection
                 throw new RuntimeException('An attachment file disappeared during the export.');
             }
 
-            yield $entry => $stream;
+            yield $entry => ['stream' => $stream, 'size' => $location['size']];
         }
     }
 

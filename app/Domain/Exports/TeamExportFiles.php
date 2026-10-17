@@ -13,9 +13,10 @@ namespace App\Domain\Exports;
 interface TeamExportFiles
 {
     /**
-     * Archive entry name => an open, readable stream of the file's content (the writer closes it).
+     * Archive entry name => an open, readable stream of the file's content (the writer closes it)
+     * and its size in bytes when known (ZipStreamWriter decides on ZIP64 fields from it).
      *
-     * @return iterable<string, resource>
+     * @return iterable<string, array{stream: resource, size: int|null}>
      */
     public function files(TeamExportContext $context): iterable;
 }

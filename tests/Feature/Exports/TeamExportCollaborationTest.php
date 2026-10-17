@@ -3,7 +3,6 @@
 require_once __DIR__.'/../Collaboration/CollaborationHelpers.php';
 
 use App\Domain\Activity\Activity;
-use App\Domain\Exports\ExportTooLargeException;
 use App\Domain\Exports\Sections\ActivitySection;
 use App\Domain\Exports\Sections\AttachmentsSection;
 use App\Domain\Exports\Sections\CommentsSection;
@@ -206,19 +205,60 @@ it('writes zip archives that standard readers accept, deflating data and storing
     File::deleteDirectory($dir);
 });
 
-it('refuses an archive with more entries than a zip without ZIP64 holds', function () {
+it('writes ZIP64 end records for more than 65,535 entries (ADR-027 §7)', function () {
     $dir = sys_get_temp_dir().'/sn3-zip-'.Str::random(8);
     mkdir($dir);
     $zip = new ZipStreamWriter($dir.'/out.zip', now());
     $empty = fopen('php://memory', 'rb');
 
     try {
-        for ($i = 0; $i < 0xFFFF; $i++) {
-            $zip->addStream("e{$i}", $empty, deflate: false);
+        for ($i = 0; $i < 70_000; $i++) {
+            $zip->addStream("e{$i}", $empty, deflate: false, size: 0);
         }
+        $zip->close();
 
-        expect(fn () => $zip->addStream('one-too-many', $empty, deflate: false))->toThrow(ExportTooLargeException::class);
+        $raw = (string) file_get_contents($dir.'/out.zip');
+        expect($raw)->toContain(pack('V', 0x06064B50))->toContain(pack('V', 0x07064B50));
+
+        $archive = new ZipArchive;
+        expect($archive->open($dir.'/out.zip', ZipArchive::CHECKCONS))->toBeTrue()
+            ->and($archive->numFiles)->toBe(70_000)
+            ->and($archive->getNameIndex(69_999))->toBe('e69999');
+        $archive->close();
     } finally {
         File::deleteDirectory($dir);
     }
+});
+
+it('writes valid ZIP64 sizes and offsets, which standard readers accept', function () {
+    $dir = sys_get_temp_dir().'/sn3-zip-'.Str::random(8);
+    mkdir($dir);
+    $json = $dir.'/data.json';
+    file_put_contents($json, str_repeat('{"name":"مشروع"}', 3000));
+    $binary = random_bytes(200_000);
+    $stream = fopen('php://temp', 'w+b');
+    fwrite($stream, $binary);
+    rewind($stream);
+    $unknown = fopen('php://temp', 'w+b');
+    fwrite($unknown, 'size not declared');
+    rewind($unknown);
+
+    // A threshold of 0 puts every size, offset and the end of the directory into ZIP64 fields, which
+    // a real archive only needs beyond 4 GiB.
+    $zip = new ZipStreamWriter($dir.'/out.zip', now(), zip64Threshold: 0);
+    $zip->addFile('data/x.json', $json, deflate: true);
+    $zip->addStream('files/one', $stream, deflate: false, size: strlen($binary));
+    $zip->addStream('files/two', $unknown, deflate: true);
+    $zip->close();
+
+    $archive = new ZipArchive;
+    expect($archive->open($dir.'/out.zip', ZipArchive::CHECKCONS))->toBeTrue()
+        ->and($archive->numFiles)->toBe(3)
+        ->and($archive->getFromName('data/x.json'))->toBe(file_get_contents($json))
+        ->and($archive->getFromName('files/one'))->toBe($binary)
+        ->and($archive->statName('files/one')['crc'])->toBe(crc32($binary))
+        ->and($archive->getFromName('files/two'))->toBe('size not declared');
+    $archive->close();
+
+    File::deleteDirectory($dir);
 });
