@@ -165,6 +165,17 @@ Create team body: `name` (1–100), optional `slug` (`[a-z0-9-]{3,40}`, unique),
 
 `POST` body: `{ "type":"email", "email":"a@example.com", "role":"member" }` or `{ "type":"link", "role":"member" }`. Email invitation: target email must match verified account email, expires after 7 days, one redemption. Link: expires after 7 days, max 20 redemptions, revocable; requires verified account. Admin can invite only Member/Viewer; Owner may send email-specific Admin invites; no invitation can grant Owner. Tokens are cryptographically random, shown only once on creation, stored hashed, excluded from logs/analytics. Redeeming a link never grants private-project membership.
 
+**Implementation contract (CORE-002, ADR-025):**
+
+- **Create:** `201` with the invitation plus `token` (43-character base64url) and `url` (`/invite#<token>`; the token travels in the URL fragment). Both are shown this once: an `Idempotency-Key` replay returns the same invitation with `token` and `url` as `null`, because the stored replay never holds them (DATABASE.md §0 rule 6; technical correction to "same payload"). Member/Viewer: `403` whatever the body; an Admin asking for `admin`: `403`; `admin` on a link: `422` (`role: in`). An address that already belongs to a member, or already has a pending invitation to the team: `409 conflict`. Archived team: `423`. Email invitations are mailed after the commit.
+- **Representation (list and create):** `id`, `team_id`, `type` (`email`/`link`), `email` (null for links), `role`, `status` (`pending`, `accepted` = all uses taken, `revoked`, `expired`), `use_count`, `max_uses`, `invited_by` (`user_id`, `name`), `expires_at`, `accepted_at`, `revoked_at`, `created_at`. The list is cursor-paginated, newest first.
+- **Revoke:** any invitation of the team, by the Owner or an Admin; `204`, also when it was already revoked, used up or expired. Another team's, a random or a malformed ID: `404`.
+- **Preview:** open to any holder of the token, signed in or not: `{ "team": { "name" }, "role", "type", "expires_at" }`, `Cache-Control: no-store`.
+- **Tokens:** unknown token, or its team gone or in the trash: `404`; revoked, used up or expired: `410 expired`.
+- **Accept:** needs a verified email (`403` otherwise). Already a member: `200` with the team, role unchanged, no use taken. Archived team: `423`. An email invitation for another address: `403`. Otherwise `201` with the team (`role` is the invited role). Never adds a project membership.
+- **Issuers who lose the right to invite:** their pending invitations are revoked when they leave or are removed, demoted to Member or Viewer, or (Admin invitations only) hand over ownership (ADR-025 §5).
+- **Rate limits:** creation per user per hour (`SN3_RATE_LIMIT_INVITATIONS_PER_HOUR`, 30); preview and accept per user per minute (`SN3_RATE_LIMIT_INVITATION_TOKENS_PER_MINUTE`, 10) and four times that per IP.
+
 ## 4. Projects, visibility and membership (P0)
 
 | Method | Path | Operation | Permission |

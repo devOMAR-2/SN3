@@ -56,6 +56,10 @@ return [
         'project_writes_per_minute' => (int) env('SN3_RATE_LIMIT_PROJECT_WRITES_PER_MINUTE', 20),
         // Team export requests, per user per hour (CORE-012, ADR-024 §5).
         'team_exports_per_hour' => (int) env('SN3_RATE_LIMIT_TEAM_EXPORTS_PER_HOUR', 10),
+        // Invitations (CORE-002, ADR-025 §7): creating them, per user per hour (each email invitation
+        // sends mail), and previewing or accepting tokens, per IP and per user per minute.
+        'invitations_per_hour' => (int) env('SN3_RATE_LIMIT_INVITATIONS_PER_HOUR', 30),
+        'invitation_tokens_per_minute' => (int) env('SN3_RATE_LIMIT_INVITATION_TOKENS_PER_MINUTE', 10),
     ],
 
     /*

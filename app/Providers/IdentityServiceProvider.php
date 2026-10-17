@@ -66,6 +66,20 @@ class IdentityServiceProvider extends ServiceProvider
 
             return $max > 0 ? Limit::perHour($max)->by('team-exports:'.self::actorKey($request)) : Limit::none();
         });
+
+        // Invitations (CORE-002, ADR-025 §7; API_SPEC.md §1.4 "stricter limits for invitations").
+        RateLimiter::for('invitations', function (Request $request): Limit {
+            $max = config()->integer('sn3.rate_limits.invitations_per_hour');
+
+            return $max > 0 ? Limit::perHour($max)->by('invitations:'.self::actorKey($request)) : Limit::none();
+        });
+
+        // Token preview and accept: per user once signed in, and four times that per IP (several
+        // people in one office may redeem the same share link).
+        RateLimiter::for('invitation-tokens', fn (Request $request): array => array_values(array_filter([
+            self::perMinute('sn3.rate_limits.invitation_tokens_per_minute', 'invitation-tokens-ip:'.$request->ip(), multiplier: 4),
+            $request->user() === null ? null : self::perMinute('sn3.rate_limits.invitation_tokens_per_minute', 'invitation-tokens:'.self::actorKey($request)),
+        ])));
     }
 
     private static function actorKey(Request $request): string

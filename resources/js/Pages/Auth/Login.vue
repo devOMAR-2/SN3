@@ -8,6 +8,7 @@ import TextField from '@/Components/ui/TextField.vue';
 import { useApiForm } from '@/Composables/useApiForm';
 import { useI18n } from '@/i18n';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
+import { hasPendingInvitation } from '@/lib/invitationLink';
 
 const { t } = useI18n();
 const page = usePage();
@@ -17,8 +18,9 @@ async function submit(): Promise<void> {
   const user = await form.submit('post', '/auth/login');
 
   if (user !== null) {
-    // A full visit so the new session, CSRF token and saved language/theme all apply.
-    router.visit('/', { replace: true });
+    // A full visit so the new session, CSRF token and saved language/theme all apply. A guest who came
+    // from an invitation link goes back to it (CORE-002).
+    router.visit(hasPendingInvitation() ? '/invite' : '/', { replace: true });
   } else {
     form.reset('password');
   }

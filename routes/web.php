@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Auth\AuthPageController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\InvitationPageController;
 use App\Http\Controllers\LocaleController;
+use App\Http\Controllers\Teams\TeamInvitationsPageController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('home');
@@ -17,6 +19,10 @@ Route::put('/locale', [LocaleController::class, 'update'])
 // along to the next page.
 Route::get('/reset-password', [AuthPageController::class, 'resetPassword'])->name('password.reset');
 
+// Invitation links (CORE-002): `/invite#<token>`, for guests and signed-in users alike. The token is in
+// the fragment, which never reaches the server.
+Route::get('/invite', InvitationPageController::class)->name('invitations.show');
+
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthPageController::class, 'login'])->name('login');
     Route::get('/register', [AuthPageController::class, 'register'])->name('register');
@@ -26,4 +32,5 @@ Route::middleware('guest')->group(function (): void {
 Route::middleware('auth')->group(function (): void {
     Route::get('/verify-email', [AuthPageController::class, 'verifyEmail'])->name('verification.notice');
     Route::inertia('/settings', 'Settings/Profile')->name('settings');
+    Route::get('/teams/{team}/invitations', TeamInvitationsPageController::class)->name('teams.invitations');
 });

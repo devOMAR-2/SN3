@@ -65,7 +65,7 @@ ENV COMPOSER_ALLOW_SUPERUSER=1
 
 RUN set -eux; \
     mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"; \
-    a2enmod rewrite headers; \
+    a2enmod rewrite headers setenvif; \
     sed -ri 's/^Listen 80$/Listen 8080/' /etc/apache2/ports.conf; \
     rm -f /etc/apache2/sites-enabled/000-default.conf
 
