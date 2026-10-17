@@ -77,6 +77,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 - `id uuid PK`; `team_id uuid NOT NULL FK`; `email citext NULL`; `invited_role varchar(16) NOT NULL CHECK IN ('admin','member','viewer')`; `token_hash bytea NOT NULL UNIQUE`; `invited_by uuid NOT NULL FK users`; `expires_at timestamptz NOT NULL`; `accepted_at`, `revoked_at NULL`; `max_uses int NULL`; `use_count int NOT NULL DEFAULT 0`; `created_at`, `updated_at`.
 - **FINAL:** email-bound invitations require matching verified email and have `max_uses=1`; generic share links have `email NULL`, require verified account email, and have `max_uses=20`. Both expire in 7 days, may be revoked, and increment `use_count` atomically. Never log raw tokens.
+- **Implemented (CORE-002, ADR-025 §1):** migration `2026_10_21_000100`. CHECKs enforce the FINAL rules: role in `admin`/`member`/`viewer`, Admin only with an email, `max_uses` 1 with an email and 20 without (technical correction: the column is NOT NULL, since the FINAL rule always sets it), `0 <= use_count <= max_uses`, `accepted_at` set exactly when `use_count = max_uses`, a 32-byte `token_hash`, a trimmed lower-case `email`, `expires_at > created_at`. `team_id` and `invited_by` cascade. Partial index `(team_id, email) WHERE email IS NOT NULL`. Acceptance locks the team row, then the invitation, and takes a use with a guarded `UPDATE` (§11); DB-T07 is covered by `tests/Feature/Invitations/InvitationAcceptanceTest.php` and `InvitationConcurrencyTest.php`.
 
 ## 4. Projects, membership and visibility — P0
 

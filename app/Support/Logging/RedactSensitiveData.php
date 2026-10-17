@@ -13,7 +13,8 @@ use Monolog\Processor\ProcessorInterface;
  *   Keys are compared case-insensitively with separators removed, so `api_key`,
  *   `X-Api-Key` and `apiKey` all match.
  * - Sensitive query parameters inside strings (e.g. a signed URL's `signature=`)
- *   are replaced in the message and in string values.
+ *   are replaced in the message and in string values, and so are invitation tokens in
+ *   `/invitations/<token>` paths and `/invite#<token>` links.
  *
  * This is a safety net, not permission to log request payloads: code must still
  * avoid logging personal data and private project content in the first place.
@@ -41,6 +42,9 @@ class RedactSensitiveData implements ProcessorInterface
     ];
 
     private const MAX_DEPTH = 16;
+
+    /** `/invitations/<token>` and `/invite#<token>` (ADR-025 §2). */
+    private const INVITATION_TOKEN_PATTERN = '~(/invitations/|/invite#)[A-Za-z0-9_-]{43}(?![A-Za-z0-9_-])~';
 
     private const QUERY_PARAMETER_PATTERN = '/([?&])([^=&#\s"\'<>]+)=([^&#\s"\'<>]*)/';
 
@@ -95,6 +99,11 @@ class RedactSensitiveData implements ProcessorInterface
 
     public function redactString(string $value): string
     {
+        // Invitation tokens travel in the API path (API_SPEC.md §3.1) and the `/invite#…` fragment.
+        if (str_contains($value, 'invit')) {
+            $value = (string) preg_replace(self::INVITATION_TOKEN_PATTERN, '$1'.self::REPLACEMENT, $value);
+        }
+
         if (! str_contains($value, '=')) {
             return $value;
         }

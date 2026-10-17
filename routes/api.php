@@ -1,11 +1,13 @@
 <?php
 
+use App\Domain\Invitations\InvitationToken;
 use App\Http\Controllers\Api\V1\ActivityController;
 use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
 use App\Http\Controllers\Api\V1\Auth\SessionController;
+use App\Http\Controllers\Api\V1\InvitationTokenController;
 use App\Http\Controllers\Api\V1\LabelController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\MyTasksController;
@@ -20,6 +22,7 @@ use App\Http\Controllers\Api\V1\TaskCommentController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamExportController;
+use App\Http\Controllers\Api\V1\TeamInvitationController;
 use App\Http\Controllers\Api\V1\TeamLifecycleController;
 use App\Http\Controllers\Api\V1\TeamMemberController;
 use App\Http\Controllers\Api\V1\TeamOwnershipController;
@@ -60,6 +63,18 @@ Route::prefix('auth')->name('auth.')->group(function (): void {
         ->middleware('throttle:auth-verification')
         ->name('verification.verify');
 });
+
+// Invitation tokens (API_SPEC.md §3.1, ADR-025 §4). The preview is open to any holder of the token,
+// signed in or not; accepting needs a verified email. Malformed tokens never reach the controller.
+Route::get('invitations/{token}/preview', [InvitationTokenController::class, 'preview'])
+    ->where('token', InvitationToken::PATTERN)
+    ->middleware('throttle:invitation-tokens')
+    ->name('invitations.preview');
+
+Route::post('invitations/{token}/accept', [InvitationTokenController::class, 'accept'])
+    ->where('token', InvitationToken::PATTERN)
+    ->middleware(['auth', 'verified', 'throttle:invitation-tokens'])
+    ->name('invitations.accept');
 
 Route::middleware('auth')->group(function (): void {
     Route::get('me', [MeController::class, 'show'])->name('me.show');
@@ -153,4 +168,9 @@ Route::middleware('auth')->group(function (): void {
     Route::post('teams/{team}/exports', [TeamExportController::class, 'store'])->middleware(['throttle:team-exports', 'idempotent'])->name('teams.exports.store');
     Route::get('teams/{team}/exports/{export}', [TeamExportController::class, 'show'])->name('teams.exports.show');
     Route::get('teams/{team}/exports/{export}/download', [TeamExportController::class, 'download'])->middleware('signed')->name('teams.exports.download');
+
+    // Team invitations (API_SPEC.md §3.1; CORE-002, ADR-025), Owner/Admin.
+    Route::get('teams/{team}/invitations', [TeamInvitationController::class, 'index'])->name('teams.invitations.index');
+    Route::post('teams/{team}/invitations', [TeamInvitationController::class, 'store'])->middleware(['throttle:invitations', 'idempotent'])->name('teams.invitations.store');
+    Route::delete('teams/{team}/invitations/{invitation}', [TeamInvitationController::class, 'destroy'])->name('teams.invitations.destroy');
 });

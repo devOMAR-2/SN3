@@ -12,13 +12,19 @@ import { api, toApiError, type ApiEnvelope, type ApiError } from '@/lib/api';
 
 export type FormMethod = 'post' | 'patch' | 'put';
 
+export interface SubmitOptions {
+  body?: Record<string, unknown>;
+  headers?: Record<string, string>;
+}
+
 export interface ApiForm<T extends Record<string, unknown>> {
   data: T;
   errors: Partial<Record<keyof T & string, string>>;
   /** Error not tied to one field (rate limited, CSRF expired, network, server). */
   message: Ref<string | null>;
   processing: Ref<boolean>;
-  submit<R>(method: FormMethod, url: string): Promise<R | null>;
+  /** `body` overrides the submitted data (e.g. to drop fields that do not apply); `headers` are extra request headers. */
+  submit<R>(method: FormMethod, url: string, options?: SubmitOptions): Promise<R | null>;
   reset(...fields: (keyof T & string)[]): void;
 }
 
@@ -69,12 +75,17 @@ export function useApiForm<T extends Record<string, unknown>>(namespace: string,
     message.value = error.code === 'network_error' ? t('validation.network_error') : error.message;
   }
 
-  async function submit<R>(method: FormMethod, url: string): Promise<R | null> {
+  async function submit<R>(method: FormMethod, url: string, options: SubmitOptions = {}): Promise<R | null> {
     clearErrors();
     processing.value = true;
 
     try {
-      const response = await api.request<ApiEnvelope<R>>({ method, url, data: { ...data } });
+      const response = await api.request<ApiEnvelope<R>>({
+        method,
+        url,
+        data: options.body ?? { ...data },
+        headers: options.headers,
+      });
 
       return response.data.data;
     } catch (thrown) {

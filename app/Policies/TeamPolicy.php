@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Domain\Teams\TeamRole;
 use App\Models\Team;
 use App\Models\User;
 
@@ -29,6 +30,20 @@ class TeamPolicy
     public function invite(User $user, Team $team): bool
     {
         return $team->roleOf($user)?->managesTeam() ?? false;
+    }
+
+    /**
+     * Invite with this role (API_SPEC.md §3, §3.1): an Admin invites Members and Viewers; only the
+     * Owner may invite an Admin (the request rules allow that on email invitations only); no
+     * invitation grants ownership.
+     */
+    public function inviteAs(User $user, Team $team, TeamRole $role): bool
+    {
+        return match ($role) {
+            TeamRole::Owner => false,
+            TeamRole::Admin => $this->isOwner($user, $team),
+            TeamRole::Member, TeamRole::Viewer => $this->invite($user, $team),
+        };
     }
 
     public function createProject(User $user, Team $team): bool

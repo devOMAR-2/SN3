@@ -26,9 +26,11 @@ export interface SeededTeam {
 export const PASSWORD: string = fixture.password;
 export const USERS = fixture.users as unknown as SeededUser[];
 export const TEAMS = fixture.teams as unknown as SeededTeam[];
+/** Seeded users in no team, for flows that change data (they never appear in USERS' isolation checks). */
+export const WORKFLOW_USERS = fixture.workflow_users as unknown as SeededUser[];
 
 export function user(key: string): SeededUser {
-  const found = USERS.find((u) => u.key === key);
+  const found = [...USERS, ...WORKFLOW_USERS].find((u) => u.key === key);
   if (!found) throw new Error(`Unknown seeded user "${key}"`);
   return found;
 }
@@ -73,4 +75,17 @@ export async function signIn(page: Page, userKey: string): Promise<void> {
 
 export async function apiGet(page: Page, path: string): Promise<APIResponse> {
   return page.request.get(`/api/v1${path}`, { headers: { Accept: 'application/json' } });
+}
+
+/** A JSON write to /api/v1 with the page's session and CSRF token, as the application's own forms send it. */
+export async function apiPost(
+  page: Page,
+  path: string,
+  data: unknown,
+  headers: Record<string, string> = {},
+): Promise<APIResponse> {
+  return page.request.post(`/api/v1${path}`, {
+    headers: { 'X-XSRF-TOKEN': await xsrfToken(page), Accept: 'application/json', ...headers },
+    data,
+  });
 }

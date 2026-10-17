@@ -1,5 +1,5 @@
 {
-  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments.",
+  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments. `workflow_users` belong to no seeded team: E2E flows that change data (invitations, CORE-002) use them, so the read-only isolation suite over `users` stays deterministic.",
   "password": "sn3-e2e-password-not-a-secret",
   "users": [
     {
@@ -66,7 +66,12 @@
       "name": "فريق ألفا",
       "slug": "team-alpha",
       "owner": "alpha_owner",
-      "members": { "alpha_admin": "admin", "alpha_member": "member", "alpha_viewer": "viewer", "shared": "viewer" }
+      "members": {
+        "alpha_admin": "admin",
+        "alpha_member": "member",
+        "alpha_viewer": "viewer",
+        "shared": "viewer"
+      }
     },
     {
       "key": "beta",
@@ -74,7 +79,26 @@
       "name": "Beta Studio",
       "slug": "team-beta",
       "owner": "beta_owner",
-      "members": { "beta_member": "member", "shared": "admin" }
+      "members": {
+        "beta_member": "member",
+        "shared": "admin"
+      }
+    }
+  ],
+  "workflow_users": [
+    {
+      "key": "invite_owner",
+      "id": "0192a000-0000-7000-8000-00000000e001",
+      "name": "Invite Owner",
+      "email": "invite.owner@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "invite_joiner",
+      "id": "0192a000-0000-7000-8000-00000000e002",
+      "name": "Invite Joiner",
+      "email": "invite.joiner@sn3.test",
+      "locale": "en"
     }
   ]
 }

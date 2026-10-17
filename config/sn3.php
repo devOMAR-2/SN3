@@ -59,6 +59,11 @@ return [
         // Attachment uploads, per user per minute: a stricter limit for uploads (API_SPEC.md §1.4;
         // CORE-008, ADR-027 §6).
         'attachment_uploads_per_minute' => (int) env('SN3_RATE_LIMIT_ATTACHMENT_UPLOADS_PER_MINUTE', 20),
+
+        // Invitations (CORE-002, ADR-025 §6): creating them, per user per hour (each email invitation
+        // sends mail), and previewing or accepting tokens, per IP and per user per minute.
+        'invitations_per_hour' => (int) env('SN3_RATE_LIMIT_INVITATIONS_PER_HOUR', 30),
+        'invitation_tokens_per_minute' => (int) env('SN3_RATE_LIMIT_INVITATION_TOKENS_PER_MINUTE', 10),
     ],
 
     /*

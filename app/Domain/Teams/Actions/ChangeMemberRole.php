@@ -3,6 +3,7 @@
 namespace App\Domain\Teams\Actions;
 
 use App\Domain\Activity\Activity;
+use App\Domain\Invitations\InvitationRevocations;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
@@ -56,6 +57,11 @@ final class ChangeMemberRole
 
             // A Team Viewer cannot be an assignee (API_SPEC.md §6.1, ADR-023 §5).
             TaskAssignments::releaseIneligible($team->id, $locked->user_id, null, 'team_role_changed');
+
+            // A Member or Viewer cannot invite: their pending invitations go too (ADR-025 §5).
+            if (! $role->managesTeam()) {
+                InvitationRevocations::revokeIssuedBy($team->id, $locked->user_id, 'team_role_changed');
+            }
 
             Activity::team($team->id, $actor, 'team.member_role_changed', ['user_id' => $locked->user_id, 'from' => $from->value, 'to' => $role->value]);
 
