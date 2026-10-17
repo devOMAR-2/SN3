@@ -71,6 +71,56 @@ final class RecoverableResources
     }
 
     /**
+     * The trashed teams the user may still recover (their Owner, within 30 days), most recently
+     * deleted first, for the "Deleted teams" list (CORE-006, ADR-026 §6). The same predicate as
+     * team(); at most `$limit` rows.
+     *
+     * @return list<Team>
+     */
+    public function teams(User $user, int $limit = 100): array
+    {
+        $teams = Team::query()
+            ->withoutGlobalScope(SoftDeletingScope::class)
+            ->where('teams.deleted_at', '>', TrashRetention::cutoff())
+            ->whereHas('memberships', function (Builder $membership) use ($user): void {
+                $membership->where('user_id', $user->id)->where('role', TeamRole::Owner->value);
+            })
+            ->with([
+                'memberships' =>
+                    /** @param HasMany<TeamMembership, Team> $memberships */
+                    static function (HasMany $memberships) use ($user): void {
+                        $memberships->where('user_id', $user->id);
+                    },
+            ])
+            ->orderByDesc('teams.deleted_at')
+            ->orderByDesc('teams.id')
+            ->limit($limit)
+            ->get();
+
+        return array_values($teams->filter(fn (Team $team): bool => Gate::forUser($user)->allows('restore', $team))->all());
+    }
+
+    /**
+     * The trashed projects of a live team that the user may still recover (the AccessibleProjects
+     * predicate on trashed rows, ProjectPolicy::restoreDeleted, within 30 days), most recently deleted
+     * first (CORE-006, ADR-026 §6). The same rule as project(); at most `$limit` rows.
+     *
+     * @return list<Project>
+     */
+    public function projectsInTeam(Team $team, User $user, int $limit = 100): array
+    {
+        $projects = $this->projects->inTeam($team, $user)
+            ->withoutGlobalScope(SoftDeletingScope::class)
+            ->where('projects.deleted_at', '>', TrashRetention::cutoff())
+            ->orderByDesc('projects.deleted_at')
+            ->orderByDesc('projects.id')
+            ->limit($limit)
+            ->get();
+
+        return array_values($projects->filter(fn (Project $project): bool => Gate::forUser($user)->allows('restoreDeleted', $project))->all());
+    }
+
+    /**
      * @throws ModelNotFoundException<Project>
      */
     public function project(User $user, string $id): Project

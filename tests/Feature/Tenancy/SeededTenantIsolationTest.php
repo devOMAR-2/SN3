@@ -27,7 +27,8 @@ function rolesIn(array $team): array
 }
 
 it('seeds two unrelated teams with every role, a two-team user and an outsider', function () {
-    expect(User::query()->count())->toBe(count($this->fixture['users']))
+    // Plus the CORE-006 journey users, who belong to no team.
+    expect(User::query()->count())->toBe(count($this->fixture['users']) + count($this->fixture['journey_users'] ?? []))
         ->and(Team::query()->count())->toBe(2)
         ->and(User::query()->whereNull('email_verified_at')->count())->toBe(0);
 
@@ -49,7 +50,7 @@ it('seeds two unrelated teams with every role, a two-team user and an outsider',
 
 it('is deterministic: the same fixed IDs every run', function () {
     expect(User::query()->pluck('id')->sort()->values()->all())
-        ->toBe(collect($this->fixture['users'])->pluck('id')->sort()->values()->all())
+        ->toBe(collect([...$this->fixture['users'], ...($this->fixture['journey_users'] ?? [])])->pluck('id')->sort()->values()->all())
         ->and(Team::query()->pluck('id')->sort()->values()->all())
         ->toBe(collect($this->fixture['teams'])->pluck('id')->sort()->values()->all());
 });

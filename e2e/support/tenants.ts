@@ -26,9 +26,11 @@ export interface SeededTeam {
 export const PASSWORD: string = fixture.password;
 export const USERS = fixture.users as unknown as SeededUser[];
 export const TEAMS = fixture.teams as unknown as SeededTeam[];
+/** Verified accounts outside every seeded team, for tests that create data (CORE-006 journey). */
+export const JOURNEY_USERS = fixture.journey_users as unknown as SeededUser[];
 
 export function user(key: string): SeededUser {
-  const found = USERS.find((u) => u.key === key);
+  const found = [...USERS, ...JOURNEY_USERS].find((u) => u.key === key);
   if (!found) throw new Error(`Unknown seeded user "${key}"`);
   return found;
 }

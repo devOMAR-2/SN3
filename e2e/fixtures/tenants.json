@@ -1,5 +1,5 @@
 {
-  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments.",
+  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments. `journey_users` belong to no seeded team: the CORE-006 journey test (e2e/tests/core-journey.spec.ts) creates its own team, project and task with them, so the read-only isolation specs never see those writes.",
   "password": "sn3-e2e-password-not-a-secret",
   "users": [
     {
@@ -75,6 +75,15 @@
       "slug": "team-beta",
       "owner": "beta_owner",
       "members": { "beta_member": "member", "shared": "admin" }
+    }
+  ],
+  "journey_users": [
+    {
+      "key": "journey_en",
+      "id": "0192a000-0000-7000-8000-00000000e001",
+      "name": "Journey Writer",
+      "email": "journey.en@sn3.test",
+      "locale": "en"
     }
   ]
 }

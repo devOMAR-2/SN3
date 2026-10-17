@@ -116,4 +116,23 @@ final class AccessibleProjects
 
         return $this->query($user)->whereKey($id)->firstOrFail();
     }
+
+    /**
+     * The project behind a browser page route `/t/{team_slug}/p/{project_key}` (API_SPEC.md §1.1;
+     * CORE-006, ADR-026): the same predicate as every other read, inside the already resolved team.
+     * A hidden, trashed or unknown key, and one in another team, are the same 404.
+     *
+     * @throws ModelNotFoundException<Project>
+     */
+    public function findByKeyOrFail(Team $team, User $user, string $key): Project
+    {
+        $key = Str::upper($key);
+
+        // The project key format (API_SPEC.md §4, StoreProjectRequest::KEY_PATTERN).
+        if (preg_match('/^[A-Z][A-Z0-9]{1,9}$/', $key) !== 1) {
+            throw (new ModelNotFoundException)->setModel(Project::class, [$key]);
+        }
+
+        return $this->inTeam($team, $user)->where('projects.project_key', $key)->firstOrFail();
+    }
 }

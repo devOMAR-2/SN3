@@ -1,6 +1,7 @@
 <?php
 
 use App\Exceptions\ApiExceptionRenderer;
+use App\Exceptions\PageExceptionRenderer;
 use App\Http\Middleware\AddSecurityHeaders;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnforceIdempotency;
@@ -59,6 +60,8 @@ return Application::configure(basePath: dirname(__DIR__))
             fn (Request $request): bool => ApiExceptionRenderer::handles($request) || $request->expectsJson(),
         );
         $exceptions->render(ApiExceptionRenderer::render(...));
+        // Browser pages answer errors with the Inertia `Error` page (CORE-006, ADR-026 §4).
+        $exceptions->respond(PageExceptionRenderer::respond(...));
 
         // Expected outcomes of valid requests (409, 412, 423), not errors worth reporting.
         $exceptions->dontReport([

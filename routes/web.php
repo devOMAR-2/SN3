@@ -3,6 +3,9 @@
 use App\Http\Controllers\Auth\AuthPageController;
 use App\Http\Controllers\HomeController;
 use App\Http\Controllers\LocaleController;
+use App\Http\Controllers\Web\ProjectPageController;
+use App\Http\Controllers\Web\TaskPageController;
+use App\Http\Controllers\Web\TeamPageController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', HomeController::class)->name('home');
@@ -26,4 +29,18 @@ Route::middleware('guest')->group(function (): void {
 Route::middleware('auth')->group(function (): void {
     Route::get('/verify-email', [AuthPageController::class, 'verifyEmail'])->name('verification.notice');
     Route::inertia('/settings', 'Settings/Profile')->name('settings');
+
+    // Team, project and task pages (API_SPEC.md §1.1; CORE-006, ADR-026). Read-only Inertia pages:
+    // `{teamSlug}`, `{projectKey}` and `{task}` resolve through AccessibleTeams, AccessibleProjects and
+    // AccessibleTasks (hidden = 404), and every change is a request to /api/v1.
+    Route::get('/teams', [TeamPageController::class, 'index'])->name('teams.index');
+    Route::get('/teams/new', [TeamPageController::class, 'create'])->name('teams.create');
+    Route::get('/t/{teamSlug}', [TeamPageController::class, 'show'])->name('teams.show');
+    Route::get('/t/{teamSlug}/members', [TeamPageController::class, 'members'])->name('teams.members');
+    Route::get('/t/{teamSlug}/settings', [TeamPageController::class, 'settings'])->name('teams.settings');
+    Route::get('/t/{teamSlug}/projects', [ProjectPageController::class, 'index'])->name('projects.index');
+    Route::get('/t/{teamSlug}/projects/new', [ProjectPageController::class, 'create'])->name('projects.create');
+    Route::get('/t/{teamSlug}/p/{projectKey}', [ProjectPageController::class, 'show'])->name('projects.show');
+    Route::get('/t/{teamSlug}/p/{projectKey}/settings', [ProjectPageController::class, 'settings'])->name('projects.settings');
+    Route::get('/tasks/{task}', [TaskPageController::class, 'show'])->name('tasks.show');
 });

@@ -6,7 +6,7 @@
  * `validation.<code>` message with the field's label (`<namespace>.fields.<field>`). Non-field errors show
  * the server's translated message.
  */
-import { reactive, ref, type Ref } from 'vue';
+import { reactive, ref, shallowRef, type Ref, type ShallowRef } from 'vue';
 import { hasTranslation, useI18n } from '@/i18n';
 import { api, toApiError, type ApiEnvelope, type ApiError } from '@/lib/api';
 
@@ -18,7 +18,10 @@ export interface ApiForm<T extends Record<string, unknown>> {
   /** Error not tied to one field (rate limited, CSRF expired, network, server). */
   message: Ref<string | null>;
   processing: Ref<boolean>;
-  submit<R>(method: FormMethod, url: string): Promise<R | null>;
+  /** The last failure (status and code), e.g. to react to 412 or 423 (CORE-006). */
+  error: ShallowRef<ApiError | null>;
+  /** `headers` carries request headers such as `If-Match` (API_SPEC.md §1.4). */
+  submit<R>(method: FormMethod, url: string, options?: { headers?: Record<string, string> }): Promise<R | null>;
   reset(...fields: (keyof T & string)[]): void;
 }
 
@@ -28,6 +31,7 @@ export function useApiForm<T extends Record<string, unknown>>(namespace: string,
   const errors = reactive({}) as Partial<Record<keyof T & string, string>>;
   const message = ref<string | null>(null);
   const processing = ref(false);
+  const error = shallowRef<ApiError | null>(null);
 
   function fieldMessage(field: string, code: string): string {
     const specific = `${namespace}.errors.${field}.${code}`;
@@ -51,10 +55,10 @@ export function useApiForm<T extends Record<string, unknown>>(namespace: string,
     message.value = null;
   }
 
-  function showError(error: ApiError): void {
-    const fieldEntries = Object.entries(error.fields);
+  function showError(failure: ApiError): void {
+    const fieldEntries = Object.entries(failure.fields);
 
-    if (error.status === 422 && fieldEntries.length > 0) {
+    if (failure.status === 422 && fieldEntries.length > 0) {
       for (const [field, codes] of fieldEntries) {
         const code = codes[0];
 
@@ -66,19 +70,25 @@ export function useApiForm<T extends Record<string, unknown>>(namespace: string,
       return;
     }
 
-    message.value = error.code === 'network_error' ? t('validation.network_error') : error.message;
+    message.value = failure.code === 'network_error' ? t('validation.network_error') : failure.message;
   }
 
-  async function submit<R>(method: FormMethod, url: string): Promise<R | null> {
+  async function submit<R>(
+    method: FormMethod,
+    url: string,
+    options: { headers?: Record<string, string> } = {},
+  ): Promise<R | null> {
     clearErrors();
+    error.value = null;
     processing.value = true;
 
     try {
-      const response = await api.request<ApiEnvelope<R>>({ method, url, data: { ...data } });
+      const response = await api.request<ApiEnvelope<R>>({ method, url, data: { ...data }, headers: options.headers });
 
       return response.data.data;
     } catch (thrown) {
-      showError(toApiError(thrown));
+      error.value = toApiError(thrown);
+      showError(error.value);
 
       return null;
     } finally {
@@ -94,5 +104,5 @@ export function useApiForm<T extends Record<string, unknown>>(namespace: string,
     }
   }
 
-  return { data, errors, message, processing, submit, reset };
+  return { data, errors, message, processing, error, submit, reset };
 }
