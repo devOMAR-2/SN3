@@ -262,3 +262,90 @@ it('writes valid ZIP64 sizes and offsets, which standard readers accept', functi
 
     File::deleteDirectory($dir);
 });
+
+/**
+ * The central directory entries of an archive, parsed by hand: name, version needed, the classic
+ * size and offset fields, and the ZIP64 extra field's values.
+ *
+ * @return list<array{name: string, needed: int, size: int, compressed: int, offset: int, zip64: list<int>}>
+ */
+function zipCentralDirectory(string $raw): array
+{
+    $eocd = strrpos($raw, pack('V', 0x06054B50));
+    $classic = unpack('Vsig/vdisk/vcddisk/vcount/vtotal/Vsize/Voffset/vcomment', substr($raw, $eocd, 22));
+    $start = $classic['offset'];
+
+    if ($start === 0xFFFFFFFF) {
+        $locator = unpack('Vsig/Vdisk/Poffset/Vdisks', substr($raw, $eocd - 20, 20));
+        $record = unpack('Vsig/Psize/vmade/vneeded/Vdisk/Vcddisk/Pcount/Ptotal/Pcdsize/Pcdoffset', substr($raw, $locator['offset'], 56));
+        expect($locator['sig'])->toBe(0x07064B50)->and($record['sig'])->toBe(0x06064B50);
+        $start = $record['cdoffset'];
+    }
+
+    $entries = [];
+    $at = $start;
+
+    while (substr($raw, $at, 4) === pack('V', 0x02014B50)) {
+        $h = unpack('Vsig/vmade/vneeded/vflags/vmethod/vtime/vdate/Vcrc/Vcompressed/Vsize/vname/vextra/vcomment/vdisk/vinternal/Vexternal/Voffset', substr($raw, $at, 46));
+        $name = substr($raw, $at + 46, $h['name']);
+        $extra = substr($raw, $at + 46 + $h['name'], $h['extra']);
+        $zip64 = [];
+
+        if ($extra !== '') {
+            $field = unpack('vid/vlength', substr($extra, 0, 4));
+            expect($field['id'])->toBe(0x0001);
+            $zip64 = array_values(unpack('P*', substr($extra, 4, $field['length'])));
+        }
+
+        $entries[] = ['name' => $name, 'needed' => $h['needed'], 'size' => $h['size'], 'compressed' => $h['compressed'], 'offset' => $h['offset'], 'zip64' => $zip64];
+        $at += 46 + $h['name'] + $h['extra'] + $h['comment'];
+    }
+
+    return $entries;
+}
+
+it('puts sizes and the local header offset into the central ZIP64 extra field, pointing at the right header', function () {
+    $dir = sys_get_temp_dir().'/sn3-zip-'.Str::random(8);
+    mkdir($dir);
+    $zip = new ZipStreamWriter($dir.'/out.zip', now(), zip64Threshold: 0);
+    foreach (['first' => 'aaaa', 'second' => str_repeat('b', 1000)] as $name => $content) {
+        $stream = fopen('php://memory', 'w+b');
+        fwrite($stream, $content);
+        rewind($stream);
+        $zip->addStream($name, $stream, deflate: false, size: strlen($content));
+    }
+    $zip->close();
+    $raw = (string) file_get_contents($dir.'/out.zip');
+
+    $entries = zipCentralDirectory($raw);
+    expect(array_column($entries, 'name'))->toBe(['first', 'second']);
+
+    foreach ($entries as $entry) {
+        // Classic fields all-ones; the extra field holds size, compressed size and offset, in that order.
+        [$size, $compressed, $offset] = $entry['zip64'];
+        expect($entry['needed'])->toBe(45)
+            ->and([$entry['size'], $entry['compressed'], $entry['offset']])->toBe([0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF])
+            ->and($entry['zip64'])->toHaveCount(3)
+            ->and(substr($raw, $offset, 4))->toBe(pack('V', 0x04034B50))
+            ->and(substr($raw, $offset + 30, strlen($entry['name'])))->toBe($entry['name'])
+            ->and($compressed)->toBe($size);
+    }
+
+    expect($entries[0]['zip64'][0])->toBe(4)
+        ->and($entries[1]['zip64'][0])->toBe(1000)
+        // The second header starts right after the first entry: header, name, ZIP64 extra, data.
+        ->and($entries[1]['zip64'][2])->toBe(30 + strlen('first') + 20 + 4);
+
+    // With the default threshold the same archive is plain zip 2.0: no extra fields, real offsets.
+    $plain = new ZipStreamWriter($dir.'/plain.zip', now());
+    $stream = fopen('php://memory', 'w+b');
+    fwrite($stream, 'aaaa');
+    rewind($stream);
+    $plain->addStream('first', $stream, deflate: false, size: 4);
+    $plain->close();
+    expect(zipCentralDirectory((string) file_get_contents($dir.'/plain.zip')))->toBe([
+        ['name' => 'first', 'needed' => 20, 'size' => 4, 'compressed' => 4, 'offset' => 0, 'zip64' => []],
+    ]);
+
+    File::deleteDirectory($dir);
+});

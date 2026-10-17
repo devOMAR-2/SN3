@@ -20,7 +20,8 @@ use Illuminate\Support\Facades\Schema;
  * - DATABASE.md §5 lists `created_at` only; there is no `updated_at` (attachments are immutable).
  *
  * Indexes: `(task_id, created_at DESC, id DESC)` for the list; `(team_id) INCLUDE (size_bytes)` over
- * live rows for the quota sum (DECIDED-004); `deleted_at` over pending removals for the sweeper.
+ * live rows for the quota sum (DECIDED-004); `deleted_at` over pending removals for the sweeper;
+ * `storage_disk` for the disks the purge and the sweep clean.
  */
 return new class extends Migration
 {
@@ -49,6 +50,8 @@ return new class extends Migration
         DB::statement('CREATE INDEX task_attachments_task_id_created_at_index ON task_attachments (task_id, created_at DESC, id DESC)');
         DB::statement('CREATE INDEX task_attachments_team_quota_index ON task_attachments (team_id) INCLUDE (size_bytes) WHERE deleted_at IS NULL');
         DB::statement('CREATE INDEX task_attachments_pending_deletion_index ON task_attachments (deleted_at) WHERE deleted_at IS NOT NULL');
+        // The disks in use, read by the purge and the sweep as a loose index scan (AttachmentStorage).
+        DB::statement('CREATE INDEX task_attachments_storage_disk_index ON task_attachments (storage_disk)');
         DB::statement('ALTER TABLE task_attachments ADD CONSTRAINT task_attachments_size_bytes_check CHECK (size_bytes >= 0)');
         DB::statement('ALTER TABLE task_attachments ADD CONSTRAINT task_attachments_original_name_check CHECK (char_length(original_name) BETWEEN 1 AND 255)');
         DB::statement('ALTER TABLE task_attachments ADD CONSTRAINT task_attachments_sha256_check CHECK (sha256 IS NULL OR octet_length(sha256) = 32)');

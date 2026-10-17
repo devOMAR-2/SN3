@@ -19,7 +19,8 @@ use Throwable;
  *    (file, then row).
  * 2. **Purged prefixes:** `objects/<team>/` and `objects/<team>/<project>/` directories whose team or
  *    project row no longer exists (the purge's own file deletion failed) are deleted.
- * 3. **Orphans:** files under a live project's prefix that no row references, older than
+ * 3. **Orphans:** files under a live project's prefix whose key no row has (on any disk: two disk
+ *    names may share one storage root, so a disk name is never evidence), older than
  *    ORPHAN_GRACE_MINUTES (so an upload between its write and its commit is never touched), are
  *    deleted: the leftovers of uploads whose transaction rolled back while the process died.
  *
@@ -129,7 +130,9 @@ final class SweepAttachments
 
         $known = [];
 
-        foreach (DB::table('task_attachments')->where('storage_disk', $diskName)->whereIn('storage_key', array_keys($files))->pluck('storage_key') as $key) {
+        // A key is live if any row has it, on whatever disk: keys are random and globally unique, and
+        // two disk names may share one root or bucket, so each lists the other's live files.
+        foreach (DB::table('task_attachments')->whereIn('storage_key', array_keys($files))->pluck('storage_key') as $key) {
             if (is_string($key)) {
                 $known[$key] = true;
             }

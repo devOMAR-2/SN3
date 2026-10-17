@@ -183,7 +183,7 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 - **Implemented (CORE-008, ADR-027 §5, migration `2026_10_21_000210`):**
   - **Keys:** `(task_id, project_id) → tasks` and `(project_id, team_id) → projects` ON DELETE CASCADE; `uploaded_by → users` RESTRICT.
   - **Columns:** `storage_key` unique, `objects/<team_id>/<project_id>/<32 random hex>` (CHECK), on a dedicated private disk (`attachments`); `original_name` 1–255 characters, sanitised; `mime_type` sniffed from the content; `sha256` 32 bytes; no `updated_at` (immutable). `storage_disk` is the disk the file was written to: downloads read from it, and the purge and `attachments:sweep` clean every disk a row names (plus the configured and previous ones), so switching disks needs no data migration. `deleted_at` marks a removal in progress: invisible and out of the quota at once, file and row deleted after commit or by `attachments:sweep`.
-  - **Indexes:** `(task_id, created_at DESC, id DESC)`; `(team_id) INCLUDE (size_bytes) WHERE deleted_at IS NULL` for the quota; partial `deleted_at` for the sweeper.
+  - **Indexes:** `(task_id, created_at DESC, id DESC)`; `(team_id) INCLUDE (size_bytes) WHERE deleted_at IS NULL` for the quota; partial `deleted_at` for the sweeper; `(storage_disk)` for the disks in use (read as a loose index scan). Keys are globally unique, so a file is live when any row has its key, whatever the disk name (two names may share a root).
   - **Limits (DECIDED-004):** 25 MiB per file and 2 GiB per team (live rows of every project of the team, trashed ones included), checked before storing and again under the team row lock; configurable for self-hosted instances (`0` = none).
 
 ## 6. Custom fields — public v1.0

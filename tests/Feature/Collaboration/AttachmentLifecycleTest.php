@@ -10,6 +10,7 @@ use App\Models\TaskAttachment;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -146,8 +147,6 @@ it('purges and sweeps attachment files on every disk they were written to', func
     // A disk no row names any more is cleaned only once the operator lists it.
     $leftover = $storage->newKey(Str::uuid7()->toString(), Str::uuid7()->toString());
     Storage::disk('attachments-older')->put($leftover, 'left behind');
-    // An orphan on the old disk whose key a row of another disk uses is still an orphan there.
-    Storage::disk('attachments-old')->put(TaskAttachment::factory()->for($this->task)->create()->storage_key, 'stray copy');
 
     app(SweepAttachments::class)->handle();
     expect(Storage::disk('attachments-older')->exists($leftover))->toBeTrue();
@@ -155,9 +154,47 @@ it('purges and sweeps attachment files on every disk they were written to', func
     config(['sn3.attachments.previous_disks' => ['attachments-older', 'not-a-disk']]);
     $this->travel(SweepAttachments::ORPHAN_GRACE_MINUTES + 1)->minutes();
 
-    expect(app(SweepAttachments::class)->handle())->toBe(['pending' => 0, 'prefixes' => 1, 'orphans' => 1])
+    expect(app(SweepAttachments::class)->handle())->toBe(['pending' => 0, 'prefixes' => 1, 'orphans' => 0])
         ->and(Storage::disk('attachments-older')->allFiles())->toBe([])
         ->and(Storage::disk('attachments-old')->allFiles())->toBe([$keptOnOldDisk->storage_key]);
+});
+
+it('never deletes a live file when two disk names share one storage root (a regression)', function () {
+    // Two names on one real root, like the stock `s3` disk and an `attachments-s3` disk on one bucket.
+    $root = storage_path('framework/testing/disks/shared-'.Str::random(8));
+    $shared = ['driver' => 'local', 'root' => $root, 'throw' => true];
+    config(['filesystems.disks.shared-a' => $shared, 'filesystems.disks.shared-b' => $shared]);
+
+    try {
+        // Written while SN3_ATTACHMENTS_DISK was shared-a; it is shared-b now, and shared-a is listed.
+        config(['sn3.attachments.disk' => 'shared-a']);
+        $old = TaskAttachment::factory()->for($this->task)->create();
+        config(['sn3.attachments.disk' => 'shared-b', 'sn3.attachments.previous_disks' => ['shared-a']]);
+        $new = TaskAttachment::factory()->for($this->task)->create();
+        $orphan = app(AttachmentStorage::class)->newKey($this->team->id, $this->project->id);
+        Storage::disk('shared-b')->put($orphan, 'rolled back');
+
+        $purged = taskProject($this->team);
+        $purgedFile = TaskAttachment::factory()->for(taskIn($purged))->create();
+        $purged->forceFill(['deleted_at' => now()->subDays(31)])->save();
+
+        expect([$old->storage_disk, $new->storage_disk])->toBe(['shared-a', 'shared-b']);
+
+        app(PurgeTrash::class)->handle();
+        $this->travel(SweepAttachments::ORPHAN_GRACE_MINUTES + 1)->minutes();
+
+        // Each name lists the other's files: none of them may count as an orphan.
+        expect(app(SweepAttachments::class)->handle())->toBe(['pending' => 0, 'prefixes' => 0, 'orphans' => 1])
+            ->and(Storage::disk('shared-a')->exists($old->storage_key))->toBeTrue()
+            ->and(Storage::disk('shared-b')->exists($new->storage_key))->toBeTrue()
+            ->and(Storage::disk('shared-a')->exists($orphan))->toBeFalse()
+            ->and(Storage::disk('shared-a')->exists($purgedFile->storage_key))->toBeFalse();
+
+        $this->actingAs($this->member)->get("/api/v1/attachments/{$old->id}/download")->assertOk();
+        $this->actingAs($this->member)->get("/api/v1/attachments/{$new->id}/download")->assertOk();
+    } finally {
+        File::deleteDirectory($root);
+    }
 });
 
 it('keeps attachment files in place when a task is trashed and restored', function () {
