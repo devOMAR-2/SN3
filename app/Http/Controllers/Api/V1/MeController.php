@@ -13,7 +13,8 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 /**
- * GET /api/v1/me and PATCH /api/v1/me (API_SPEC.md §2).
+ * GET /api/v1/me and PATCH /api/v1/me (API_SPEC.md §2), including the notification preferences
+ * (CORE-009, ADR-029 §5).
  */
 class MeController extends Controller
 {
@@ -38,8 +39,10 @@ class MeController extends Controller
                 $user->save();
             }
 
-            if (array_key_exists('theme', $validated)) {
-                $user->preferences()->updateOrCreate([], ['theme' => $validated['theme']]);
+            $preferences = Arr::only($validated, UpdateMeRequest::PREFERENCE_FIELDS);
+
+            if ($preferences !== []) {
+                $user->preferences()->updateOrCreate([], $preferences);
             }
         });
 

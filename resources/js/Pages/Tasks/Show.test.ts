@@ -92,7 +92,7 @@ const task: Task = {
 };
 const teamCan = { view_settings: false } as TeamAbilities;
 
-function renderTask(can: TaskAbilities, locale: 'ar' | 'en' = 'en') {
+function renderTask(can: TaskAbilities, locale: 'ar' | 'en' = 'en', watching = false) {
   state.props = sharedProps(locale);
   // The sidebar's project list.
   http.get.mockResolvedValue({ data: { data: [], meta: { next_cursor: null, has_more: false } } });
@@ -109,6 +109,7 @@ function renderTask(can: TaskAbilities, locale: 'ar' | 'en' = 'en') {
       assigneesTruncated: false,
       parent: null,
       subtasks: [],
+      watching,
       can,
       teamCan,
       lock: null,
@@ -188,6 +189,40 @@ describe('Task detail', () => {
     const description = screen.getByText(/Line one/);
     expect(description.innerHTML).not.toContain('<br');
     expect(description.textContent).toBe('Line one\nLine two');
+  });
+
+  it('lets a read-only viewer watch and unwatch the task (CORE-009)', async () => {
+    http.post.mockResolvedValue({
+      data: { data: { task_id: 'task-1', user_id: 'me', created_at: '2026-10-17T10:00:00Z' } },
+    });
+    http.delete.mockResolvedValue({ status: 204 });
+    renderTask({ edit: false, delete: false, manage_labels: false });
+
+    const watch = screen.getByRole('button', { name: 'Watch' });
+    expect(watch.getAttribute('aria-pressed')).toBe('false');
+    expect(watch.getAttribute('aria-describedby')).toBe('task-watch-hint');
+
+    await fireEvent.click(watch);
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Watching' }).getAttribute('aria-pressed')).toBe('true'),
+    );
+    expect(http.post).toHaveBeenCalledWith('/tasks/task-1/watchers');
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Watching' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Watch' })).toBeTruthy());
+    expect(http.delete).toHaveBeenCalledWith('/tasks/task-1/watchers/me');
+  });
+
+  it('hides the watch button once the task turns out to be read-only (423), in Arabic too', async () => {
+    http.delete.mockRejectedValue(apiFailure(423, 'resource_locked'));
+    renderTask({ edit: false, delete: false, manage_labels: false }, 'ar', true);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'تتابعها' }));
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'تتابعها' })).toBeNull());
+    expect(http.delete).toHaveBeenCalledWith('/tasks/task-1/watchers/me');
   });
 
   it('marks where comments and activity (CORE-008) plug in', () => {

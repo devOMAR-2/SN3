@@ -5,6 +5,7 @@ use App\Http\Controllers\HomeController;
 use App\Http\Controllers\InvitationPageController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\Teams\TeamInvitationsPageController;
+use App\Http\Controllers\Web\InboxPageController;
 use App\Http\Controllers\Web\ProjectPageController;
 use App\Http\Controllers\Web\TaskPageController;
 use App\Http\Controllers\Web\TeamPageController;
@@ -49,6 +50,9 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/t/{teamSlug}/p/{projectKey}', [ProjectPageController::class, 'show'])->name('projects.show');
     Route::get('/t/{teamSlug}/p/{projectKey}/settings', [ProjectPageController::class, 'settings'])->name('projects.settings');
     Route::get('/tasks/{task}', [TaskPageController::class, 'show'])->name('tasks.show');
+
+    // The inbox (CORE-009, ADR-029 §6); its content comes from /api/v1/notifications.
+    Route::get('/inbox', InboxPageController::class)->name('inbox');
 
     Route::get('/teams/{team}/invitations', TeamInvitationsPageController::class)->name('teams.invitations');
 });

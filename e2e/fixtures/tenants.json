@@ -1,5 +1,5 @@
 {
-  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments. `workflow_users` belong to no seeded team: E2E flows that change data (invitations, CORE-002) use them, so the read-only isolation suite over `users` stays deterministic. `journey_users` are also in no seeded team: the CORE-006 journey test (e2e/tests/core-journey.spec.ts) creates its own team, project and task with them.",
+  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments. `workflow_users` belong to no seeded team: E2E flows that change data (invitations, CORE-002) use them, so the read-only isolation suite over `users` stays deterministic. `journey_users` are also in no seeded team: the CORE-006 journey test (e2e/tests/core-journey.spec.ts) creates its own team, project and task with them, and the CORE-009 inbox test (e2e/tests/inbox.ui.spec.ts) its own team per viewport with the `inbox_*` users.",
   "password": "sn3-e2e-password-not-a-secret",
   "users": [
     {
@@ -107,6 +107,34 @@
       "id": "0192a000-0000-7000-8000-00000000f001",
       "name": "Journey Writer",
       "email": "journey.en@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "inbox_owner_desktop",
+      "id": "0192a000-0000-7000-8000-00000000f101",
+      "name": "Inbox Owner",
+      "email": "inbox.owner.desktop@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "inbox_member_desktop",
+      "id": "0192a000-0000-7000-8000-00000000f102",
+      "name": "Inbox Member",
+      "email": "inbox.member.desktop@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "inbox_owner_mobile",
+      "id": "0192a000-0000-7000-8000-00000000f103",
+      "name": "Inbox Owner",
+      "email": "inbox.owner.mobile@sn3.test",
+      "locale": "en"
+    },
+    {
+      "key": "inbox_member_mobile",
+      "id": "0192a000-0000-7000-8000-00000000f104",
+      "name": "Inbox Member",
+      "email": "inbox.member.mobile@sn3.test",
       "locale": "en"
     },
     {

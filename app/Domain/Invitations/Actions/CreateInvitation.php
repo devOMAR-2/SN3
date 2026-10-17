@@ -3,6 +3,7 @@
 namespace App\Domain\Invitations\Actions;
 
 use App\Domain\Activity\Activity;
+use App\Domain\Invitations\Events\InvitationSent;
 use App\Domain\Invitations\InvitationToken;
 use App\Domain\Invitations\InvitationType;
 use App\Domain\Teams\TeamRole;
@@ -96,6 +97,9 @@ final class CreateInvitation
                     expiresAt: $invitation->expires_at,
                     locale: self::recipientLocale($email, $actor),
                 ));
+
+                // The in-app notification for an account behind the address (CORE-009, ADR-029 §2).
+                InvitationSent::dispatch($invitation->id, $locked->id);
             }
 
             Activity::team($locked->id, $actor, 'team.invitation_created', [

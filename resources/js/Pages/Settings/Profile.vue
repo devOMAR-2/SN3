@@ -20,9 +20,12 @@ const form = useApiForm('account', {
   locale: user.locale as Locale,
   timezone: user.timezone,
   theme: user.theme as ThemePreference,
+  // CORE-009 (ADR-029 §5): notification preferences, saved with the rest of the profile.
+  email_notifications: user.email_notifications,
+  in_app_notifications: user.in_app_notifications,
 });
 const saved = ref(false);
-const ids = { locale: useId(), timezone: useId(), theme: useId() };
+const ids = { locale: useId(), timezone: useId(), theme: useId(), notifications: useId() };
 
 // The browser's IANA list; the server validates the value too.
 const timezones = computed<string[]>(() => {
@@ -44,8 +47,8 @@ async function submit(): Promise<void> {
   setThemePreference(result.theme, { persist: false });
   saved.value = true;
 
-  // Reload shared props (language, direction, profile) without a full page load.
-  router.reload({ only: languageChanged ? [] : ['auth'] });
+  // Reload shared props (language, direction, profile, unread count) without a full page load.
+  router.reload({ only: languageChanged ? [] : ['auth', 'inbox'] });
 }
 
 const selectClass =
@@ -99,6 +102,29 @@ const selectClass =
         </select>
         <p v-if="form.errors.theme" class="text-small text-danger" role="alert">{{ form.errors.theme }}</p>
       </div>
+
+      <fieldset class="flex flex-col gap-2" :aria-describedby="ids.notifications">
+        <legend class="text-small font-medium text-text">{{ t('inbox.preferences.title') }}</legend>
+        <p :id="ids.notifications" class="text-small text-text-muted">{{ t('inbox.preferences.description') }}</p>
+        <label class="flex min-h-9 items-center gap-2 text-body pointer-coarse:min-h-11">
+          <input
+            v-model="form.data.email_notifications"
+            type="checkbox"
+            name="email_notifications"
+            class="size-4 rounded-tiny border-border-control accent-primary pointer-coarse:size-5"
+          />
+          {{ t('inbox.preferences.email') }}
+        </label>
+        <label class="flex min-h-9 items-center gap-2 text-body pointer-coarse:min-h-11">
+          <input
+            v-model="form.data.in_app_notifications"
+            type="checkbox"
+            name="in_app_notifications"
+            class="size-4 rounded-tiny border-border-control accent-primary pointer-coarse:size-5"
+          />
+          {{ t('inbox.preferences.in_app') }}
+        </label>
+      </fieldset>
 
       <AppButton type="submit" :loading="form.processing.value" class="self-start">{{
         t('account.settings.submit')

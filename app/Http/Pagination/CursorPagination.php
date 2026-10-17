@@ -39,6 +39,27 @@ final class CursorPagination
      */
     public static function respond(Request $request, Builder $query, Closure $transform, array $meta = [], ?string $scope = null): JsonResponse
     {
+        return self::respondMany(
+            $request,
+            $query,
+            static fn (array $items): array => array_map($transform, $items),
+            $meta,
+            $scope,
+        );
+    }
+
+    /**
+     * Like respond(), with one transform for the whole page, for representations that load related
+     * rows in one query per page (e.g. the inbox, CORE-009).
+     *
+     * @template TModel of Model
+     *
+     * @param  Builder<TModel>  $query
+     * @param  Closure(list<TModel>): list<mixed>  $transform
+     * @param  array<string, mixed>  $meta
+     */
+    public static function respondMany(Request $request, Builder $query, Closure $transform, array $meta = [], ?string $scope = null): JsonResponse
+    {
         Validator::make($request->query(), [
             'limit' => ['sometimes', 'integer', 'min:1', 'max:'.self::MAX_LIMIT],
             'cursor' => ['sometimes', 'string', 'max:2048'],
@@ -61,8 +82,11 @@ final class CursorPagination
         }
         $next = $page->nextCursor();
 
+        /** @var list<TModel> $items */
+        $items = array_values($page->items());
+
         return ApiResponse::collection(
-            array_values(array_map($transform, $page->items())),
+            $transform($items),
             [
                 'next_cursor' => $next === null ? null : self::encode($next, $scope),
                 'has_more' => $page->hasMorePages(),

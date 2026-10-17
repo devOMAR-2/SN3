@@ -40,4 +40,43 @@ return [
         ],
     ],
 
+    // Inbox notification emails (CORE-009, ADR-029 §5).
+    'inbox' => [
+        'someone' => 'شخص ما',
+        'types' => [
+            'task_assigned' => [
+                'one' => 'أسند إليك :actor المهمة :key',
+                'many' => 'أسند إليك :actor المهمة :key',
+            ],
+            'task_updated' => [
+                'one' => 'حدّث :actor المهمة :key',
+                'many' => 'تحديثات على المهمة :key (:count)',
+            ],
+            'task_commented' => [
+                'one' => 'علّق :actor على المهمة :key',
+                'many' => 'تعليقات جديدة على المهمة :key (:count)',
+            ],
+            'comment_mentioned' => [
+                'one' => 'أشار إليك :actor في المهمة :key',
+                'many' => 'أشار إليك :actor في المهمة :key',
+            ],
+        ],
+        'task' => ':key: :title',
+        'where' => 'المشروع :project في فريق :team.',
+        'changed' => 'ما تغيّر: :fields.',
+        'separator' => '، ',
+        'fields' => [
+            'assignee_user_id' => 'المسؤول',
+            'description' => 'الوصف',
+            'due_date' => 'تاريخ الاستحقاق',
+            'label_ids' => 'التصنيفات',
+            'parent_task_id' => 'المهمة الأم',
+            'priority' => 'الأولوية',
+            'status_id' => 'الحالة',
+            'title' => 'العنوان',
+        ],
+        'action' => 'فتح المهمة',
+        'outro' => 'تصلك هذه الرسائل لأن إشعارات البريد مفعّلة. يمكنك إيقافها من الإعدادات: :url',
+    ],
+
 ];

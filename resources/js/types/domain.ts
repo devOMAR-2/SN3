@@ -204,3 +204,42 @@ export interface CursorPage<T> {
   data: T[];
   meta: { next_cursor: string | null; has_more: boolean; limit: number; request_id: string };
 }
+
+/** Notification types (App\Domain\Notifications\NotificationType; CORE-009, ADR-029 §2). */
+export const notificationTypes = [
+  'task.assigned',
+  'task.updated',
+  'task.commented',
+  'comment.mentioned',
+  'team.invitation',
+] as const;
+export type NotificationType = (typeof notificationTypes)[number];
+
+/** The task fields a `task.updated` notification may name (InboxPresenter::TASK_FIELDS). */
+export const notificationFields = [
+  'assignee_user_id',
+  'description',
+  'due_date',
+  'label_ids',
+  'parent_task_id',
+  'priority',
+  'status_id',
+  'title',
+] as const;
+
+/** One inbox notification (GET /api/v1/notifications; InboxPresenter, ADR-029 §4). */
+export interface InboxNotification {
+  id: string;
+  type: NotificationType;
+  team: { id: string; name: string };
+  project: { id: string; key: string; name: string } | null;
+  task: { id: string; key: string; title: string } | null;
+  comment_id: string | null;
+  actor: { id: string; name: string } | null;
+  fields: string[];
+  event_count: number;
+  invitation: { role: TeamRole; expires_at: string } | null;
+  read_at: string | null;
+  created_at: string;
+  updated_at: string;
+}

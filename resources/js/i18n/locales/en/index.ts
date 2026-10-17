@@ -22,6 +22,8 @@ import team from './team';
 import trash from './trash';
 import ui from './ui';
 import workflow from './workflow';
+// CORE-009 (inbox, notification preferences).
+import inbox from './inbox';
 
 const en = {
   account,
@@ -45,6 +47,7 @@ const en = {
   trash,
   ui,
   workflow,
+  inbox,
 };
 
 export type Messages = typeof en;

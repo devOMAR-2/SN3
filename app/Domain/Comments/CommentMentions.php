@@ -2,12 +2,10 @@
 
 namespace App\Domain\Comments;
 
-use App\Domain\Projects\ProjectVisibility;
-use App\Domain\Teams\TeamRole;
 use App\Models\Project;
 use App\Models\TaskComment;
+use App\Support\Tenancy\ProjectAudience;
 use Illuminate\Support\Facades\DB;
-use stdClass;
 
 /**
  * Mentions in comments (API_SPEC.md §6.2 "mention IDs must be explicit server-validated eligible
@@ -67,29 +65,7 @@ final class CommentMentions
      */
     public static function eligible(Project $project, array $candidates): array
     {
-        if ($candidates === []) {
-            return [];
-        }
-
-        $rows = DB::select(
-            'SELECT u.id FROM users AS u '
-            .'JOIN projects AS p ON p.id = ?::uuid '
-            .'JOIN team_memberships AS tm ON tm.team_id = p.team_id AND tm.user_id = u.id '
-            .'WHERE u.id = ANY(?::uuid[]) AND u.disabled_at IS NULL '
-            .'AND (p.visibility = ? OR tm.role = ? OR EXISTS (SELECT 1 FROM project_memberships AS pm WHERE pm.project_id = p.id AND pm.user_id = u.id)) '
-            .'ORDER BY u.id',
-            [$project->id, '{'.implode(',', $candidates).'}', ProjectVisibility::Team->value, TeamRole::Owner->value],
-        );
-
-        $ids = [];
-
-        foreach ($rows as $row) {
-            if ($row instanceof stdClass && is_string($row->id ?? null)) {
-                $ids[] = $row->id;
-            }
-        }
-
-        return $ids;
+        return ProjectAudience::filter($project->id, $candidates);
     }
 
     /**

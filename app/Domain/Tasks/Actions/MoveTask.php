@@ -4,6 +4,7 @@ namespace App\Domain\Tasks\Actions;
 
 use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
+use App\Domain\Tasks\Events\TaskChanged;
 use App\Domain\Tasks\TaskOrder;
 use App\Models\Task;
 use App\Models\User;
@@ -70,6 +71,12 @@ final class MoveTask
             if ($moved->wasChanged()) {
                 // In the move's transaction (ADR-027 §3); IDs only.
                 Activity::task($moved, $actor, 'task.moved', ['status_id' => ['from' => $from, 'to' => $moved->status_id]]);
+
+                // A status change notifies the task's watchers after commit, like a PATCH of `status_id`
+                // (CORE-009, ADR-029 §2); a reorder within the column notifies nobody.
+                if ($from !== $moved->status_id) {
+                    TaskChanged::dispatch($moved->id, $project->id, $project->team_id, $actor->id, ['status_id'], null);
+                }
             }
 
             return $moved->setRelation('project', $project);

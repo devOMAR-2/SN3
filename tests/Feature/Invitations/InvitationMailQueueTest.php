@@ -27,12 +27,18 @@ it('queues the invitation email encrypted, after the commit', function () {
         return $created;
     });
 
-    $payload = (string) DB::table('jobs')->value('payload');
+    // The email, and the in-app notification's delivery (CORE-009, InvitationSent: IDs only).
+    $payloads = DB::table('jobs')->orderBy('id')->pluck('payload')->map(fn ($payload): string => (string) $payload);
+    $commands = $payloads->map(fn (string $payload): string => (string) (json_decode($payload, true)['data']['command'] ?? ''));
 
-    expect(DB::table('jobs')->count())->toBe(1)
-        ->and($payload)->not->toContain($token)
-        ->and($payload)->not->toContain('queued@example.com')
-        ->and(json_decode($payload, true)['data']['command'] ?? '')->not->toContain('TeamInvitationNotification');
+    expect($payloads)->toHaveCount(2);
+
+    foreach ($payloads as $payload) {
+        expect($payload)->not->toContain($token)->and($payload)->not->toContain('queued@example.com');
+    }
+
+    expect($commands->filter(fn (string $command): bool => str_contains($command, 'TeamInvitationNotification')))->toBeEmpty()
+        ->and($commands->filter(fn (string $command): bool => str_contains($command, 'InvitationSent')))->toHaveCount(1);
 });
 
 it('renders user-written names in the email as plain text, never as links or images', function () {

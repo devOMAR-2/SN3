@@ -190,6 +190,14 @@ Files attached to tasks (CORE-008, ADR-027) are stored on a dedicated private di
 
 A reverse proxy in front of SN3 must accept request bodies of the upload size (Caddy and Apache do by default). Deleting an attachment deletes its file; the trash purge deletes the files of purged projects and teams; `attachments:sweep` removes anything an outage left behind.
 
+## Notifications
+
+The inbox (CORE-009, ADR-029) works without any setup. Notification emails are sent by the queue worker through the configured mailer (`MAIL_*`); without working mail settings the inbox still works and the emails are not delivered. Each user turns email and in-app notifications on or off in their settings.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SN3_NOTIFICATION_EMAIL_DELAY_SECONDS` | `120` | How long a notification's email waits in the queue. Further events on the same task go out in the same email, and nothing is sent if the user already read the notification in the inbox; `0` sends as soon as the worker runs the job |
+
 ## Team exports
 
 A team's Owner can export the team (members, projects including private ones, workflows, tasks, comments, the activity log and attachments with their files) through `POST /api/v1/teams/{team}/exports`. The worker builds a zip archive (`manifest.json`, one JSON file per section, and attachment files under `files/`; ADR-024, ADR-027) in `storage/app/exports`, part of the `sn3_app-storage` volume (and left out of backups). Only the requesting Owner can download it, through a signed link, and it is deleted 24 hours after it is ready. Offer an export before deleting a team (DECIDED-011).

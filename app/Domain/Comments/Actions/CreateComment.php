@@ -4,6 +4,7 @@ namespace App\Domain\Comments\Actions;
 
 use App\Domain\Activity\Activity;
 use App\Domain\Comments\CommentMentions;
+use App\Domain\Comments\Events\CommentAdded;
 use App\Domain\Comments\Events\UsersMentioned;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Models\Task;
@@ -17,7 +18,8 @@ use Illuminate\Support\Facades\DB;
  * Locks team → project (`contribute`: 423 when archived, 404 when the actor can no longer see the
  * project, 409 when they lost the right) → task (a task trashed meanwhile is a 404). In the same
  * transaction it stores the mentions the server resolved (CommentMentions) and the `comment.created`
- * activity entry; mentioned users are announced after commit (UsersMentioned).
+ * activity entry; mentioned users (UsersMentioned) and the new comment (CommentAdded, for watchers) are
+ * announced after commit.
  */
 final class CreateComment
 {
@@ -43,6 +45,9 @@ final class CreateComment
             if ($mentioned !== []) {
                 UsersMentioned::dispatch($comment->id, $locked->id, $project->id, $project->team_id, $actor->id, $mentioned);
             }
+
+            // The task's watchers are notified after commit (CORE-009, ADR-029 §2).
+            CommentAdded::dispatch($comment->id, $locked->id, $project->id, $project->team_id, $actor->id);
 
             return $comment;
         });

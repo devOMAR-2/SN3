@@ -15,7 +15,9 @@ test.describe('Password reset link @ui', () => {
     await page.goto(`/reset-password#token=not-a-real-token&email=${encodeURIComponent(email)}`);
 
     await expect(page.getByLabel('Email')).toHaveValue(email);
-    expect(new URL(page.url()).hash).toBe('');
+    // The fragment is dropped right after mount (router.replace); on a busy runner that can land a moment
+    // after the field shows the address, so wait for it rather than reading the URL once.
+    await expect.poll(() => new URL(page.url()).hash).toBe('');
 
     await page.getByLabel('Password').fill('a-brand-new-password-123');
     await page.getByRole('button', { name: 'Save new password' }).click();

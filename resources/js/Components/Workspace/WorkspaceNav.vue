@@ -1,16 +1,17 @@
 <script setup lang="ts">
-import { FolderKanban, House, LayoutGrid, Lock, Settings, Users } from '@lucide/vue';
+import { FolderKanban, House, Inbox, LayoutGrid, Lock, Settings, Users } from '@lucide/vue';
 import { Link, usePage } from '@inertiajs/vue3';
 import { computed, watch, type Component } from 'vue';
 import TeamSwitcher from '@/Components/Workspace/TeamSwitcher.vue';
 import { useNavProjects } from '@/Composables/useNavProjects';
+import { badgeText, useUnreadCount } from '@/Composables/useUnreadCount';
 import { useI18n } from '@/i18n';
 import { pages } from '@/lib/routes';
 import type { Team, TeamAbilities } from '@/types/domain';
 
 /**
- * Sidebar content (DESIGN_SYSTEM.md §3.1): workspace switcher, Home, Teams, and the current team's pages and
- * projects. In the tablet rail (`collapsed`) links show icons with accessible names. Settings appears only
+ * Sidebar content (DESIGN_SYSTEM.md §3.1): workspace switcher, Home, Inbox (with the unread count, CORE-009),
+ * Teams, and the current team's pages and projects. In the tablet rail (`collapsed`) links show icons with accessible names. Settings appears only
  * when the server says the user may open it (`teamCan.view_settings`).
  */
 const props = withDefaults(
@@ -21,6 +22,7 @@ const props = withDefaults(
 const { t } = useI18n();
 const page = usePage();
 const nav = useNavProjects();
+const unread = useUnreadCount();
 
 watch(
   () => props.team?.id,
@@ -39,10 +41,21 @@ interface Item {
   label: string;
   icon: Component;
   exact?: boolean;
+  /** A count shown as a badge, with the item's accessible name saying it (`accessibleLabel`). */
+  badge?: number;
+  accessibleLabel?: string;
 }
 
 const general = computed<Item[]>(() => [
   { href: pages.home(), label: t('nav.home'), icon: House, exact: true },
+  {
+    href: pages.inbox(),
+    label: t('nav.inbox'),
+    icon: Inbox,
+    exact: true,
+    badge: unread.count.value,
+    accessibleLabel: unread.count.value > 0 ? t('inbox.link_unread', { count: unread.count.value }) : undefined,
+  },
   { href: pages.teams(), label: t('nav.teams'), icon: LayoutGrid, exact: true },
 ]);
 
@@ -85,13 +98,20 @@ const linkClass =
       <li v-for="item in general" :key="item.href">
         <Link
           :href="item.href"
-          :class="[linkClass, collapsed && 'justify-center']"
+          :class="[linkClass, collapsed && 'relative justify-center']"
           :aria-current="isActive(item) ? 'page' : undefined"
-          :aria-label="collapsed ? item.label : undefined"
-          :title="collapsed ? item.label : undefined"
+          :aria-label="item.accessibleLabel ?? (collapsed ? item.label : undefined)"
+          :title="collapsed ? (item.accessibleLabel ?? item.label) : undefined"
         >
           <component :is="item.icon" class="size-4 shrink-0 text-text-muted" aria-hidden="true" />
-          <span v-if="!collapsed">{{ item.label }}</span>
+          <span v-if="!collapsed" class="min-w-0 flex-1">{{ item.label }}</span>
+          <span
+            v-if="item.badge"
+            aria-hidden="true"
+            class="rounded-pill bg-primary px-1.5 text-caption font-semibold text-primary-on"
+            :class="collapsed && 'absolute -end-1 -top-1'"
+            >{{ badgeText(item.badge) }}</span
+          >
         </Link>
       </li>
     </ul>

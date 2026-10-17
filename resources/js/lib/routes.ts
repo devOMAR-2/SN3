@@ -17,6 +17,7 @@ export const pages = {
   project: (slug: string, key: string): string => `/t/${segment(slug)}/p/${segment(key)}`,
   projectSettings: (slug: string, key: string): string => `/t/${segment(slug)}/p/${segment(key)}/settings`,
   task: (id: string): string => `/tasks/${segment(id)}`,
+  inbox: (): string => '/inbox',
   verifyEmail: (): string => '/verify-email',
   profile: (): string => '/settings',
 };

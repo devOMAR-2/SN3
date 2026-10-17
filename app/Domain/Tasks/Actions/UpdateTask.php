@@ -4,6 +4,7 @@ namespace App\Domain\Tasks\Actions;
 
 use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
+use App\Domain\Tasks\Events\TaskChanged;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Tasks\TaskHierarchy;
 use App\Domain\Tasks\TaskLabels;
@@ -118,7 +119,11 @@ final class UpdateTask
             }, lock: Task::WRITE_LOCK);
 
             if ($updated->wasChanged()) {
-                self::log($updated, $actor, $before, $labelsChanged);
+                $fields = self::log($updated, $actor, $before, $labelsChanged);
+
+                // Watchers and a new assignee are notified after commit (CORE-009, ADR-029 §2).
+                $assigned = in_array('assignee_user_id', $fields, true) ? $updated->assignee_user_id : null;
+                TaskChanged::dispatch($updated->id, $project->id, $project->team_id, $actor->id, $fields, $assigned);
             }
 
             return $updated->setRelation('project', $project);
@@ -131,8 +136,9 @@ final class UpdateTask
      * or dates. Titles and descriptions are never copied, because they may be private.
      *
      * @param  array<string, string|null>  $before
+     * @return list<string> the changed fields
      */
-    private static function log(Task $task, User $actor, array $before, bool $labelsChanged): void
+    private static function log(Task $task, User $actor, array $before, bool $labelsChanged): array
     {
         $fields = array_values(array_diff(array_keys($task->getChanges()), ['version', 'updated_at', 'position']));
 
@@ -156,5 +162,7 @@ final class UpdateTask
         }
 
         Activity::task($task, $actor, 'task.updated', $changes);
+
+        return $fields;
     }
 }

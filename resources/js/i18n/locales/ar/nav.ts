@@ -2,6 +2,7 @@ import type { Messages } from '../en';
 
 export default {
   home: 'الرئيسية',
+  inbox: 'الوارد',
   my_work: 'مهامي',
   teams: 'الفرق',
   your_teams: 'فرقك',

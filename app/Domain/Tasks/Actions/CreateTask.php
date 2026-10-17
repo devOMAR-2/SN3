@@ -5,6 +5,7 @@ namespace App\Domain\Tasks\Actions;
 use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Projects\TaskNumbers;
+use App\Domain\Tasks\Events\TaskChanged;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Tasks\TaskHierarchy;
 use App\Domain\Tasks\TaskLabels;
@@ -87,6 +88,11 @@ final class CreateTask
                 'priority' => $task->priority->value,
                 'due_date' => $input['due_date'] ?? null,
             ], fn (mixed $value): bool => $value !== null));
+
+            // The new assignee's notification (CORE-009), after commit.
+            if ($assigneeId !== null && $assigneeId !== $actor->id) {
+                TaskChanged::dispatch($task->id, $locked->id, $locked->team_id, $actor->id, [], $assigneeId);
+            }
 
             return $task->setRelation('project', $locked);
         });
