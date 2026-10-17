@@ -23,7 +23,20 @@ export interface SeededTeam {
   members: Record<string, Role>;
 }
 
+/** A seeded project (CORE-011): every text of it carries `canary`. */
+export interface SeededProject {
+  key: string;
+  team: string;
+  project_key: string;
+  visibility: 'team' | 'private';
+  canary: string;
+  members: Record<string, 'manager' | 'contributor'>;
+  ids: Record<'project' | 'task' | 'comment' | 'attachment' | 'label' | 'checklist_item' | 'status', string>;
+  notifications: { to: string; type: string; actor: string; id: string }[];
+}
+
 export const PASSWORD: string = fixture.password;
+export const PROJECTS = fixture.projects as unknown as SeededProject[];
 export const USERS = fixture.users as unknown as SeededUser[];
 export const TEAMS = fixture.teams as unknown as SeededTeam[];
 /** Seeded users in no team, for flows that change data (they never appear in USERS' isolation checks). */
@@ -105,4 +118,14 @@ export async function apiWrite(
     headers: { 'X-XSRF-TOKEN': await xsrfToken(page), Accept: 'application/json', ...headers },
     data,
   });
+}
+
+/** Whether the seeded user may see the seeded project (team project: any team member; private: Owner and members). */
+export function canSee(userKey: string, project: SeededProject): boolean {
+  const role = expectedRoles(userKey)[team(project.team).id];
+
+  if (role === undefined) return false;
+  if (project.visibility === 'team') return true;
+
+  return role === 'owner' || userKey in project.members;
 }

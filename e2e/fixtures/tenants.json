@@ -1,5 +1,5 @@
 {
-  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments. `workflow_users` belong to no seeded team: E2E flows that change data (invitations, CORE-002) use them, so the read-only isolation suite over `users` stays deterministic. `journey_users` are also in no seeded team: the CORE-006 journey test (e2e/tests/core-journey.spec.ts) creates its own team, project and task with them, and the CORE-009 inbox test (e2e/tests/inbox.ui.spec.ts) its own team per viewport with the `inbox_*` users.",
+  "$comment": "Deterministic E2E/test tenants (FND-008). Loaded by Database\\Seeders\\E2ETenantSeeder and by the Playwright suite. Test-only data: the seeder refuses to run outside local, testing and e2e environments. `workflow_users` belong to no seeded team: E2E flows that change data (invitations, CORE-002) use them, so the read-only isolation suite over `users` stays deterministic. `journey_users` are also in no seeded team: the CORE-006 journey test (e2e/tests/core-journey.spec.ts) creates its own team, project and task with them, and the CORE-009 inbox test (e2e/tests/inbox.ui.spec.ts) its own team per viewport with the `inbox_*` users. `projects` seed one team-visible and one private project per team, each with a task, comment (with mentions), label, checklist item, attachment, extra status and inbox notifications; every text field carries the project's `canary` string, so the CORE-011 isolation suite (tests/Feature/Isolation, e2e/tests/isolation.spec.ts) can assert that no response leaks content its viewer may not see. Private projects: the alpha Admin and the beta Admin (`shared`) have no membership.",
   "password": "sn3-e2e-password-not-a-secret",
   "users": [
     {
@@ -143,6 +143,132 @@
       "name": "Board Mover",
       "email": "board.en@sn3.test",
       "locale": "en"
+    }
+  ],
+  "projects": [
+    {
+      "key": "alpha_team",
+      "team": "alpha",
+      "project_key": "ALP",
+      "visibility": "team",
+      "canary": "CNRY-ALPHA-TEAM",
+      "members": {},
+      "ids": {
+        "project": "0192a000-0000-7000-8000-0000000a1100",
+        "task": "0192a000-0000-7000-8000-0000000a1101",
+        "comment": "0192a000-0000-7000-8000-0000000a1102",
+        "attachment": "0192a000-0000-7000-8000-0000000a1103",
+        "label": "0192a000-0000-7000-8000-0000000a1104",
+        "checklist_item": "0192a000-0000-7000-8000-0000000a1105",
+        "status": "0192a000-0000-7000-8000-0000000a1106"
+      },
+      "assignee": null,
+      "mentions": ["alpha_viewer"],
+      "notifications": [
+        {
+          "to": "alpha_viewer",
+          "type": "comment.mentioned",
+          "actor": "alpha_owner",
+          "id": "0192a000-0000-7000-8000-0000000a1107"
+        }
+      ]
+    },
+    {
+      "key": "alpha_private",
+      "team": "alpha",
+      "project_key": "ALPX",
+      "visibility": "private",
+      "canary": "CNRY-ALPHA-PRIV",
+      "members": {
+        "alpha_member": "contributor"
+      },
+      "ids": {
+        "project": "0192a000-0000-7000-8000-0000000a1200",
+        "task": "0192a000-0000-7000-8000-0000000a1201",
+        "comment": "0192a000-0000-7000-8000-0000000a1202",
+        "attachment": "0192a000-0000-7000-8000-0000000a1203",
+        "label": "0192a000-0000-7000-8000-0000000a1204",
+        "checklist_item": "0192a000-0000-7000-8000-0000000a1205",
+        "status": "0192a000-0000-7000-8000-0000000a1206"
+      },
+      "assignee": "alpha_member",
+      "mentions": ["alpha_member", "alpha_admin"],
+      "notifications": [
+        {
+          "to": "alpha_member",
+          "type": "task.assigned",
+          "actor": "alpha_owner",
+          "id": "0192a000-0000-7000-8000-0000000a1207"
+        },
+        {
+          "to": "alpha_admin",
+          "type": "comment.mentioned",
+          "actor": "alpha_owner",
+          "id": "0192a000-0000-7000-8000-0000000a1208"
+        }
+      ]
+    },
+    {
+      "key": "beta_team",
+      "team": "beta",
+      "project_key": "BET",
+      "visibility": "team",
+      "canary": "CNRY-BETA-TEAM",
+      "members": {},
+      "ids": {
+        "project": "0192a000-0000-7000-8000-0000000b1100",
+        "task": "0192a000-0000-7000-8000-0000000b1101",
+        "comment": "0192a000-0000-7000-8000-0000000b1102",
+        "attachment": "0192a000-0000-7000-8000-0000000b1103",
+        "label": "0192a000-0000-7000-8000-0000000b1104",
+        "checklist_item": "0192a000-0000-7000-8000-0000000b1105",
+        "status": "0192a000-0000-7000-8000-0000000b1106"
+      },
+      "assignee": null,
+      "mentions": ["shared"],
+      "notifications": [
+        {
+          "to": "shared",
+          "type": "comment.mentioned",
+          "actor": "beta_owner",
+          "id": "0192a000-0000-7000-8000-0000000b1107"
+        }
+      ]
+    },
+    {
+      "key": "beta_private",
+      "team": "beta",
+      "project_key": "BETX",
+      "visibility": "private",
+      "canary": "CNRY-BETA-PRIV",
+      "members": {
+        "beta_member": "manager"
+      },
+      "ids": {
+        "project": "0192a000-0000-7000-8000-0000000b1200",
+        "task": "0192a000-0000-7000-8000-0000000b1201",
+        "comment": "0192a000-0000-7000-8000-0000000b1202",
+        "attachment": "0192a000-0000-7000-8000-0000000b1203",
+        "label": "0192a000-0000-7000-8000-0000000b1204",
+        "checklist_item": "0192a000-0000-7000-8000-0000000b1205",
+        "status": "0192a000-0000-7000-8000-0000000b1206"
+      },
+      "assignee": "beta_member",
+      "mentions": ["beta_member", "shared"],
+      "notifications": [
+        {
+          "to": "beta_member",
+          "type": "task.assigned",
+          "actor": "beta_owner",
+          "id": "0192a000-0000-7000-8000-0000000b1207"
+        },
+        {
+          "to": "shared",
+          "type": "comment.mentioned",
+          "actor": "beta_owner",
+          "id": "0192a000-0000-7000-8000-0000000b1208"
+        }
+      ]
     }
   ]
 }

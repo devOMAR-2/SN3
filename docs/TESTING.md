@@ -25,14 +25,21 @@ The password is public, so the seeder throws unless `APP_ENV` is `local`, `testi
 php artisan migrate:fresh --seed --seeder="Database\Seeders\E2ETenantSeeder"
 ```
 
-Add a user or team in `tenants.json` when a later task needs one (private projects arrive with CORE-003). Tests read the fixture rather than hard-coding IDs.
+Add a user, team or project in `tenants.json` when a later task needs one. Tests read the fixture rather than hard-coding IDs.
 
-Tenant isolation is proved twice:
+`projects` (CORE-011) seeds, per team, a team-visible and a private project, each with a task, label, checklist item, comment with mentions, attachment, extra status and inbox notifications. Every text field carries the project's **canary** (`CNRY-ALPHA-PRIV`, …), so a test can assert that a response holds no canary its viewer may not see. In both private projects the Team Admin has no membership (`alpha_admin`, and `shared` in beta), and was mentioned there, so they hold notifications they must never see.
+
+Tenant isolation is proved at three levels:
 
 - **`tests/Feature/Tenancy/SeededTenantIsolationTest.php` (Pest):** every user × every team through the API and the policies. Fast, and part of `composer test`.
-- **`e2e/tests/tenant-isolation.spec.ts` (Playwright):** the same matrix (`/me/teams`, `/teams`, `/teams/{id}`) through the running app with real sessions and CSRF. A foreign team must look exactly like a missing one.
-
-Both were checked by mutation: removing the membership filter from `AccessibleTeams` makes them fail.
+- **`e2e/tests/tenant-isolation.spec.ts` (Playwright):** the same matrix (`/me/teams`, `/teams`, `/teams/{id}`) through the running app with real sessions and CSRF. A foreign team must look exactly like a missing one. Both of these fail when the membership filter is removed from `AccessibleTeams`.
+- **`tests/Feature/Isolation/` (Pest, CORE-011):** the whole application against the seeded world. What a user may not see is a list of *needles*: the canaries and row IDs of projects hidden from them, the name, slug and IDs of teams they are not in, their teams' private trashed project unless they own the team, and the name, email and ID of every person they share no team with. Needles are matched as written and as JSON and HTML encode them (`\u0641…` for Arabic), after removing the echo of the request's own URL.
+  - `RouteInventoryTest`: every registered route is listed in `IsolationRoutes`, as `SCOPED` (it names a tenant resource) or `OPEN` with its kind. A new route fails the suite until it is classified, and every parameter of a scoped route must have a value in the world.
+  - `CrossTenantMatrixTest`: every scoped route, for every seeded resource, by every user who may not see it: `404`, no needle in the body, and no change to the application's tables, the stored attachment and export files or the queued jobs. The same URL then reaches the resource for a user who may see it (any answer but 404, 405 or 5xx), so a 404 is never just a wrong URL; guests get `401` or the sign-in redirect.
+  - `GuessedIdentifierTest`: another tenant's real ID (and, for a Team Admin, a private project of their own team), a random UUID, and uppercased, suffixed, malformed and injection-shaped IDs get the same status, headers (apart from date, cookies, request ID and rate-limit counters) and body.
+  - `ListingLeakTest`: every page, list, activity feed and search (by text, task number and key) each user can open holds no needle; searches find exactly the visible tasks; the inbox and unread count list exactly the visible notifications. The world adds a stale assignment and a stale activity entry of each private project's Admin, rows the API cannot create today, so `/me/tasks` and `/me/activity` are proved to filter by visibility.
+  - Checked by mutation, each failing the suite: a Team Admin seeing private projects; unscoped teams, tasks, comments, attachments, `/me/tasks` or `/me/activity`; the inbox project check removed; search by number escaping its project; cross-team assignee names; a project or team name on the 404 page; Inertia props listing hidden projects; a header that differs for an ID that exists.
+- **`e2e/tests/isolation.spec.ts` (Playwright, CORE-011):** for every seeded user and every project hidden from them, the page URLs, API, attachment download, assigned tasks, project search and inbox through the running app; the same URLs answer the Team Owner (a positive control). A browser walk (`@ui`) shows a non-member Team Admin the team project and never the private one.
 
 ## Running the E2E suite locally
 

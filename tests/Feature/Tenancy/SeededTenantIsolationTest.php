@@ -6,6 +6,7 @@ use App\Models\User;
 use Database\Seeders\E2ETenantSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 
 // FND-008: the deterministic seeded tenants, and an exhaustive user × team matrix proving that no
 // team is visible across tenants (DATABASE.md §16 DB-T01 for the resources that exist so far).
@@ -13,6 +14,7 @@ use Illuminate\Support\Facades\DB;
 uses(RefreshDatabase::class);
 
 beforeEach(function () {
+    Storage::fake('attachments'); // the seeded projects' attachments (CORE-011)
     $this->seed(E2ETenantSeeder::class);
     $this->fixture = E2ETenantSeeder::fixture();
 });
