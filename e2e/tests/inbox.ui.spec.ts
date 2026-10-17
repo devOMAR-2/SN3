@@ -72,8 +72,10 @@ test.describe('Inbox @ui', () => {
     await inbox.getByRole('link', { name: new RegExp(`SEC-1\\s*Plan ${suffix}`) }).click();
     await expect(inbox).toHaveURL(new RegExp(`/tasks/${taskId}$`));
     await expect(inbox.getByRole('heading', { level: 1, name: `Plan ${suffix}` })).toBeVisible();
-    await inbox.getByRole('button', { name: 'Watch' }).click();
-    await expect(inbox.getByRole('button', { name: 'Watching' })).toHaveAttribute('aria-pressed', 'true');
+    const watch = inbox.getByRole('button', { name: 'Watch', exact: true });
+    await expect(watch).toHaveAttribute('aria-pressed', 'false');
+    await watch.click();
+    await expect(watch).toHaveAttribute('aria-pressed', 'true');
 
     await inbox.goto('/inbox');
     await expect(inbox.getByText('Inbox Owner assigned you a task')).toBeVisible();

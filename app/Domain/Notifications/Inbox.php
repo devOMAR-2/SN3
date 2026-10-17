@@ -21,6 +21,7 @@ use Illuminate\Support\Str;
  * - task notifications: the project passes AccessibleProjects for the recipient (team membership,
  *   private-project membership or Team Owner; team and project not in the trash), and the task is
  *   live. A mention also needs the comment to be live and to still mention the recipient;
+ * - nothing at all for a disabled account;
  * - invitation notifications: the invitation is still pending, is addressed to the recipient's
  *   verified email, its team is not in the trash, and the recipient has not joined it meanwhile.
  *
@@ -33,6 +34,9 @@ use Illuminate\Support\Str;
  */
 final class Inbox
 {
+    /** The unread count never exceeds this: `100` means "100 or more" (ADR-029 §4). */
+    public const UNREAD_COUNT_CAP = 100;
+
     public function __construct(private readonly AccessibleProjects $projects) {}
 
     /**
@@ -45,7 +49,8 @@ final class Inbox
     {
         $query = InboxNotification::query()->where('notifications.recipient_user_id', $user->id);
 
-        if (! $ignoreInAppPreference && ! NotificationPreferences::of($user)->inApp) {
+        // A disabled account sees nothing, whatever the notification is about.
+        if ($user->isDisabled() || (! $ignoreInAppPreference && ! NotificationPreferences::of($user)->inApp)) {
             return $query->whereRaw('false');
         }
 
@@ -73,7 +78,7 @@ final class Inbox
             });
 
             // An invitation is for whoever holds the verified address; nobody else ever sees it.
-            if ($user->hasVerifiedEmail() && ! $user->isDisabled()) {
+            if ($user->hasVerifiedEmail()) {
                 $visible->orWhere(function (Builder $invitation) use ($user): void {
                     $invitation->where('notifications.type', NotificationType::TeamInvitation->value)
                         ->whereExists(function (QueryBuilder $pending) use ($user): void {
@@ -113,9 +118,16 @@ final class Inbox
         return $query->orderByDesc('updated_at')->orderByDesc('id');
     }
 
+    /**
+     * The unread count, capped at UNREAD_COUNT_CAP: the badge shows `99+` beyond 99, so counting further
+     * would only make every page slower for users with a large unread backlog. The count stops at the
+     * cap (a LIMIT subquery), it does not read every unread row.
+     */
     public function unreadCount(User $user): int
     {
-        return $this->visibleTo($user)->whereNull('read_at')->count();
+        $unread = $this->visibleTo($user)->whereNull('read_at')->select('notifications.id')->limit(self::UNREAD_COUNT_CAP);
+
+        return DB::query()->fromSub($unread, 'unread')->count();
     }
 
     /**

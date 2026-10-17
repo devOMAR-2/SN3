@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { router, usePage } from '@inertiajs/vue3';
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import AppAlert from '@/Components/ui/AppAlert.vue';
 import AppButton from '@/Components/ui/AppButton.vue';
 import EmptyState from '@/Components/ui/EmptyState.vue';
@@ -13,7 +13,7 @@ import WorkspaceLayout from '@/Components/Workspace/WorkspaceLayout.vue';
 import { useAction } from '@/Composables/useAction';
 import { useCursorList } from '@/Composables/useCursorList';
 import { useFormat } from '@/Composables/useFormat';
-import { useUnreadCount } from '@/Composables/useUnreadCount';
+import { UNREAD_COUNT_CAP, useUnreadCount } from '@/Composables/useUnreadCount';
 import { useI18n } from '@/i18n';
 import { api, type ApiEnvelope } from '@/lib/api';
 import { pages } from '@/lib/routes';
@@ -71,6 +71,29 @@ function changed(item: InboxNotification): string | null {
   });
 }
 
+/** How long the live region stays empty before the next announcement (ms). */
+const ANNOUNCE_GAP_MS = 75;
+let pendingAnnouncement: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Says `text` in the live region. It is cleared first and set again a moment later (a tick is not
+ * always enough for screen readers), so the same text twice in a row (two items marked read) is still
+ * a change they announce.
+ */
+function announce(text: string): void {
+  clearTimeout(pendingAnnouncement);
+  announcement.value = '';
+  pendingAnnouncement = setTimeout(() => (announcement.value = text), ANNOUNCE_GAP_MS);
+}
+
+onBeforeUnmount(() => clearTimeout(pendingAnnouncement));
+
+function markedReadText(item: InboxNotification): string {
+  return item.task !== null
+    ? t('inbox.marked_read', { key: item.task.key })
+    : t('inbox.marked_read_invitation', { team: item.team.name });
+}
+
 async function refreshCount(): Promise<void> {
   try {
     const response = await api.get<ApiEnvelope<{ unread_count: number }>>('/notifications/unread-count');
@@ -101,8 +124,13 @@ async function markRead(item: InboxNotification): Promise<boolean> {
   }
 
   list.replace((entry) => entry.id === item.id, filter.value === 'unread' ? null : updated);
-  unread.set(unread.count.value - 1);
-  announcement.value = t('inbox.marked_read');
+  // At the cap the real count is unknown (100 or more): ask again rather than count down.
+  if (unread.count.value >= UNREAD_COUNT_CAP) {
+    void refreshCount();
+  } else {
+    unread.set(unread.count.value - 1);
+  }
+  announce(markedReadText(item));
 
   return true;
 }
@@ -125,7 +153,7 @@ async function markAllRead(): Promise<void> {
     return;
   }
 
-  announcement.value = result.marked_read > 0 ? t('inbox.all_marked_read') : t('inbox.nothing_to_mark');
+  announce(result.marked_read > 0 ? t('inbox.all_marked_read') : t('inbox.nothing_to_mark'));
   await list.reload();
   await refreshCount();
 }

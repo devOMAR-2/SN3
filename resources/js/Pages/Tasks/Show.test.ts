@@ -204,14 +204,18 @@ describe('Task detail', () => {
 
     await fireEvent.click(watch);
 
+    // A toggle button keeps one name; only its pressed state changes (WAI-ARIA).
     await waitFor(() =>
-      expect(screen.getByRole('button', { name: 'Watching' }).getAttribute('aria-pressed')).toBe('true'),
+      expect(screen.getByRole('button', { name: 'Watch' }).getAttribute('aria-pressed')).toBe('true'),
     );
+    expect(screen.queryByRole('button', { name: 'Watching' })).toBeNull();
     expect(http.post).toHaveBeenCalledWith('/tasks/task-1/watchers');
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Watching' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Watch' }));
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Watch' })).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Watch' }).getAttribute('aria-pressed')).toBe('false'),
+    );
     expect(http.delete).toHaveBeenCalledWith('/tasks/task-1/watchers/me');
   });
 
@@ -219,9 +223,11 @@ describe('Task detail', () => {
     http.delete.mockRejectedValue(apiFailure(423, 'resource_locked'));
     renderTask({ edit: false, delete: false, manage_labels: false }, 'ar', true);
 
-    await fireEvent.click(screen.getByRole('button', { name: 'تتابعها' }));
+    const watch = screen.getByRole('button', { name: 'متابعة' });
+    expect(watch.getAttribute('aria-pressed')).toBe('true');
+    await fireEvent.click(watch);
 
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'تتابعها' })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'متابعة' })).toBeNull());
     expect(http.delete).toHaveBeenCalledWith('/tasks/task-1/watchers/me');
   });
 

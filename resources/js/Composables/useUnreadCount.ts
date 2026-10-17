@@ -24,7 +24,13 @@ export function useUnreadCount(): { count: Ref<number>; set: (value: number) => 
   return { count, set: (value) => (count.value = Math.max(0, value)) };
 }
 
-/** The badge text: the count, or `99+` beyond 99. */
+/**
+ * The server stops counting here (`Inbox::UNREAD_COUNT_CAP`): `100` means "100 or more", so a client
+ * cannot count down from it and has to ask the server again.
+ */
+export const UNREAD_COUNT_CAP = 100;
+
+/** The badge text: the count, or `99+` beyond 99 (the capped `100` included). */
 export function badgeText(value: number): string {
   return value > 99 ? '99+' : String(value);
 }
