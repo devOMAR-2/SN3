@@ -91,3 +91,18 @@ export async function apiPost(
     data,
   });
 }
+
+/** Any JSON write to /api/v1 (PATCH, PUT, DELETE…), like apiPost(). */
+export async function apiWrite(
+  page: Page,
+  method: 'patch' | 'put' | 'delete',
+  path: string,
+  data: unknown,
+  headers: Record<string, string> = {},
+): Promise<APIResponse> {
+  return page.request.fetch(`/api/v1${path}`, {
+    method,
+    headers: { 'X-XSRF-TOKEN': await xsrfToken(page), Accept: 'application/json', ...headers },
+    data,
+  });
+}

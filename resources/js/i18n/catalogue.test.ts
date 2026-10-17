@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { notificationFields, notificationTypes } from '@/types/domain';
 import { hasTranslation, locales } from './index';
 
 // Every static `t('…')` key used by a component, page, composable or helper exists in Arabic and English
@@ -26,6 +27,12 @@ const dynamicKeys = [
   ...['team_archived', 'project_archived', 'read_only'].flatMap((l) => [`lock.${l}.title`, `lock.${l}.body`]),
   ...['403', '404', '419', '429', '500', '503'].flatMap((s) => [`error.page.${s}.title`, `error.page.${s}.body`]),
   ...['failed', 'expired'].map((s) => `team.export.${s}`),
+  // CORE-009: the inbox renders every notification type and field name.
+  ...notificationTypes.map((type) => `inbox.types.${type.replace('.', '_')}`),
+  ...['task_updated', 'task_commented'].map((type) => `inbox.types_many.${type}`),
+  ...notificationFields.map((field) => `inbox.fields.${field}`),
+  'task.watch_started',
+  'task.watch_stopped',
 ];
 
 describe('translation catalogue', () => {

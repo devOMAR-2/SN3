@@ -67,11 +67,14 @@ export function sharedProps(locale: 'ar' | 'en' = 'en', userId = 'me'): Record<s
         locale,
         timezone: 'UTC',
         theme: 'system',
+        email_notifications: true,
+        in_app_notifications: true,
         created_at: null,
       },
     },
     flash: { status: null },
     features: { registration: true },
     workspace: { teams: [], has_more: false },
+    inbox: { unread_count: 0 },
   };
 }

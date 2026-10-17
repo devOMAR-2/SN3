@@ -18,6 +18,9 @@ class UserPreference extends Model
 {
     public const DEFAULT_THEME = 'system';
 
+    /** Email and in-app notifications are on until the user turns them off (CORE-009, ADR-029 §5). */
+    public const DEFAULT_NOTIFICATIONS = true;
+
     /** @var list<string> */
     public const THEMES = ['system', 'light', 'dark'];
 
@@ -34,14 +37,16 @@ class UserPreference extends Model
      */
     protected $fillable = [
         'theme',
+        'email_notifications',
+        'in_app_notifications',
     ];
 
     /**
      * @var array<string, mixed>
      */
     protected $attributes = [
-        'email_notifications' => true,
-        'in_app_notifications' => true,
+        'email_notifications' => self::DEFAULT_NOTIFICATIONS,
+        'in_app_notifications' => self::DEFAULT_NOTIFICATIONS,
         'theme' => self::DEFAULT_THEME,
         'settings' => '{}',
     ];

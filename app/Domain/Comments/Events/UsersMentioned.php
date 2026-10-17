@@ -11,7 +11,7 @@ use Illuminate\Foundation\Events\Dispatchable;
  * Dispatched after the comment commits, never for a request that rolls back. It carries IDs only
  * (AGENTS.md §5 "Async"): a listener must re-resolve the comment, its task and project, and re-check
  * that each user can still see the project at send time (API_SPEC.md §9, FR-COL-005), because access
- * may change between the comment and the notification. Nothing listens yet.
+ * may change between the comment and the notification. SendInboxNotifications listens (CORE-009, ADR-029 §2).
  */
 final class UsersMentioned implements ShouldDispatchAfterCommit
 {

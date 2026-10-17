@@ -10,6 +10,12 @@ export default {
   delete_title: 'Delete {key}?',
   delete_body: 'The task leaves every list. The Owner or a Project Manager can restore it.',
   close: 'Close task',
+  // CORE-009: watching (API_SPEC.md §6.1 /watchers).
+  watch: 'Watch',
+  watching: 'Watching',
+  watch_hint: 'Watchers are notified of edits and new comments.',
+  watch_started: 'You are now watching {key}.',
+  watch_stopped: 'You no longer watch {key}.',
   details: 'Task details',
   edit_title: 'Edit title',
   subtask_of: 'Subtask of',

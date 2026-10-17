@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Domain\Notifications\Inbox;
 use App\Http\Pages\Workspace;
 use App\Http\Resources\MeResource;
 use App\Models\User;
@@ -57,6 +58,12 @@ class HandleInertiaRequests extends Middleware
                 $user = $request->user();
 
                 return $user instanceof User ? Workspace::switcher($user) : null;
+            },
+            // CORE-009: the unread count for the Inbox link, through the inbox's read-time access rules.
+            'inbox' => function () use ($request): ?array {
+                $user = $request->user();
+
+                return $user instanceof User ? ['unread_count' => app(Inbox::class)->unreadCount($user)] : null;
             },
         ];
     }

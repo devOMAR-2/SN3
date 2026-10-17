@@ -1,0 +1,56 @@
+import type { Messages } from '../en';
+
+export default {
+  title: 'الوارد',
+  link_unread: 'الوارد، {count} غير مقروء',
+  filters: {
+    label: 'عرض',
+    all: 'الكل',
+    unread: 'غير المقروء',
+  },
+  mark_read: 'تعليم كمقروء',
+  mark_all_read: 'تعليم الكل كمقروء',
+  marked_read: 'تم التعليم كمقروء.',
+  all_marked_read: 'عُلّمت كل الإشعارات كمقروءة.',
+  nothing_to_mark: 'لا جديد لتعليمه كمقروء.',
+  unread: 'غير مقروء',
+  someone: 'شخص ما',
+  types: {
+    task_assigned: 'أسند إليك {actor} مهمة',
+    task_updated: 'حدّث {actor} مهمة تتابعها',
+    task_commented: 'علّق {actor} على مهمة تتابعها',
+    comment_mentioned: 'أشار إليك {actor} في تعليق',
+    team_invitation: 'دعاك {actor} للانضمام إلى {team}',
+  },
+  types_many: {
+    task_updated: 'تحديثات على مهمة تتابعها: {count}',
+    task_commented: 'تعليقات جديدة على مهمة تتابعها: {count}',
+  },
+  invitation_hint: 'للانضمام، افتح الرابط في رسالة الدعوة.',
+  changed: 'ما تغيّر: {fields}',
+  separator: '، ',
+  fields: {
+    assignee_user_id: 'المسؤول',
+    description: 'الوصف',
+    due_date: 'تاريخ الاستحقاق',
+    label_ids: 'التصنيفات',
+    parent_task_id: 'المهمة الأم',
+    priority: 'الأولوية',
+    status_id: 'الحالة',
+    title: 'العنوان',
+  },
+  where: '{project} في {team}',
+  empty: {
+    all_title: 'لا توجد إشعارات بعد',
+    all_body: 'تظهر هنا المهام المسندة إليك والإشارات إليك، والتعليقات والتحديثات على المهام التي تتابعها.',
+    unread_title: 'لا جديد لديك',
+    unread_body: 'لا توجد إشعارات غير مقروءة.',
+  },
+  disabled: 'إشعارات التطبيق متوقفة. يمكنك تفعيلها من إعدادات الملف الشخصي.',
+  preferences: {
+    title: 'الإشعارات',
+    description: 'اختر كيف يخبرك سنع بالمهام المسندة إليك والإشارات إليك والمهام التي تتابعها.',
+    email: 'أرسل إليّ الإشعارات بالبريد',
+    in_app: 'اعرض الإشعارات في صندوق الوارد',
+  },
+} satisfies Messages['inbox'];

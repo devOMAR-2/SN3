@@ -220,10 +220,21 @@ Diagram is intentionally conceptual: it omits ancillary tables and authorization
 
 - `id`, `recipient_user_id`, `team_id NULL`, `project_id NULL`, `actor_user_id NULL`, `type varchar(80)`, `payload jsonb`, `read_at NULL`, `created_at`; index `(recipient_user_id,read_at,created_at DESC)`.
 - Notification rendering must recheck authorization at read time. For a revoked private-project member, suppress or redact project data. Payload must not cache secrets or unrestricted private content.
+- **Implemented (CORE-009, ADR-029 §3, §7, migration `2026_10_23_000100`):**
+  - Technical columns: `task_id`, `comment_id`, `invitation_id` (what the notification is about, so rendering re-reads the live rows), `event_count` and `updated_at` (collapsed events; `updated_at` is the latest event and the inbox order), `email_due_at` and `emailed_at` (the queued email). `team_id` is NOT NULL. `payload` holds changed field names only (`{"fields": [...]}`), never titles or names: a JSON object of at most 1 KiB (CHECK).
+  - Keys (ADR-022 §5): `recipient_user_id → users`, `team_id → teams`, `(project_id, team_id) → projects`, `(task_id, project_id) → tasks`, `comment_id → task_comments`, `invitation_id → team_invitations` cascade; `actor_user_id → users` SET NULL. The trash purge removes notifications with their team or project.
+  - CHECKs: `type` in `task.assigned`, `task.updated`, `task.commented`, `comment.mentioned`, `team.invitation`; the columns each type needs (and no others); `event_count >= 1`; `updated_at >= created_at`.
+  - Indexes: `(recipient_user_id, read_at, created_at DESC)` (§12), `(recipient_user_id, updated_at DESC, id DESC)` (the inbox), the partial unique `(recipient_user_id, task_id, type) WHERE read_at IS NULL AND type IN (task types)` (one unread notification per task and type: noisy events collapse), `(recipient_user_id, comment_id) WHERE type = 'comment.mentioned'` and `(recipient_user_id, invitation_id) WHERE type = 'team.invitation'` (unique), partial `email_due_at`, and the cascade keys.
+  - Authorization is re-checked at read time on every read (list, unread count, mark read, mark all read, email): the project through AccessibleProjects, the task live, a mention's comment live and still mentioning the recipient, an invitation still pending for the recipient's verified address. Rows the recipient may no longer see are left out, never shown redacted; they are deleted only with what they name. DB-T08 (notifications): `tests/Feature/Notifications/NotificationRedactionTest.php`.
+
+### `task_watchers`
+
+- **Implemented (CORE-009, ADR-029 §1; technical addition, DECIDED-006 "watchers are separate entities if implemented"):** `task_id`, `user_id`, `team_id`, `project_id`, `created_at`; PK `(task_id, user_id)`; `team_id → teams`, `(project_id, team_id) → projects`, `(task_id, project_id) → tasks` and `user_id → users` cascade; indexes `(user_id)`, `(project_id, team_id)`. Recipients are filtered by project access at send time, so a watcher who lost access receives nothing while the row stays.
 
 ### `user_preferences`
 
 - `user_id PK`, `email_notifications boolean`, `in_app_notifications boolean`, `theme varchar(16)`, `settings jsonb`, `updated_at`. Validate bounded JSON keys; keep locale/timezone on `users`.
+- **Implemented (CORE-009, ADR-029 §5):** `email_notifications` and `in_app_notifications` (both default `true`, as created in FND-004) are read and written through `GET`/`PATCH /me`. `settings` stays unused: the specs name no per-type preferences.
 
 ## 9. GitHub integration — v1.0 linkage / v1.1 Issues sync (security-critical)
 

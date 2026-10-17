@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Web;
 
+use App\Domain\Notifications\TaskWatchers;
 use App\Domain\Tasks\TaskAssignments;
 use App\Http\Controllers\Controller;
 use App\Http\Pages\Abilities;
@@ -91,6 +92,8 @@ class TaskPageController extends Controller
             'assigneesTruncated' => $assigneesTruncated,
             'parent' => $parent === null ? null : $this->summary($parent, $project),
             'subtasks' => $subtasks->map(fn (Task $child): array => $this->summary($child, $project))->values()->all(),
+            // CORE-009: the viewer's own watch (anyone who can see the task may watch it).
+            'watching' => TaskWatchers::watching($task, $user),
             'can' => [
                 'edit' => $projectCan['contribute'],
                 'delete' => $projectCan['contribute'],

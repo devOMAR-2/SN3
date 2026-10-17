@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\InvitationTokenController;
 use App\Http\Controllers\Api\V1\LabelController;
 use App\Http\Controllers\Api\V1\MeController;
 use App\Http\Controllers\Api\V1\MyTasksController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\ProjectController;
 use App\Http\Controllers\Api\V1\ProjectLifecycleController;
 use App\Http\Controllers\Api\V1\ProjectMemberController;
@@ -20,6 +21,7 @@ use App\Http\Controllers\Api\V1\TaskAttachmentController;
 use App\Http\Controllers\Api\V1\TaskChecklistController;
 use App\Http\Controllers\Api\V1\TaskCommentController;
 use App\Http\Controllers\Api\V1\TaskController;
+use App\Http\Controllers\Api\V1\TaskWatcherController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamExportController;
 use App\Http\Controllers\Api\V1\TeamInvitationController;
@@ -162,6 +164,16 @@ Route::middleware('auth')->group(function (): void {
     Route::get('tasks/{task}/activity', [ActivityController::class, 'task'])->name('tasks.activity');
     Route::get('projects/{project}/activity', [ActivityController::class, 'project'])->name('projects.activity');
     Route::get('me/activity', [ActivityController::class, 'mine'])->name('me.activity');
+
+    // Watchers and the inbox (API_SPEC.md §6.1, §9; CORE-009, ADR-029). `{notification}` resolves only to
+    // the caller's own notifications about things they can see now (Inbox); anything else is a 404.
+    Route::post('tasks/{task}/watchers', [TaskWatcherController::class, 'store'])->name('tasks.watchers.store');
+    Route::delete('tasks/{task}/watchers/me', [TaskWatcherController::class, 'destroy'])->name('tasks.watchers.destroy');
+
+    Route::get('notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::get('notifications/unread-count', [NotificationController::class, 'unreadCount'])->name('notifications.unread-count');
+    Route::post('notifications/read-all', [NotificationController::class, 'readAll'])->name('notifications.read-all');
+    Route::post('notifications/{notification}/read', [NotificationController::class, 'read'])->name('notifications.read');
 
     // Team exports (API_SPEC.md §3, §13, §18; ADR-024), Owner only. The download URL is signed and
     // expires with the export; it also needs the requesting Owner's session.

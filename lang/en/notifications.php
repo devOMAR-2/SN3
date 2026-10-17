@@ -40,4 +40,43 @@ return [
         ],
     ],
 
+    // Inbox notification emails (CORE-009, ADR-029 §5).
+    'inbox' => [
+        'someone' => 'Someone',
+        'types' => [
+            'task_assigned' => [
+                'one' => ':actor assigned you :key',
+                'many' => ':actor assigned you :key',
+            ],
+            'task_updated' => [
+                'one' => ':actor updated :key',
+                'many' => ':count updates to :key',
+            ],
+            'task_commented' => [
+                'one' => ':actor commented on :key',
+                'many' => ':count new comments on :key',
+            ],
+            'comment_mentioned' => [
+                'one' => ':actor mentioned you on :key',
+                'many' => ':actor mentioned you on :key',
+            ],
+        ],
+        'task' => ':key: :title',
+        'where' => 'Project :project in the team :team.',
+        'changed' => 'Changed: :fields.',
+        'separator' => ', ',
+        'fields' => [
+            'assignee_user_id' => 'assignee',
+            'description' => 'description',
+            'due_date' => 'due date',
+            'label_ids' => 'labels',
+            'parent_task_id' => 'parent task',
+            'priority' => 'priority',
+            'status_id' => 'status',
+            'title' => 'title',
+        ],
+        'action' => 'Open the task',
+        'outro' => 'You get these emails because email notifications are on. You can turn them off in your settings: :url',
+    ],
+
 ];

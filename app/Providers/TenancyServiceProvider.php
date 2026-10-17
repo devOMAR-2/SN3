@@ -2,6 +2,8 @@
 
 namespace App\Providers;
 
+use App\Domain\Notifications\Inbox;
+use App\Models\InboxNotification;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\TaskAttachment;
@@ -80,6 +82,12 @@ class TenancyServiceProvider extends ServiceProvider
         // ADR-027 §5): a hidden project's file is a 404, and access is re-checked on every download.
         Route::bind('attachment', function (string $value): TaskAttachment {
             return $this->app->make(AccessibleAttachments::class)->findOrFail($this->user(), $value);
+        });
+
+        // `{notification}` resolves only to the user's own notifications about things they can see now
+        // (CORE-009, ADR-029 §3): someone else's, a hidden one and a random ID are the same 404.
+        Route::bind('notification', function (string $value): InboxNotification {
+            return $this->app->make(Inbox::class)->findOrFail($this->user(), $value);
         });
 
         // Only `POST …/restore-deleted` reaches the trash (CORE-010, ADR-022 §4): a trashed team for its

@@ -9,13 +9,18 @@ use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
 
 /**
- * PATCH /me: partial update of display name, language, timezone and theme (API_SPEC.md §2).
- * Absent fields stay unchanged; unknown fields are rejected (API_SPEC.md §1.2).
+ * PATCH /me: partial update of display name, language, timezone, theme (API_SPEC.md §2) and the
+ * notification preferences `email_notifications` and `in_app_notifications` (DATABASE.md §8,
+ * FR-COL-004; CORE-009, ADR-029 §5), strict booleans. Absent fields stay unchanged; unknown fields are
+ * rejected (API_SPEC.md §1.2).
  */
 class UpdateMeRequest extends FormRequest
 {
     /** @var list<string> */
-    public const FIELDS = ['name', 'locale', 'timezone', 'theme'];
+    public const FIELDS = ['name', 'locale', 'timezone', 'theme', 'email_notifications', 'in_app_notifications'];
+
+    /** The fields stored in `user_preferences`. */
+    public const PREFERENCE_FIELDS = ['theme', 'email_notifications', 'in_app_notifications'];
 
     /**
      * @return array<string, mixed>
@@ -27,6 +32,8 @@ class UpdateMeRequest extends FormRequest
             'locale' => ['sometimes', 'required', 'string', Rule::in(Locale::values())],
             'timezone' => ['sometimes', 'required', 'string', 'max:64', 'timezone:all'],
             'theme' => ['sometimes', 'required', 'string', Rule::in(UserPreference::THEMES)],
+            'email_notifications' => ['sometimes', 'required', 'boolean:strict'],
+            'in_app_notifications' => ['sometimes', 'required', 'boolean:strict'],
         ];
     }
 

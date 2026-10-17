@@ -117,4 +117,20 @@ return [
         'previous_disks' => array_values(array_filter(array_map('trim', explode(',', (string) env('SN3_ATTACHMENTS_PREVIOUS_DISKS', ''))))),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Notification emails (CORE-009, ADR-029 §5; API_SPEC.md §9)
+    |--------------------------------------------------------------------------
+    |
+    | A notification's email is held for this many seconds: events collapsed
+    | into the notification meanwhile go out in one email, and nothing is sent
+    | for a notification the recipient already read in the inbox. 0 sends as
+    | soon as a queue worker picks the job up.
+    |
+    */
+
+    'notifications' => [
+        'email_delay_seconds' => (int) env('SN3_NOTIFICATION_EMAIL_DELAY_SECONDS', 120),
+    ],
+
 ];

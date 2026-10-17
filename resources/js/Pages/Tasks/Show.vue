@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { X } from '@lucide/vue';
+import { Eye, EyeOff, X } from '@lucide/vue';
 import { Link, router } from '@inertiajs/vue3';
 import { computed, nextTick, reactive, ref, useTemplateRef } from 'vue';
 import QuickAddTask from '@/Components/Tasks/QuickAddTask.vue';
@@ -58,6 +58,8 @@ const props = defineProps<{
   assigneesTruncated: boolean;
   parent: TaskSummary | null;
   subtasks: TaskSummary[];
+  /** CORE-009: whether the viewer watches this task (anyone who can see it may). */
+  watching: boolean;
   can: TaskAbilities;
   teamCan: TeamAbilities;
   lock: Lock;
@@ -281,6 +283,29 @@ async function confirmDelete(): Promise<void> {
   }
 }
 
+// Watching (CORE-009, API_SPEC.md §6.1): a personal subscription, open to anyone who can see the task.
+const watching = ref(props.watching);
+const watchAction = useAction();
+const canWatch = computed(() => props.lock === null && !lockedNow.value && !gone.value);
+
+async function toggleWatch(): Promise<void> {
+  const next = !watching.value;
+  const url = next ? `/tasks/${task.value.id}/watchers` : `/tasks/${task.value.id}/watchers/me`;
+  const done = await watchAction.run(() => (next ? api.post(url) : api.delete(url)));
+
+  if (done !== null) {
+    watching.value = next;
+    showToast(t(next ? 'task.watch_started' : 'task.watch_stopped', { key: task.value.key }));
+  } else if (watchAction.error.value?.status === 423) {
+    watchAction.clear();
+    lockedNow.value = true;
+  } else if (!next && watchAction.error.value?.status === 404) {
+    // Not watching any more (another tab): the button follows.
+    watchAction.clear();
+    watching.value = false;
+  }
+}
+
 const projectUrl = computed(() => pages.project(props.team.slug, props.project.key));
 </script>
 
@@ -489,6 +514,25 @@ const projectUrl = computed(() => pages.project(props.team.slug, props.project.k
               <dd>{{ task.due_date ? format.date(task.due_date) : t('task.no_due_date') }}</dd>
             </div>
           </dl>
+
+          <div v-if="canWatch" class="flex flex-col gap-1.5">
+            <AppButton
+              class="self-start"
+              variant="secondary"
+              size="sm"
+              :aria-pressed="watching"
+              aria-describedby="task-watch-hint"
+              :loading="watchAction.processing.value"
+              @click="toggleWatch"
+            >
+              <component :is="watching ? EyeOff : Eye" class="size-4" aria-hidden="true" />
+              {{ watching ? t('task.watching') : t('task.watch') }}
+            </AppButton>
+            <p id="task-watch-hint" class="text-caption text-text-muted">{{ t('task.watch_hint') }}</p>
+            <p v-if="watchAction.message.value" class="text-small text-danger" role="alert">
+              {{ watchAction.message.value }}
+            </p>
+          </div>
 
           <div class="flex flex-col gap-1.5">
             <h3 class="text-small font-medium">{{ t('task.fields.label_ids') }}</h3>
