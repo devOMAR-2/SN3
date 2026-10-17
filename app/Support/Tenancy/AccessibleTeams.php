@@ -50,4 +50,21 @@ final class AccessibleTeams
 
         return $this->query($user)->whereKey($id)->firstOrFail();
     }
+
+    /**
+     * The team behind a browser page route `/t/{team_slug}/…` (API_SPEC.md §1.1; CORE-006, ADR-026).
+     * The same membership query as findOrFail(): a team the user does not belong to, a trashed team
+     * and a malformed slug are all the same 404 as an unknown one.
+     *
+     * @throws ModelNotFoundException<Team>
+     */
+    public function findBySlugOrFail(User $user, string $slug): Team
+    {
+        // The team slug format (API_SPEC.md §3, StoreTeamRequest::SLUG_PATTERN).
+        if (preg_match('/^[a-z0-9-]{3,40}$/', $slug) !== 1) {
+            throw (new ModelNotFoundException)->setModel(Team::class, [$slug]);
+        }
+
+        return $this->query($user)->where('teams.slug', $slug)->firstOrFail();
+    }
 }

@@ -7,7 +7,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Inertia\Testing\AssertableInertia;
 
 // CORE-002 pages: `/invite` (any visitor; the token stays in the fragment) and the team's invitations
-// page (Owner and Admins; 403 for other members, 404 for everyone else), ADR-025 §8.
+// page (Owner and Admins, now a redirect to the members page; 403 for other members, 404 for everyone
+// else), ADR-025 §8, ADR-026 §6.
 
 uses(RefreshDatabase::class);
 
@@ -20,20 +21,25 @@ it('renders the invitation page for guests and signed-in users', function () {
         ->assertInertia(fn (AssertableInertia $page) => $page->component('Invitations/Accept'));
 });
 
-it('shows the invitations page to the Owner and Admins, with who may invite an Admin', function () {
+it('sends the Owner and Admins from the invitations link to the members page, where the panel is', function () {
     $team = Team::factory()->create(['name' => 'Website']);
     $admin = TeamMembership::factory()->for($team)->role(TeamRole::Admin)->create()->user;
 
-    $this->actingAs($team->owner)->get("/teams/{$team->id}/invitations")
+    foreach ([$team->owner, $admin] as $user) {
+        $this->actingAs($user)->get("/teams/{$team->id}/invitations")
+            ->assertRedirect("/t/{$team->slug}/members");
+    }
+
+    // The members page carries what the invitations panel needs (CORE-006, ADR-026 §6).
+    $this->actingAs($team->owner)->get("/t/{$team->slug}/members")
         ->assertOk()
         ->assertInertia(fn (AssertableInertia $page) => $page
-            ->component('Teams/Invitations')
-            ->where('team', ['id' => $team->id, 'name' => 'Website'])
+            ->component('Teams/Members')
+            ->where('can.invite', true)
             ->where('can.invite_admin', true));
 
-    $this->actingAs($admin)->get("/teams/{$team->id}/invitations")
-        ->assertOk()
-        ->assertInertia(fn (AssertableInertia $page) => $page->where('can.invite_admin', false));
+    $this->actingAs($admin)->get("/t/{$team->slug}/members")
+        ->assertInertia(fn (AssertableInertia $page) => $page->where('can.invite', true)->where('can.invite_admin', false));
 });
 
 it('refuses the invitations page to other members (403), outsiders (404) and guests', function () {

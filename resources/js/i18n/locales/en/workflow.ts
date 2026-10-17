@@ -1,0 +1,30 @@
+// Workflow statuses in project settings (CORE-006; API_SPEC.md §5, ADR-021).
+export default {
+  title: 'Workflow',
+  help: 'Statuses are the columns tasks move through, in this order.',
+  default: 'New tasks start here',
+  add: 'Add status',
+  added: 'Status “{name}” added.',
+  new_name: 'New status',
+  edit: 'Edit status {name}',
+  delete: 'Delete status {name}',
+  delete_body: 'Tasks in this status move to the replacement. A status with tasks cannot be deleted without one.',
+  delete_submit: 'Delete status',
+  deleted: 'Status “{name}” deleted.',
+  replacement: 'Move its tasks to',
+  replacement_hint: 'Required when the status still has tasks.',
+  no_replacement: 'No replacement (the status is empty)',
+  move_up: 'Move {name} up',
+  move_down: 'Move {name} down',
+  moved: '{name} moved to position {position} of {total}.',
+  conflict: 'The workflow was changed meanwhile. The list now shows the latest version; check it and try again.',
+  categories: {
+    todo: 'To do',
+    in_progress: 'In progress',
+    done: 'Done',
+  },
+  fields: {
+    name: 'Status name',
+    category: 'Category',
+  },
+};

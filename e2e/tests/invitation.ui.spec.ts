@@ -15,9 +15,11 @@ test.describe('Team invitation link @ui', () => {
     await signIn(page, 'invite_owner');
     const created = await apiPost(page, '/teams', { name: teamName });
     expect(created.status()).toBe(201);
-    const teamId = (await created.json()).data.id as string;
+    const createdTeam = (await created.json()).data as { id: string; slug: string };
+    const teamId = createdTeam.id;
 
-    await page.goto(`/teams/${teamId}/invitations`);
+    // The invitations panel lives on the team's members page (CORE-006).
+    await page.goto(`/t/${createdTeam.slug}/members`);
     await page.getByLabel('Share link').check();
     await page.getByLabel('Role').selectOption('viewer');
     await page.getByRole('button', { name: 'Create link' }).click();
@@ -44,6 +46,7 @@ test.describe('Team invitation link @ui', () => {
     await expect(invitee).toHaveURL(/\/invite$/);
     await invitee.getByRole('button', { name: 'Join the team' }).click();
     await expect(invitee.getByText(`You are now a member of ${teamName}.`)).toBeVisible();
+    await expect(invitee.getByRole('link', { name: 'Continue' })).toHaveAttribute('href', `/t/${createdTeam.slug}`);
 
     const teams = await invitee.request.get('/api/v1/teams', { headers: { Accept: 'application/json' } });
     expect((await teams.json()).data).toContainEqual(expect.objectContaining({ id: teamId, role: 'viewer' }));

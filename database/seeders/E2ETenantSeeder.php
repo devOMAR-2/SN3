@@ -40,8 +40,9 @@ class E2ETenantSeeder extends Seeder
         DB::transaction(function () use ($fixture, $password): void {
             $users = [];
 
-            // `workflow_users` (no seeded team) are for E2E flows that change data, e.g. invitations.
-            foreach ([...$fixture['users'], ...($fixture['workflow_users'] ?? [])] as $data) {
+            // Users in no seeded team, for E2E flows that change data: `workflow_users` (invitations,
+            // CORE-002) and `journey_users` (the CORE-006 journey). The read-only specs never see their writes.
+            foreach ([...$fixture['users'], ...($fixture['workflow_users'] ?? []), ...($fixture['journey_users'] ?? [])] as $data) {
                 $user = new User;
                 $user->forceFill([
                     'id' => $data['id'],
@@ -79,7 +80,7 @@ class E2ETenantSeeder extends Seeder
     }
 
     /**
-     * @return array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>}
+     * @return array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, journey_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>}
      */
     public static function fixture(): array
     {
@@ -89,7 +90,7 @@ class E2ETenantSeeder extends Seeder
             throw new RuntimeException('Cannot read '.self::FIXTURE.'.');
         }
 
-        /** @var array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>} $fixture */
+        /** @var array{password: string, users: list<array{key: string, id: string, name: string, email: string, locale: string}>, workflow_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, journey_users?: list<array{key: string, id: string, name: string, email: string, locale: string}>, teams: list<array{key: string, id: string, name: string, slug: string, owner: string, members: array<string, string>}>} $fixture */
         $fixture = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
 
         return $fixture;

@@ -17,7 +17,7 @@ Test layers follow ARCHITECTURE.md §12. Every layer runs in CI on each pull req
 | `alpha` (فريق ألفا) | `alpha_owner` | `alpha_admin` | `alpha_member` | `alpha_viewer`, `shared` |
 | `beta` (Beta Studio) | `beta_owner` | `shared` | `beta_member` | none |
 
-`outsider` belongs to no team. Every user and team has a fixed UUIDv7 (membership IDs are generated), every email is verified, and all accounts share the fixture password. Names mix Arabic and English.
+`outsider` belongs to no team. `journey_users` (`journey_en`, CORE-006) are also in no seeded team: `e2e/tests/core-journey.spec.ts` signs in with them to create its own team, project and task, so its writes never reach the data the other specs read. Every user and team has a fixed UUIDv7 (membership IDs are generated), every email is verified, and all accounts share the fixture password. Names mix Arabic and English.
 
 The password is public, so the seeder throws unless `APP_ENV` is `local`, `testing` or `e2e`. It also expects an empty database:
 
