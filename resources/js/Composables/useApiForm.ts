@@ -12,6 +12,11 @@ import { api, toApiError, type ApiEnvelope, type ApiError } from '@/lib/api';
 
 export type FormMethod = 'post' | 'patch' | 'put';
 
+export interface SubmitOptions {
+  body?: Record<string, unknown>;
+  headers?: Record<string, string>;
+}
+
 export interface ApiForm<T extends Record<string, unknown>> {
   data: T;
   errors: Partial<Record<keyof T & string, string>>;
@@ -20,8 +25,8 @@ export interface ApiForm<T extends Record<string, unknown>> {
   processing: Ref<boolean>;
   /** The last failure (status and code), e.g. to react to 412 or 423 (CORE-006). */
   error: ShallowRef<ApiError | null>;
-  /** `headers` carries request headers such as `If-Match` (API_SPEC.md §1.4). */
-  submit<R>(method: FormMethod, url: string, options?: { headers?: Record<string, string> }): Promise<R | null>;
+  /** `body` overrides the submitted data (e.g. to drop fields that do not apply); `headers` are extra request headers. */
+  submit<R>(method: FormMethod, url: string, options?: SubmitOptions): Promise<R | null>;
   reset(...fields: (keyof T & string)[]): void;
 }
 
@@ -73,17 +78,18 @@ export function useApiForm<T extends Record<string, unknown>>(namespace: string,
     message.value = failure.code === 'network_error' ? t('validation.network_error') : failure.message;
   }
 
-  async function submit<R>(
-    method: FormMethod,
-    url: string,
-    options: { headers?: Record<string, string> } = {},
-  ): Promise<R | null> {
+  async function submit<R>(method: FormMethod, url: string, options: SubmitOptions = {}): Promise<R | null> {
     clearErrors();
     error.value = null;
     processing.value = true;
 
     try {
-      const response = await api.request<ApiEnvelope<R>>({ method, url, data: { ...data }, headers: options.headers });
+      const response = await api.request<ApiEnvelope<R>>({
+        method,
+        url,
+        data: options.body ?? { ...data },
+        headers: options.headers,
+      });
 
       return response.data.data;
     } catch (thrown) {

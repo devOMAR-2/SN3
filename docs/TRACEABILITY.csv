@@ -6,8 +6,8 @@ FR-I18N-001,FND-006,Cross-cutting,R0,TEST-FR-I18N-001,"Automated: tests/Feature/
 FR-I18N-002,FND-006,Cross-cutting,R0,TEST-FR-I18N-002,"Automated: tests/Feature/WelcomePageTest.php, e2e/tests/sign-in.ui.spec.ts"
 FR-I18N-003,FND-006,Cross-cutting,R0,TEST-FR-I18N-003,"Automated: tests/Feature/Localization/{SetLocaleTest,LocaleSwitchTest}.php"
 FR-TEAM-001,CORE-001,Teams,R1,TEST-FR-TEAM-001,"Automated: tests/Feature/Teams/TeamManagementTest.php"
-FR-TEAM-002,CORE-002,Teams,R1,TEST-FR-TEAM-002,Planned; not executed
-FR-TEAM-003,CORE-002,Teams,R1,TEST-FR-TEAM-003,Planned; not executed
+FR-TEAM-002,CORE-002,Teams,R1,TEST-FR-TEAM-002,Automated: tests/Feature/Invitations/InvitationManagementTest.php; tests/Feature/Invitations/InvitationAcceptanceTest.php; e2e/tests/invitation.ui.spec.ts
+FR-TEAM-003,CORE-002,Teams,R1,TEST-FR-TEAM-003,Automated: tests/Feature/Invitations/InvitationAcceptanceTest.php; tests/Feature/Invitations/InvitationConcurrencyTest.php; tests/Feature/Invitations/InvitationSchemaTest.php
 FR-TEAM-004,CORE-001,Teams,R1,TEST-FR-TEAM-004,"Automated: tests/Feature/Teams/{TeamManagementTest,TeamPolicyTest}.php"
 FR-TEAM-005,CORE-001,Teams,R1,TEST-FR-TEAM-005,"Automated: tests/Feature/Teams/{TeamManagementTest,OwnershipTransferConcurrencyTest,TeamSchemaTest}.php"
 FR-TEAM-006,CORE-001,Teams,R1,TEST-FR-TEAM-006,"Partially automated: team access revocation in tests/Feature/Teams/TeamManagementTest.php; project access revocation in tests/Feature/Projects/{ProjectManagementTest,ProjectConcurrencyTest}.php; task assignments released in tests/Feature/Tasks/{AssignmentRevocationTest,TaskConcurrencyTest}.php; notifications (CORE-009) pending"

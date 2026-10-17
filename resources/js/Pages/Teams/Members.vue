@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { router, usePage } from '@inertiajs/vue3';
 import { computed, onMounted, ref } from 'vue';
+import InvitationsPanel from '@/Components/Teams/InvitationsPanel.vue';
 import AppAlert from '@/Components/ui/AppAlert.vue';
 import AppBadge from '@/Components/ui/AppBadge.vue';
 import AppButton from '@/Components/ui/AppButton.vue';
@@ -195,12 +196,10 @@ async function confirmTransfer(): Promise<void> {
       </template>
     </PageHeader>
 
-    <!--
-      EXTENSION POINT (CORE-002, invitations): mount InvitationsPanel here, e.g.
-      <InvitationsPanel v-if="can.invite" :team-id="team.id" :can-invite="can.invite" :can-invite-admin="can.invite_admin" />
-      or link to its /teams/{team}/invitations page. CORE-006 deliberately builds no invitation UI.
-    -->
-    <div data-extension-point="team-invitations" class="empty:hidden"></div>
+    <!-- Invitations (CORE-002): shown to those the server lets invite (`can.invite`, Owner and Admins). -->
+    <div v-if="can.invite" data-extension-point="team-invitations" class="mb-8">
+      <InvitationsPanel :team-id="team.id" :can-invite-admin="can.invite_admin" />
+    </div>
 
     <AppAlert v-if="roleAction.message.value" variant="error" class="mb-3">{{ roleAction.message.value }}</AppAlert>
 

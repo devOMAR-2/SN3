@@ -26,4 +26,18 @@ return [
         'outro' => 'If this was not you, you can ignore this email. Your account has not changed.',
     ],
 
+    'team_invitation' => [
+        'subject' => 'You are invited to join :team on SN3',
+        'intro' => ':inviter invited you to join the team ":team" on SN3 as :role.',
+        'action' => 'View invitation',
+        'expiry' => 'This invitation expires in :days days.',
+        'verified' => 'To accept it, sign in or create an SN3 account with this email address and verify the address.',
+        'outro' => 'If you did not expect this invitation, you can ignore this email.',
+        'roles' => [
+            'admin' => 'an Admin',
+            'member' => 'a Member',
+            'viewer' => 'a Viewer',
+        ],
+    ],
+
 ];

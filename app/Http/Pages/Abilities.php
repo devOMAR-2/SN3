@@ -2,6 +2,7 @@
 
 namespace App\Http\Pages;
 
+use App\Domain\Teams\TeamRole;
 use App\Models\Project;
 use App\Models\Team;
 use App\Models\User;
@@ -30,8 +31,8 @@ final class Abilities
             'create_project' => $writable && $gate->allows('createProject', $team),
             // CORE-002 (invitations) reads this flag for its panel on the members page.
             'invite' => $writable && $gate->allows('invite', $team),
-            // DECIDED-007: only the Owner may send (email-specific) Admin invitations; for CORE-002's panel.
-            'invite_admin' => $writable && $isOwner && $gate->allows('invite', $team),
+            // DECIDED-007: only the Owner may send (email-specific) Admin invitations (TeamPolicy::inviteAs).
+            'invite_admin' => $writable && $gate->allows('inviteAs', [$team, TeamRole::Admin]),
             // TeamPolicy::changeMemberRole: the Owner, for every member except the Owner's own row.
             'change_member_roles' => $writable && $gate->allows('changeRoles', $team),
             // TeamPolicy::removeMember for someone else: the Owner only.

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Invitations\InvitationRevocations;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
@@ -70,6 +71,9 @@ final class TransferOwnership
 
             // The former Owner, now an Admin, keeps only explicit private memberships (ADR-023 §5).
             TaskAssignments::releaseIneligible($locked->id, $currentOwner->id, null, 'ownership_transferred');
+
+            // An Admin may not invite Admins: the former Owner's pending Admin invitations go (ADR-025 §5).
+            InvitationRevocations::revokeIssuedBy($locked->id, $currentOwner->id, 'ownership_transferred', adminInvitationsOnly: true);
 
             Log::info('team.ownership_transferred', [
                 'team_id' => $locked->id,

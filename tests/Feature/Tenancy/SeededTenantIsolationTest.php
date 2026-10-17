@@ -27,8 +27,8 @@ function rolesIn(array $team): array
 }
 
 it('seeds two unrelated teams with every role, a two-team user and an outsider', function () {
-    // Plus the CORE-006 journey users, who belong to no team.
-    expect(User::query()->count())->toBe(count($this->fixture['users']) + count($this->fixture['journey_users'] ?? []))
+    // Plus the users in no seeded team: `workflow_users` (CORE-002) and `journey_users` (CORE-006).
+    expect(User::query()->count())->toBe(count($this->fixture['users']) + count($this->fixture['workflow_users']) + count($this->fixture['journey_users']))
         ->and(Team::query()->count())->toBe(2)
         ->and(User::query()->whereNull('email_verified_at')->count())->toBe(0);
 
@@ -44,13 +44,17 @@ it('seeds two unrelated teams with every role, a two-team user and an outsider',
         expect($roles)->toBe($expected);
     }
 
+    // Workflow users (E2E flows that change data, CORE-002) belong to no seeded team.
+    $workflowIds = collect($this->fixture['workflow_users'])->pluck('id');
+    expect(DB::table('team_memberships')->whereIn('user_id', $workflowIds)->count())->toBe(0);
+
     // The deferred owner checks pass, as they would at COMMIT.
     DB::statement('SET CONSTRAINTS ALL IMMEDIATE');
 });
 
 it('is deterministic: the same fixed IDs every run', function () {
     expect(User::query()->pluck('id')->sort()->values()->all())
-        ->toBe(collect([...$this->fixture['users'], ...($this->fixture['journey_users'] ?? [])])->pluck('id')->sort()->values()->all())
+        ->toBe(collect([...$this->fixture['users'], ...$this->fixture['workflow_users'], ...$this->fixture['journey_users']])->pluck('id')->sort()->values()->all())
         ->and(Team::query()->pluck('id')->sort()->values()->all())
         ->toBe(collect($this->fixture['teams'])->pluck('id')->sort()->values()->all());
 });

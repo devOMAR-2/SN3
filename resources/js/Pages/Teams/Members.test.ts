@@ -61,7 +61,7 @@ function renderMembers(can: TeamAbilities, me = 'me') {
 describe('Team members page', () => {
   beforeEach(() => {
     http.get.mockImplementation(async (url: string) =>
-      url.includes('/projects')
+      url.includes('/projects') || url.includes('/invitations')
         ? { data: { data: [], meta: { next_cursor: null, has_more: false } } }
         : { data: { data: members, meta: { next_cursor: null, has_more: false } } },
     );
@@ -113,7 +113,7 @@ describe('Team members page', () => {
   it('offers every member as the new Owner, reading all pages of the list', async () => {
     const page2: TeamMember = { user_id: 'far', name: 'Fatima Far', role: 'member', joined_at: '2026-10-04T09:00:00Z' };
     http.get.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
-      if (url.includes('/projects')) {
+      if (url.includes('/projects') || url.includes('/invitations')) {
         return { data: { data: [], meta: { next_cursor: null, has_more: false } } };
       }
 
@@ -140,10 +140,16 @@ describe('Team members page', () => {
     expect(within(select).getByRole('option', { name: 'Me' })).toBeTruthy();
   });
 
-  it('marks where the invitations panel (CORE-002) plugs in', async () => {
+  it('shows the invitations panel (CORE-002) only to those the server lets invite', async () => {
     const { container } = renderMembers(none);
 
     await screen.findByRole('list', { name: 'Members' });
-    expect(container.querySelector('[data-extension-point="team-invitations"]')).not.toBeNull();
+    expect(container.querySelector('[data-extension-point="team-invitations"]')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Invitations' })).toBeNull();
+    cleanup();
+
+    renderMembers({ ...none, invite: true, invite_admin: true, leave: false }, 'owner');
+
+    expect(await screen.findByRole('heading', { name: 'Invitations' })).toBeTruthy();
   });
 });

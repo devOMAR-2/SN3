@@ -2,7 +2,9 @@
 
 use App\Http\Controllers\Auth\AuthPageController;
 use App\Http\Controllers\HomeController;
+use App\Http\Controllers\InvitationPageController;
 use App\Http\Controllers\LocaleController;
+use App\Http\Controllers\Teams\TeamInvitationsPageController;
 use App\Http\Controllers\Web\ProjectPageController;
 use App\Http\Controllers\Web\TaskPageController;
 use App\Http\Controllers\Web\TeamPageController;
@@ -19,6 +21,10 @@ Route::put('/locale', [LocaleController::class, 'update'])
 // The reset page is not guest-only: a redirect would carry the URL fragment (the reset token)
 // along to the next page.
 Route::get('/reset-password', [AuthPageController::class, 'resetPassword'])->name('password.reset');
+
+// Invitation links (CORE-002): `/invite#<token>`, for guests and signed-in users alike. The token is in
+// the fragment, which never reaches the server.
+Route::get('/invite', InvitationPageController::class)->name('invitations.show');
 
 Route::middleware('guest')->group(function (): void {
     Route::get('/login', [AuthPageController::class, 'login'])->name('login');
@@ -43,4 +49,6 @@ Route::middleware('auth')->group(function (): void {
     Route::get('/t/{teamSlug}/p/{projectKey}', [ProjectPageController::class, 'show'])->name('projects.show');
     Route::get('/t/{teamSlug}/p/{projectKey}/settings', [ProjectPageController::class, 'settings'])->name('projects.settings');
     Route::get('/tasks/{task}', [TaskPageController::class, 'show'])->name('tasks.show');
+
+    Route::get('/teams/{team}/invitations', TeamInvitationsPageController::class)->name('teams.invitations');
 });

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Invitations\InvitationRevocations;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\ProjectMembership;
@@ -59,6 +60,9 @@ final class RemoveMember
             TaskAssignments::releaseUser($team->id, $locked->user_id, 'team_member_removed');
 
             $locked->delete();
+
+            // An invitation never grants more than its issuer could grant today (ADR-025 §5).
+            InvitationRevocations::revokeIssuedBy($team->id, $locked->user_id, 'team_member_removed');
 
             Log::info('team.member_removed', [
                 'team_id' => $team->id,
