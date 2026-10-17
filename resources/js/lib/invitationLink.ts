@@ -3,7 +3,7 @@
  * which browsers never send to the server, so it stays out of access logs, proxies and Referer headers.
  *
  * A guest who opens the link must sign in first; the token is kept in this tab's sessionStorage for that
- * round trip only, and cleared as soon as the invitation page reads it back.
+ * round trip only, and cleared once the invitation is settled: joined, or found unusable.
  */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 const PENDING_KEY = 'sn3.pendingInvitation';
@@ -33,14 +33,20 @@ export function hasPendingInvitation(): boolean {
   }
 }
 
-/** Reads and forgets the remembered token. */
-export function takePendingInvitation(): string | null {
+/** The remembered token, kept until the invitation is settled (joined, or no longer usable). */
+export function peekPendingInvitation(): string | null {
   try {
-    const token = window.sessionStorage.getItem(PENDING_KEY);
-    window.sessionStorage.removeItem(PENDING_KEY);
-
-    return readInvitationToken(token ?? '');
+    return readInvitationToken(window.sessionStorage.getItem(PENDING_KEY) ?? '');
   } catch {
     return null;
+  }
+}
+
+/** Forgets the remembered token. */
+export function forgetPendingInvitation(): void {
+  try {
+    window.sessionStorage.removeItem(PENDING_KEY);
+  } catch {
+    // Storage blocked: nothing was kept.
   }
 }

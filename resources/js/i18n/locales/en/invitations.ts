@@ -43,6 +43,8 @@ export default {
     submit_link: 'Create link',
     created_email: 'Invitation sent to {email}.',
     created_link: 'Share link created.',
+    replayed:
+      'This invitation was already created by an earlier attempt, so its link cannot be shown again. Revoke it and create a new one if you need the link.',
     copy_warning: 'Copy this link now. For your security it is shown only once.',
     link_label: 'Invitation link',
     copy: 'Copy link',

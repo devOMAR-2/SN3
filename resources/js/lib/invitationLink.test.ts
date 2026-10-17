@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  forgetPendingInvitation,
   hasPendingInvitation,
+  peekPendingInvitation,
   readInvitationToken,
   rememberPendingInvitation,
-  takePendingInvitation,
 } from './invitationLink';
 
 const token = 'Ab3_-'.repeat(8) + 'xyz';
@@ -26,21 +27,25 @@ describe('invitation links', () => {
     expect(readInvitationToken(`#${token.slice(1)}=`)).toBeNull();
   });
 
-  it('keeps a pending invitation for one round trip in this tab', () => {
+  it('keeps a pending invitation in this tab until it is forgotten', () => {
     expect(hasPendingInvitation()).toBe(false);
 
     rememberPendingInvitation(token);
 
     expect(hasPendingInvitation()).toBe(true);
-    expect(takePendingInvitation()).toBe(token);
+    expect(peekPendingInvitation()).toBe(token);
+    expect(peekPendingInvitation()).toBe(token);
+
+    forgetPendingInvitation();
+
     expect(hasPendingInvitation()).toBe(false);
-    expect(takePendingInvitation()).toBeNull();
+    expect(peekPendingInvitation()).toBeNull();
   });
 
   it('ignores a tampered pending value', () => {
     window.sessionStorage.setItem('sn3.pendingInvitation', '<script>');
 
     expect(hasPendingInvitation()).toBe(false);
-    expect(takePendingInvitation()).toBeNull();
+    expect(peekPendingInvitation()).toBeNull();
   });
 });

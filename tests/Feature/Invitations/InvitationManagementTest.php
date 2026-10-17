@@ -439,3 +439,14 @@ it('re-checks the actor and the invitation on the locked team when revoking', fu
     expect(TeamInvitation::query()->select(TeamInvitation::COLUMNS)->findOrFail($invitation->id)->revoked_at)->toBeNull()
         ->and(TeamInvitation::query()->select(TeamInvitation::COLUMNS)->findOrFail($foreign->id)->revoked_at)->toBeNull();
 });
+
+it('leaves an expired invitation as it is when it is revoked', function () {
+    $invitation = invitationFor($this->team, $this->owner)['invitation'];
+    DB::table('team_invitations')->where('id', $invitation->id)->update(['expires_at' => now()->subMinute(), 'created_at' => now()->subDays(8)]);
+
+    $this->actingAs($this->owner)->deleteJson("{$this->uri}/{$invitation->id}")->assertNoContent();
+
+    $row = TeamInvitation::query()->select(TeamInvitation::COLUMNS)->findOrFail($invitation->id);
+    expect($row->revoked_at)->toBeNull()
+        ->and($row->status()->value)->toBe('expired');
+});

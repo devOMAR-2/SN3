@@ -7,7 +7,12 @@ import AppButton from '@/Components/ui/AppButton.vue';
 import { intlLocales, useI18n } from '@/i18n';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
 import { api, toApiError, type ApiEnvelope } from '@/lib/api';
-import { readInvitationToken, rememberPendingInvitation, takePendingInvitation } from '@/lib/invitationLink';
+import {
+  forgetPendingInvitation,
+  peekPendingInvitation,
+  readInvitationToken,
+  rememberPendingInvitation,
+} from '@/lib/invitationLink';
 
 /**
  * `/invite#<token>` (CORE-002, API_SPEC.md §3.1, ADR-025 §4): shows the invitation's team and role,
@@ -27,7 +32,7 @@ const { t, locale } = useI18n();
 const page = usePage();
 const user = computed(() => page.props.auth.user);
 
-const token = readInvitationToken(window.location.hash) ?? takePendingInvitation();
+const token = readInvitationToken(window.location.hash) ?? peekPendingInvitation();
 const preview = ref<Preview | null>(null);
 const loading = ref(token !== null);
 const joining = ref(false);
@@ -58,6 +63,13 @@ function problemFor(status: number): Problem {
   }
 }
 
+/** A token that can no longer be used is forgotten; a passing error (network, rate limit) keeps it. */
+function settleIfFinal(): void {
+  if (problem.value !== null && problem.value !== 'other') {
+    forgetPendingInvitation();
+  }
+}
+
 onMounted(async () => {
   // Drop the token from the address bar and history (Inertia keeps writing its page URL back).
   if (window.location.hash !== '') {
@@ -75,9 +87,15 @@ onMounted(async () => {
   try {
     const response = await api.get<ApiEnvelope<Preview>>(`/invitations/${token}/preview`);
     preview.value = response.data.data;
+
+    // Keep the token for this tab while the user still has to verify their address.
+    if (user.value !== null && !user.value.email_verified) {
+      rememberPendingInvitation(token);
+    }
   } catch (thrown) {
     const error = toApiError(thrown);
     problem.value = problemFor(error.status);
+    settleIfFinal();
     message.value = problem.value === 'other' ? error.message : null;
   } finally {
     loading.value = false;
@@ -103,9 +121,11 @@ async function join(): Promise<void> {
   try {
     const response = await api.post<ApiEnvelope<unknown>>(`/invitations/${token}/accept`);
     joined.value = response.status === 201 ? 'joined' : 'already';
+    forgetPendingInvitation();
   } catch (thrown) {
     const error = toApiError(thrown);
     problem.value = problemFor(error.status);
+    settleIfFinal();
     message.value = problem.value === 'other' ? error.message : null;
   } finally {
     joining.value = false;

@@ -30,6 +30,8 @@ Migration `2026_10_21_000100` follows DATABASE.md §3, with the FINAL rules enfo
 - The create response returns the token and the link `/invite#<token>` once. Both email and link invitations return it, so an operator without SMTP (ARCHITECTURE.md §11) can still share an invitation by hand.
 - **Idempotency replay without the token.** API_SPEC §1.4 replays "the original result", but DATABASE.md §0 rule 6 forbids storing raw invitation tokens. `EnforceIdempotency` gained a narrow, additive option: a controller names response fields that are stored, and so replayed, as `null` (here `data.token` and `data.url`). A replay is otherwise identical (same invitation, `Idempotent-Replayed: true`). A client that lost the first response revokes the invitation and creates a new one.
 - **Never in logs or the queue.** The link carries the token in the URL fragment (like password resets), which browsers never send. The API paths `/api/v1/invitations/<token>/…` do carry it, so the Apache access log writes those requests with the token replaced (`SetEnvIf` plus a second `LogFormat`; `setenvif` is enabled explicitly), and `RedactSensitiveData` replaces 43-character tokens after `/invitations/` or `/invite#` in any log record. The invitation email is queued with `ShouldBeEncrypted`, so neither the token nor the address sits in plain text in `jobs` or `failed_jobs`.
+- **Never in the session.** `/api/v1` runs on the web middleware stack, and Laravel's `StartSession` stores every non-XHR GET's full URL as the session's previous URL, in the `sessions` table. A browser opening `/api/v1/invitations/<token>/preview` directly would store the token there (so would a signed export link, ADR-024). `App\Http\Middleware\StartSession` (bound in place of the framework's) never remembers `api.*` routes; nothing redirects back to an API URL.
+- **The email shows user-written names as plain text.** Mail lines are rendered as Markdown, so a team or inviter name like `[Verify now](https://evil.example)` would become a live link (or an image) in a mail sent from the instance. `TeamInvitationNotification::plain()` turns line breaks into spaces and backslash-escapes all ASCII punctuation (CommonMark §2.4); the template HTML-escapes the rest.
 
 ### 3. Create, list, revoke
 
@@ -43,7 +45,7 @@ Migration `2026_10_21_000100` follows DATABASE.md §3, with the FINAL rules enfo
 - **Under the team row lock** (team first, ADR-018 §4): archived 423; actor no longer a member 404; actor no longer allowed to grant that role 409.
 - **Duplicates:** an email that already belongs to a member, or that has a pending invitation to the team, is 409 `conflict`; revoke the pending one to send another. Several share links may exist at once.
 - **Representation:** `id`, `team_id`, `type` (`email`/`link`), `email` (null for links), `role`, `status`, `use_count`, `max_uses`, `invited_by` (`user_id`, `name`), `expires_at`, `accepted_at`, `revoked_at`, `created_at`. `status` is derived: `revoked`, else `accepted` (all uses taken), else `expired`, else `pending`. Never the token or its hash.
-- **Revocation:** any invitation of the team, by the Owner or an Admin (API_SPEC §3.1 lists "Owner/Admin" without a role limit, and revoking only removes access). Revoking a revoked, used-up or expired invitation changes nothing and still answers 204. Archived team: 423, like every team write.
+- **Revocation:** any invitation of the team, by the Owner or an Admin (API_SPEC §3.1 lists "Owner/Admin" without a role limit, and revoking only removes access). Revoking a revoked, used-up or expired invitation changes nothing (an expired one stays `expired`) and still answers 204. Archived team: 423, like every team write.
 - **Email:** an email invitation is mailed after the commit, in the language of the account that already uses the address if there is one, else the inviter's. The response never says whether the address has an account.
 
 ### 4. Preview and accept
@@ -53,6 +55,7 @@ Migration `2026_10_21_000100` follows DATABASE.md §3, with the FINAL rules enfo
 - **Answers, in this order** (the team row, then the invitation row, are locked first): unknown token, or a team that is gone or in the trash, 404; the caller is already a member, 200 with the team and their role unchanged, no use taken (DATABASE.md §11 "upsert membership idempotently"); archived team 423; revoked, used up or expired 410 `expired`; an email invitation for another address 403. Otherwise `201` with the team: the membership is created with the invited role and one use is taken by a guarded `UPDATE` (`use_count < max_uses AND revoked_at IS NULL AND expires_at > now()`).
 - **Never a project membership.** Joining by link makes a team member; private projects stay hidden (DECIDED-003).
 - **Concurrency:** two users racing for the last use of a link get one 201 and one 410; one user accepting twice at once joins once (DB-T07; real-process tests).
+- **The database's clock decides.** The guarded `UPDATE` compares `expires_at` with the database's `now()`; if the application clock lags behind it, the use is still refused (410), and nothing is joined.
 
 ### 5. An invitation never grants more than its issuer could today
 
@@ -79,7 +82,7 @@ DECIDED-007 is FINAL: 7 days, one use, 20 uses. FR-TEAM-003 mentions "configurab
 
 ### 8. Interface
 
-- `/invite` (Inertia, any visitor): reads the token from the fragment, removes it from the address bar, shows the preview and offers sign in or registration to guests, verification to unverified users, and "Join the team" to verified users. A guest's token is kept in this tab's `sessionStorage` for the sign-in round trip only, and the login page returns to `/invite` when one is pending.
+- `/invite` (Inertia, any visitor): reads the token from the fragment, removes it from the address bar, shows the preview and offers sign in or registration to guests, verification to unverified users, and "Join the team" to verified users. A guest's token (or an unverified user's) is kept in this tab's `sessionStorage` until the invitation is settled, joined or found unusable, and the login page returns to `/invite` while one is pending. A verification link opened in another tab cannot see it: the user opens the invitation link again. The fragment is removed from the address bar and session history; the browser's global history keeps `/invite#…`, as it does for password-reset links.
 - `InvitationsPanel` (create, show the link once with a copy button, list with statuses, revoke with an inline confirmation) is a self-contained component for the team Members page. Until CORE-006's team pages land, it is hosted at `/teams/{team}/invitations` (Owner/Admin; 403 for other members, 404 otherwise). Admin is offered only to the Owner and only for email invitations; the server enforces both.
 - E2E: `e2e/tests/invitation.ui.spec.ts` (desktop and mobile). It uses two new `workflow_users` in the E2E fixture, who belong to no seeded team, so the read-only isolation suite stays deterministic.
 
@@ -89,6 +92,7 @@ DECIDED-007 is FINAL: 7 days, one use, 20 uses. FR-TEAM-003 mentions "configurab
 - CORE-009 (notifications) may add the in-app invitation notification (FR-COL-003); nothing here sends one.
 - CORE-008 (activity) can replace the `team.invitation_*` structured logs.
 - Team exports (ADR-024) do not include invitations: they hold addresses of non-members and expire within 7 days.
+- No path disables or deletes a user yet. When one is added (§5's principle), it must revoke that user's pending invitations; until then `invited_by` cascades on deletion, which also drops the rows from any audit.
 
 ## Open product questions (conservative option implemented)
 

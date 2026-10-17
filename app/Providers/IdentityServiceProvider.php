@@ -67,7 +67,7 @@ class IdentityServiceProvider extends ServiceProvider
             return $max > 0 ? Limit::perHour($max)->by('team-exports:'.self::actorKey($request)) : Limit::none();
         });
 
-        // Invitations (CORE-002, ADR-025 §7; API_SPEC.md §1.4 "stricter limits for invitations").
+        // Invitations (CORE-002, ADR-025 §6; API_SPEC.md §1.4 "stricter limits for invitations").
         RateLimiter::for('invitations', function (Request $request): Limit {
             $max = config()->integer('sn3.rate_limits.invitations_per_hour');
 

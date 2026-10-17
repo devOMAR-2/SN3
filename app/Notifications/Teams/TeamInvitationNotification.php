@@ -11,7 +11,7 @@ use Illuminate\Notifications\Notification;
 use Illuminate\Support\Carbon;
 
 /**
- * The email for an email-bound team invitation (API_SPEC.md §3.1; CORE-002, ADR-025 §6).
+ * The email for an email-bound team invitation (API_SPEC.md §3.1; CORE-002, ADR-025 §2, §3).
  *
  * - Queued after the creating transaction commits, and encrypted on the queue: the payload carries
  *   the raw token, which must never sit in plain text in the `jobs` or `failed_jobs` tables
@@ -19,6 +19,7 @@ use Illuminate\Support\Carbon;
  * - The link opens the Inertia page `/invite#<token>`. The token travels in the URL fragment, which
  *   browsers never send to the server, so it cannot reach access logs, proxies or Referer headers.
  * - Written in the recipient's language when the address has an account, else the inviter's.
+ * - Team and inviter names are user-written: they are escaped so they render as plain text (plain()).
  */
 class TeamInvitationNotification extends Notification implements ShouldBeEncrypted, ShouldQueue
 {
@@ -54,14 +55,28 @@ class TeamInvitationNotification extends Notification implements ShouldBeEncrypt
         return (new MailMessage)
             ->subject(self::text('subject', ['team' => $this->teamName]))
             ->line(self::text('intro', [
-                'inviter' => $this->inviterName,
-                'team' => $this->teamName,
+                'inviter' => self::plain($this->inviterName),
+                'team' => self::plain($this->teamName),
                 'role' => self::text('roles.'.$this->role->value),
             ]))
             ->action(self::text('action'), self::url($this->token))
             ->line(self::text('expiry', ['days' => (string) max(1, (int) ceil(now()->diffInHours($this->expiresAt) / 24))]))
             ->line(self::text('verified'))
             ->line(self::text('outro'));
+    }
+
+    /**
+     * User-written text (team and inviter names) as inert Markdown: mail lines are rendered as
+     * Markdown, so a name like `[Verify now](https://evil.example)` or `![x](https://evil.example/p.png)`
+     * would otherwise become a live link or a tracking image in a mail from this instance. Line breaks
+     * become spaces and every ASCII punctuation character is backslash-escaped (CommonMark §2.4);
+     * `<`, `>` and `&` are also HTML-escaped by the mail template.
+     */
+    public static function plain(string $value): string
+    {
+        $value = (string) preg_replace('/[\x00-\x1F\x7F]+/u', ' ', $value);
+
+        return (string) preg_replace('/([!-\/:-@\[-`{-~])/', '\\\\$1', $value);
     }
 
     /**

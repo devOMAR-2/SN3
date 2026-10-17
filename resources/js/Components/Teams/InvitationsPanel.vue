@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, useId, watch } from 'vue';
+import { computed, nextTick, onMounted, ref, useId, watch } from 'vue';
 import AppAlert from '@/Components/ui/AppAlert.vue';
 import AppButton from '@/Components/ui/AppButton.vue';
 import TextField from '@/Components/ui/TextField.vue';
@@ -53,6 +53,13 @@ const ids = { type: useId(), role: useId(), link: useId() };
 const form = useApiForm('invitations', { type: 'email' as InvitationType, email: '', role: 'member' as Role });
 // One key per logical create: a retry after a network failure replays instead of creating twice.
 let idempotencyKey = randomUuid();
+// A changed request is a new create: reusing the key would be refused as `idempotency_key_reused`.
+watch(
+  () => [form.data.type, form.data.email, form.data.role],
+  () => {
+    idempotencyKey = randomUuid();
+  },
+);
 const created = ref<CreatedInvitation | null>(null);
 const copied = ref(false);
 
@@ -143,6 +150,19 @@ async function revoke(invitation: Invitation): Promise<void> {
   }
 }
 
+/** The inline confirmation replaces the button, so focus moves with it (DESIGN_SYSTEM.md §8). */
+async function openConfirm(id: string): Promise<void> {
+  confirming.value = id;
+  await nextTick();
+  document.getElementById(`${ids.link}-revoke-${id}`)?.focus();
+}
+
+async function closeConfirm(id: string): Promise<void> {
+  confirming.value = null;
+  await nextTick();
+  document.getElementById(`${ids.link}-ask-${id}`)?.focus();
+}
+
 onMounted(() => loadPage());
 
 const statusClasses: Record<Invitation['status'], string> = {
@@ -211,7 +231,8 @@ const selectClass =
             : t('invitations.panel.created_link')
         }}
       </AppAlert>
-      <template v-if="created.url !== null">
+      <AppAlert v-if="created.url === null" variant="info">{{ t('invitations.panel.replayed') }}</AppAlert>
+      <template v-else>
         <AppAlert variant="warning">{{ t('invitations.panel.copy_warning') }}</AppAlert>
         <label :for="ids.link" class="text-small font-medium text-text">{{ t('invitations.panel.link_label') }}</label>
         <div class="flex flex-wrap gap-2">
@@ -263,16 +284,35 @@ const selectClass =
           </span>
 
           <template v-if="invitation.status === 'pending'">
-            <div v-if="confirming === invitation.id" class="flex flex-wrap items-center gap-2" role="group">
-              <span class="text-small">{{ t('invitations.panel.revoke_confirm') }}</span>
-              <AppButton variant="danger" size="sm" :loading="revoking === invitation.id" @click="revoke(invitation)">
+            <div
+              v-if="confirming === invitation.id"
+              class="flex flex-wrap items-center gap-2"
+              role="group"
+              :aria-labelledby="`${ids.link}-confirm-${invitation.id}`"
+            >
+              <span :id="`${ids.link}-confirm-${invitation.id}`" class="text-small">{{
+                t('invitations.panel.revoke_confirm')
+              }}</span>
+              <AppButton
+                :id="`${ids.link}-revoke-${invitation.id}`"
+                variant="danger"
+                size="sm"
+                :loading="revoking === invitation.id"
+                @click="revoke(invitation)"
+              >
                 {{ t('invitations.panel.revoke') }}
               </AppButton>
-              <AppButton variant="ghost" size="sm" @click="confirming = null">{{
+              <AppButton variant="ghost" size="sm" @click="closeConfirm(invitation.id)">{{
                 t('invitations.panel.cancel')
               }}</AppButton>
             </div>
-            <AppButton v-else variant="ghost" size="sm" @click="confirming = invitation.id">
+            <AppButton
+              v-else
+              :id="`${ids.link}-ask-${invitation.id}`"
+              variant="ghost"
+              size="sm"
+              @click="openConfirm(invitation.id)"
+            >
               {{ t('invitations.panel.revoke') }}
             </AppButton>
           </template>

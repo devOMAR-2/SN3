@@ -46,7 +46,7 @@ final class RevokeInvitation
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if ($row->revoked_at !== null || $row->accepted_at !== null) {
+            if ($row->revoked_at !== null || $row->accepted_at !== null || $row->expires_at->isPast()) {
                 return;
             }
 

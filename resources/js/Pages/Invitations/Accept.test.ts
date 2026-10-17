@@ -120,7 +120,36 @@ describe('Invitation page', () => {
     renderPage();
 
     expect(await screen.findByText('You are invited to join Website')).toBeTruthy();
+    // Kept until the invitation is settled.
+    expect(window.sessionStorage.getItem('sn3.pendingInvitation')).toBe(token);
+  });
+
+  it('forgets the remembered token once joined, and when the invitation is no longer valid', async () => {
+    state.user = { email_verified: true };
+    window.location.hash = '';
+    window.sessionStorage.setItem('sn3.pendingInvitation', token);
+    api.post.mockResolvedValue({ status: 201, data: { data: {} } });
+    renderPage();
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Join the team' }));
+    await screen.findByText('You are now a member of Website.');
     expect(window.sessionStorage.getItem('sn3.pendingInvitation')).toBeNull();
+
+    cleanup();
+    window.sessionStorage.setItem('sn3.pendingInvitation', token);
+    api.get.mockRejectedValue(apiError(410, 'expired'));
+    renderPage();
+
+    await screen.findByText(/no longer valid/);
+    expect(window.sessionStorage.getItem('sn3.pendingInvitation')).toBeNull();
+  });
+
+  it('keeps the token for an unverified user who still has to verify', async () => {
+    state.user = { email_verified: false };
+    renderPage();
+
+    await screen.findByText(/Verify your email address before/);
+    expect(window.sessionStorage.getItem('sn3.pendingInvitation')).toBe(token);
   });
 
   it.each([

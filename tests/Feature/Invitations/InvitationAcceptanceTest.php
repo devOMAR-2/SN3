@@ -294,3 +294,31 @@ it('deletes the invitations of a purged team with it (FK cascade)', function () 
 
     expect(TeamInvitation::query()->count())->toBe(0);
 });
+
+it('never stores a token in the session, even for a plain browser GET of the API', function () {
+    config(['session.driver' => 'database']);
+    ['token' => $token] = issue($this->team, $this->owner);
+
+    // No X-Requested-With: the request a browser makes when the API URL is opened directly.
+    $this->get("/api/v1/invitations/{$token}/preview", ['Accept' => 'application/json'])->assertOk();
+    $this->actingAs(User::factory()->create())->get("/api/v1/invitations/{$token}/preview", ['Accept' => 'application/json'])->assertOk();
+
+    $payloads = DB::table('sessions')->pluck('payload')->map(fn ($payload) => base64_decode((string) $payload))->implode("\n");
+
+    expect(DB::table('sessions')->count())->toBeGreaterThan(0)
+        ->and($payloads)->not->toContain($token);
+});
+
+it('refuses a use the database sees as expired even when the application clock lags behind', function () {
+    ['invitation' => $invitation, 'token' => $token] = issue($this->team, $this->owner);
+    DB::statement("UPDATE team_invitations SET created_at = now() - interval '8 days', expires_at = now() - interval '1 minute' WHERE id = ?", [$invitation->id]);
+    $joiner = User::factory()->create();
+
+    // The application thinks it is two minutes earlier, so its own expiry check still passes.
+    $this->travelTo(now()->subMinutes(2));
+
+    $this->actingAs($joiner)->postJson("/api/v1/invitations/{$token}/accept")->assertStatus(410);
+
+    expect($this->team->roleOf($joiner))->toBeNull()
+        ->and(invitationRow($invitation)->use_count)->toBe(0);
+});
