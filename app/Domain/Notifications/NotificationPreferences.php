@@ -5,7 +5,6 @@ namespace App\Domain\Notifications;
 use App\Models\User;
 use App\Models\UserPreference;
 use Illuminate\Support\Facades\DB;
-use stdClass;
 
 /**
  * A user's notification preferences (DATABASE.md §8 `user_preferences.email_notifications`,
@@ -55,7 +54,7 @@ final class NotificationPreferences
             ->get(['user_id', 'email_notifications', 'in_app_notifications']);
 
         foreach ($rows as $row) {
-            if ($row instanceof stdClass && is_string($row->user_id ?? null)) {
+            if (is_string($row->user_id ?? null)) {
                 $preferences[$row->user_id] = new self((bool) $row->email_notifications, (bool) $row->in_app_notifications);
             }
         }

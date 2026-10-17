@@ -29,7 +29,7 @@ final class InboxPresenter
     public const TASK_FIELDS = ['assignee_user_id', 'description', 'due_date', 'label_ids', 'parent_task_id', 'priority', 'status_id', 'title'];
 
     /**
-     * @param  iterable<InboxNotification>  $notifications
+     * @param  iterable<int, InboxNotification>  $notifications
      * @return list<NotificationView>
      */
     public function present(iterable $notifications): array

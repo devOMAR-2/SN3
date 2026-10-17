@@ -42,7 +42,7 @@ final class CursorPagination
         return self::respondMany(
             $request,
             $query,
-            static fn (array $items): array => array_values(array_map($transform, $items)),
+            static fn (array $items): array => array_map($transform, $items),
             $meta,
             $scope,
         );
