@@ -58,6 +58,17 @@ return [
             'report' => false,
         ],
 
+        // Task attachments (CORE-008, ADR-027 §5). Outside the served `local` root and never served by
+        // URL: files leave only through the authorized download route.
+        'attachments' => [
+            'driver' => 'local',
+            'root' => storage_path('app/attachments'),
+            'visibility' => 'private',
+            'serve' => false,
+            'throw' => true,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

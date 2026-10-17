@@ -1,6 +1,8 @@
 <?php
 
 use App\Domain\Invitations\InvitationToken;
+use App\Http\Controllers\Api\V1\ActivityController;
+use App\Http\Controllers\Api\V1\AttachmentController;
 use App\Http\Controllers\Api\V1\Auth\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Auth\PasswordResetController;
 use App\Http\Controllers\Api\V1\Auth\RegisterController;
@@ -14,7 +16,9 @@ use App\Http\Controllers\Api\V1\ProjectLifecycleController;
 use App\Http\Controllers\Api\V1\ProjectMemberController;
 use App\Http\Controllers\Api\V1\ProjectSettingsController;
 use App\Http\Controllers\Api\V1\ProjectStatusController;
+use App\Http\Controllers\Api\V1\TaskAttachmentController;
 use App\Http\Controllers\Api\V1\TaskChecklistController;
+use App\Http\Controllers\Api\V1\TaskCommentController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\TeamController;
 use App\Http\Controllers\Api\V1\TeamExportController;
@@ -142,6 +146,23 @@ Route::middleware('auth')->group(function (): void {
     Route::post('tasks/{task}/checklist', [TaskChecklistController::class, 'store'])->name('tasks.checklist.store');
     Route::patch('tasks/{task}/checklist/{item}', [TaskChecklistController::class, 'update'])->name('tasks.checklist.update');
     Route::delete('tasks/{task}/checklist/{item}', [TaskChecklistController::class, 'destroy'])->name('tasks.checklist.destroy');
+
+    // Comments, attachments and activity (API_SPEC.md §4, §6.1–§6.3, §9; CORE-008, ADR-027). A
+    // `{comment}` of another task is a 404; `{attachment}` resolves only through a task the caller can
+    // see (AccessibleAttachments), re-checked on every download.
+    Route::get('tasks/{task}/comments', [TaskCommentController::class, 'index'])->name('tasks.comments.index');
+    Route::post('tasks/{task}/comments', [TaskCommentController::class, 'store'])->name('tasks.comments.store');
+    Route::patch('tasks/{task}/comments/{comment}', [TaskCommentController::class, 'update'])->name('tasks.comments.update');
+    Route::delete('tasks/{task}/comments/{comment}', [TaskCommentController::class, 'destroy'])->name('tasks.comments.destroy');
+
+    Route::get('tasks/{task}/attachments', [TaskAttachmentController::class, 'index'])->name('tasks.attachments.index');
+    Route::post('tasks/{task}/attachments', [TaskAttachmentController::class, 'store'])->middleware(['throttle:attachment-uploads', 'idempotent'])->name('tasks.attachments.store');
+    Route::get('attachments/{attachment}/download', [AttachmentController::class, 'download'])->name('attachments.download');
+    Route::delete('attachments/{attachment}', [AttachmentController::class, 'destroy'])->name('attachments.destroy');
+
+    Route::get('tasks/{task}/activity', [ActivityController::class, 'task'])->name('tasks.activity');
+    Route::get('projects/{project}/activity', [ActivityController::class, 'project'])->name('projects.activity');
+    Route::get('me/activity', [ActivityController::class, 'mine'])->name('me.activity');
 
     // Team exports (API_SPEC.md §3, §13, §18; ADR-024), Owner only. The download URL is signed and
     // expires with the export; it also needs the requesting Owner's session.

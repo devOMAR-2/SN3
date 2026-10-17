@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Invitations\InvitationRevocations;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
@@ -11,7 +12,6 @@ use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 /**
@@ -63,13 +63,7 @@ final class ChangeMemberRole
                 InvitationRevocations::revokeIssuedBy($team->id, $locked->user_id, 'team_role_changed');
             }
 
-            Log::info('team.member_role_changed', [
-                'team_id' => $team->id,
-                'user_id' => $locked->user_id,
-                'actor_id' => $actor->id,
-                'from' => $from->value,
-                'to' => $role->value,
-            ]);
+            Activity::team($team->id, $actor, 'team.member_role_changed', ['user_id' => $locked->user_id, 'from' => $from->value, 'to' => $role->value]);
 
             return $locked->setRelation('user', $membership->user);
         });

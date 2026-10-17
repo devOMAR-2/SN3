@@ -7,6 +7,7 @@ use App\Domain\Projects\ProjectRole;
 use App\Domain\Teams\TeamRole;
 use App\Models\Project;
 use App\Models\ProjectMembership;
+use App\Models\TaskActivity;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
@@ -262,13 +263,10 @@ it('re-evaluates access on the very next request when visibility changes', funct
 
     $this->actingAs($this->owner)->getJson("/api/v1/projects/{$project->id}")->assertOk();
 
-    Log::shouldHaveReceived('info')->with('project.visibility_changed', [
-        'team_id' => $this->team->id,
-        'project_id' => $project->id,
-        'actor_id' => $manager->id,
-        'from' => 'team',
-        'to' => 'private',
-    ])->once();
+    // Audited in the project's activity timeline (NFR-SEC-005; CORE-008, ADR-027 §3).
+    expect(TaskActivity::query()->where('project_id', $project->id)->where('action', 'project.visibility_changed')->get()
+        ->map(fn (TaskActivity $entry) => [$entry->team_id, $entry->task_id, $entry->actor_user_id, $entry->changes])->all())
+        ->toEqual([[$this->team->id, null, $manager->id, ['from' => 'team', 'to' => 'private']]]);
 
     $this->actingAs($manager)->patchJson("/api/v1/projects/{$project->id}", ['visibility' => 'team'], ['If-Match' => '"2"'])
         ->assertOk();
@@ -332,9 +330,13 @@ it('adds a team member (201), changes their role (200) and treats a repeat as a 
     expect(projectRolesOf($project))->toBe([$member->id => 'manager'])
         ->and($project->refresh()->version)->toBe(1);
 
-    $context = ['team_id' => $this->team->id, 'project_id' => $project->id, 'user_id' => $member->id, 'actor_id' => $this->owner->id];
-    Log::shouldHaveReceived('info')->with('project.member_added', [...$context, 'role' => 'contributor'])->once();
-    Log::shouldHaveReceived('info')->with('project.member_role_changed', [...$context, 'from' => 'contributor', 'to' => 'manager'])->once();
+    // Audited in the project's activity timeline (NFR-SEC-005; CORE-008, ADR-027 §3).
+    expect(TaskActivity::query()->where('project_id', $project->id)->whereIn('action', ['project.member_added', 'project.member_role_changed'])->orderBy('id')->get()
+        ->map(fn (TaskActivity $entry) => [$entry->action, $entry->actor_user_id, $entry->changes])->all())
+        ->toEqual([
+            ['project.member_added', $this->owner->id, ['role' => 'contributor', 'user_id' => $member->id]],
+            ['project.member_role_changed', $this->owner->id, ['to' => 'manager', 'from' => 'contributor', 'user_id' => $member->id]],
+        ]);
 });
 
 it('lets a project manager who is a Team Member manage a private project', function () {
@@ -542,7 +544,7 @@ it('re-checks the creator on the locked team row, so a demoted Admin cannot crea
         ->and(Project::query()->count())->toBe(0);
 });
 
-it('logs membership and visibility audit events without project names', function () {
+it('audits membership changes in the activity log, and logs no project names', function () {
     Log::spy();
     $project = Project::factory()->for($this->team)->private()->create(['name' => 'Secret merger']);
     $member = $this->members['member'];
@@ -550,13 +552,9 @@ it('logs membership and visibility audit events without project names', function
     $this->actingAs($this->owner)->putJson("/api/v1/projects/{$project->id}/members/{$member->id}", ['role' => 'contributor'])->assertCreated();
     $this->actingAs($this->owner)->deleteJson("/api/v1/projects/{$project->id}/members/{$member->id}")->assertNoContent();
 
-    Log::shouldHaveReceived('info')->with('project.member_removed', [
-        'team_id' => $this->team->id,
-        'project_id' => $project->id,
-        'user_id' => $member->id,
-        'actor_id' => $this->owner->id,
-        'role' => 'contributor',
-    ])->once();
+    expect(TaskActivity::query()->where('project_id', $project->id)->where('action', 'project.member_removed')->get()
+        ->map(fn (TaskActivity $entry) => [$entry->team_id, $entry->actor_user_id, $entry->changes])->all())
+        ->toEqual([[$this->team->id, $this->owner->id, ['role' => 'contributor', 'user_id' => $member->id]]]);
     Log::shouldNotHaveReceived('info', fn (string $message, array $context = []) => str_contains(json_encode($context), 'Secret merger'));
 });
 

@@ -3,13 +3,13 @@
 use App\Domain\Teams\Actions\ChangeMemberRole;
 use App\Domain\Teams\Actions\RemoveMember;
 use App\Domain\Teams\TeamRole;
+use App\Models\TaskActivity;
 use App\Models\Team;
 use App\Models\TeamMembership;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // CORE-001: team create/update, roles, member removal and ownership transfer.
@@ -351,20 +351,15 @@ it('rejects unknown body fields but ignores query-string parameters', function (
         ->assertJsonPath('error.fields.owner_user_id.0', 'unknown_field');
 });
 
-it('logs role changes as a structured audit event', function () {
-    Log::spy();
+it('audits role changes as a team activity entry (NFR-SEC-005; CORE-008)', function () {
     $member = $this->members['member'];
 
     $this->actingAs($this->owner)->patchJson("/api/v1/teams/{$this->team->id}/members/{$member->id}", ['role' => 'viewer'])
         ->assertOk();
 
-    Log::shouldHaveReceived('info')->with('team.member_role_changed', [
-        'team_id' => $this->team->id,
-        'user_id' => $member->id,
-        'actor_id' => $this->owner->id,
-        'from' => 'member',
-        'to' => 'viewer',
-    ])->once();
+    expect(TaskActivity::query()->where('team_id', $this->team->id)->where('action', 'team.member_role_changed')->get()
+        ->map(fn (TaskActivity $entry) => [$entry->project_id, $entry->task_id, $entry->actor_user_id, $entry->changes])->all())
+        ->toEqual([[null, null, $this->owner->id, ['to' => 'viewer', 'from' => 'member', 'user_id' => $member->id]]]);
 });
 
 it('re-checks ownership on the locked team row, so a former Owner cannot act after a transfer', function () {

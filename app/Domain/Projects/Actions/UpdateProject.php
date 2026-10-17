@@ -2,6 +2,7 @@
 
 namespace App\Domain\Projects\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectVisibility;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Tasks\TaskAssignments;
@@ -68,13 +69,8 @@ final class UpdateProject
                 }, lock: Project::WRITE_LOCK);
 
                 if ($updated->visibility !== $previous) {
-                    Log::info('project.visibility_changed', [
-                        'team_id' => $updated->team_id,
-                        'project_id' => $updated->id,
-                        'actor_id' => $actor->id,
-                        'from' => $previous->value,
-                        'to' => $updated->visibility->value,
-                    ]);
+                    // Audited (NFR-SEC-005) in the project's own timeline: it records a fact, not content.
+                    Activity::project($updated, $actor, 'project.visibility_changed', ['from' => $previous->value, 'to' => $updated->visibility->value]);
 
                     // Made private: assignees without a project membership lose access (ADR-023 §5).
                     TaskAssignments::releaseIneligible($updated->team_id, null, $updated->id, 'project_visibility_changed');

@@ -7,12 +7,12 @@ use App\Domain\Tasks\Actions\MoveTask;
 use App\Domain\Teams\TeamRole;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\TaskActivity;
 use App\Models\Team;
 use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // CORE-007: moving tasks across and within board columns (API_SPEC.md §6.1 `POST /tasks/{id}/move`,
@@ -198,21 +198,21 @@ it('re-checks the actor on the locked project: hidden is 404, demoted is 409', f
     expect($task->fresh()->status_id)->not->toBe($done);
 });
 
-it('logs the move with IDs only', function () {
-    [$a] = boardTasks($this->project, 1);
-    Log::spy();
-
+it('records the move in the activity log, with IDs only, and nothing for a no-op', function () {
+    [$a, $b] = boardTasks($this->project, 2);
     $this->actingAs($this->member);
-    move($a, ['status_id' => $this->done])->assertOk();
 
-    Log::shouldHaveReceived('info')->with('task.moved', [
-        'team_id' => $this->team->id,
-        'project_id' => $this->project->id,
-        'task_id' => $a->id,
-        'actor_id' => $this->member->id,
-        'from_status_id' => $this->todo,
-        'to_status_id' => $this->done,
-    ])->once();
+    move($a, ['status_id' => $this->done])->assertOk();
+    move($a->fresh(), ['status_id' => $this->done])->assertOk();
+    move($b, ['status_id' => $this->todo, 'after_task_id' => null])->assertOk();
+
+    $entries = TaskActivity::query()->where('action', 'task.moved')->get();
+
+    expect($entries)->toHaveCount(1)
+        ->and($entries[0]->task_id)->toBe($a->id)
+        ->and($entries[0]->project_id)->toBe($this->project->id)
+        ->and($entries[0]->actor_user_id)->toBe($this->member->id)
+        ->and($entries[0]->changes)->toEqual(['from_status_id' => $this->todo, 'status_id' => $this->done]);
 });
 
 it('leaves a task that already sits between the requested neighbours where it is', function () {

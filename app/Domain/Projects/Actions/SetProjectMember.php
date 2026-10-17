@@ -2,6 +2,7 @@
 
 namespace App\Domain\Projects\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Models\Project;
@@ -10,7 +11,6 @@ use App\Models\TeamMembership;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Adds a team member to a project or changes their project role (FR-PROJ-006, API_SPEC.md §4
@@ -45,8 +45,6 @@ final class SetProjectMember
                 ->lockForUpdate()
                 ->first();
 
-            $context = ['team_id' => $locked->team_id, 'project_id' => $locked->id, 'user_id' => $userId, 'actor_id' => $actor->id];
-
             if ($membership === null) {
                 $membership = new ProjectMembership;
                 $membership->forceFill([
@@ -57,13 +55,13 @@ final class SetProjectMember
                     'added_by' => $actor->id,
                 ])->save();
 
-                Log::info('project.member_added', [...$context, 'role' => $role->value]);
+                Activity::project($locked, $actor, 'project.member_added', ['user_id' => $userId, 'role' => $role->value]);
             } elseif ($membership->project_role !== $role) {
                 $from = $membership->project_role;
                 $membership->project_role = $role;
                 $membership->save();
 
-                Log::info('project.member_role_changed', [...$context, 'from' => $from->value, 'to' => $role->value]);
+                Activity::project($locked, $actor, 'project.member_role_changed', ['user_id' => $userId, 'from' => $from->value, 'to' => $role->value]);
             }
 
             return $membership->setRelation('user', $teamMembership->user);

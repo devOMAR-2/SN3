@@ -2,13 +2,13 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Tasks\Checklist;
 use App\Models\Task;
 use App\Models\TaskChecklistItem;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Adds a checklist item at the end of a task's checklist (API_SPEC.md §6.2 POST, "Project writer";
@@ -19,7 +19,7 @@ final class CreateChecklistItem
     public function handle(Task $task, User $actor, string $text): TaskChecklistItem
     {
         return DB::transaction(function () use ($task, $actor, $text): TaskChecklistItem {
-            ['project' => $project, 'task' => $locked, 'items' => $items] = Checklist::lock($task, $actor);
+            ['task' => $locked, 'items' => $items] = Checklist::lock($task, $actor);
 
             if ($items->count() >= Checklist::MAX_ITEMS) {
                 throw new DomainConflictException('A task holds at most '.Checklist::MAX_ITEMS.' checklist items.');
@@ -32,13 +32,7 @@ final class CreateChecklistItem
                 'position' => $items->count(),
             ])->save();
 
-            Log::info('task.checklist_item_created', [
-                'team_id' => $project->team_id,
-                'project_id' => $project->id,
-                'task_id' => $locked->id,
-                'item_id' => $item->id,
-                'actor_id' => $actor->id,
-            ]);
+            Activity::task($locked, $actor, 'task.checklist_item_created', ['item_id' => $item->id]);
 
             return $item->refresh();
         });

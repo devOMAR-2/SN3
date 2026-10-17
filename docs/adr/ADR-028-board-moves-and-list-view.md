@@ -26,7 +26,7 @@ API_SPEC §6.1 defines `POST /tasks/{task_id}/move` with `{ "status_id", "before
 - **Trashed tasks** keep their rank. They count for "end of the column" and for renumbering, so a restored task comes back where it was and does not collide with an append; they are never neighbours for a move. A live task may tie with a trashed one; ties are broken by `id`, so the order of live tasks is unaffected.
 - **No-op.** A move to where the task already is (same status, already strictly between the requested neighbours) writes nothing, keeps the `version` and is still `200`. Any real move increments `version`.
 - **Position is not in the representation.** ADR-023 expected `position` to join the task representation with `/move`. It does not: renumbering changes ranks without changing versions (ranks are bookkeeping, not task content), so a client caching `position` would hold stale numbers, and clients never need them. The contract is anchors in, order out: `GET /projects/{id}/tasks?sort=position` (status position, then rank, ties by `id`). A status change through `PATCH` still sends the task to the end of its new column (ADR-023).
-- **Activity.** Until CORE-008 lands, a real move writes the structured log `task.moved` with IDs only (team, project, task, actor, from and to status). CORE-008 replaces it with an activity entry.
+- **Activity.** A real move records a `task.moved` activity entry (ADR-027) in the same transaction, with the from and to status IDs only; a no-op records nothing.
 
 ### 3. Board UI (`Components/Board`)
 
@@ -47,7 +47,6 @@ API_SPEC §6.1 defines `POST /tasks/{task_id}/move` with `{ "status_id", "before
 ## Consequences
 
 - E2E: `e2e/tests/board.spec.ts` (keyboard and drag moves persist after a reload; filters in the URL; server-side sort; phone layout) with a new journey user `board_en`; `e2e/tests/core-journey.spec.ts` now adds its task from the board.
-- CORE-008 converts the `task.moved` log into an activity entry.
 - FLEX-003 (saved views) can store the same query-string filters; FLEX-005 (sprints) adds a sprint filter.
 - A board with many columns and long columns still makes one request per column on open; virtualisation is left until it is measured to matter.
 

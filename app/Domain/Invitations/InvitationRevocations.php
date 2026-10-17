@@ -2,8 +2,8 @@
 
 namespace App\Domain\Invitations;
 
+use App\Domain\Activity\Activity;
 use App\Models\TeamInvitation;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Revokes the pending invitations a team member issued when they lose the right to issue them
@@ -36,12 +36,12 @@ final class InvitationRevocations
         $revoked = $query->update(['revoked_at' => now(), 'updated_at' => now()]);
 
         if ($revoked > 0) {
-            Log::info('team.invitations_revoked', [
-                'team_id' => $teamId,
+            // A consequence of the membership change that has its own entry: recorded by the system.
+            Activity::team($teamId, null, 'team.invitations_revoked', [
                 'issuer_id' => $userId,
                 'reason' => $reason,
                 'count' => $revoked,
-            ]);
+            ], Activity::SOURCE_SYSTEM);
         }
 
         return $revoked;

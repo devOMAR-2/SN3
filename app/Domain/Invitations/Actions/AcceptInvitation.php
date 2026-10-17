@@ -2,6 +2,7 @@
 
 namespace App\Domain\Invitations\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Invitations\InvitationToken;
 use App\Models\Team;
 use App\Models\TeamInvitation;
@@ -11,7 +12,6 @@ use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpKernel\Exception\HttpException;
 
 /**
@@ -100,11 +100,11 @@ final class AcceptInvitation
                 throw new HttpException(410);
             }
 
-            Log::info('team.invitation_accepted', [
-                'team_id' => $team->id,
-                'invitation_id' => $invitation->id,
+            // The membership goes into the append-only audit like every other one (NFR-SEC-005).
+            Activity::team($team->id, $user, 'team.member_added', [
                 'user_id' => $user->id,
                 'role' => $invitation->invited_role->value,
+                'invitation_id' => $invitation->id,
             ]);
 
             return ['team' => $team, 'membership' => $membership, 'created' => true];

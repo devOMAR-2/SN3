@@ -2,6 +2,7 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Tasks\TaskOrder;
 use App\Models\Task;
@@ -9,7 +10,6 @@ use App\Models\User;
 use App\Support\Concurrency\OptimisticLock;
 use App\Support\Concurrency\StaleVersionException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -68,15 +68,8 @@ final class MoveTask
             }, lock: Task::WRITE_LOCK);
 
             if ($moved->wasChanged()) {
-                // IDs only: titles may be private (ADR-020 §9).
-                Log::info('task.moved', [
-                    'team_id' => $moved->team_id,
-                    'project_id' => $moved->project_id,
-                    'task_id' => $moved->id,
-                    'actor_id' => $actor->id,
-                    'from_status_id' => $from,
-                    'to_status_id' => $moved->status_id,
-                ]);
+                // In the move's transaction (ADR-027 §3); IDs only.
+                Activity::task($moved, $actor, 'task.moved', ['from_status_id' => $from, 'status_id' => $moved->status_id]);
             }
 
             return $moved->setRelation('project', $project);

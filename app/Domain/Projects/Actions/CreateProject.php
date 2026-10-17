@@ -2,6 +2,7 @@
 
 namespace App\Domain\Projects\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Projects\ProjectVisibility;
 use App\Domain\Projects\ProjectWriteLock;
@@ -63,12 +64,7 @@ final class CreateProject
 
                 DefaultWorkflow::seed($project, $creator->preferredLocale());
 
-                Log::info('project.created', [
-                    'team_id' => $team->id,
-                    'project_id' => $project->id,
-                    'actor_id' => $creator->id,
-                    'visibility' => $visibility->value,
-                ]);
+                Activity::project($project, $creator, 'project.created', ['visibility' => $visibility->value]);
 
                 return $project;
             });

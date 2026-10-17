@@ -111,8 +111,9 @@ The `scheduler` runs `schedule:work --whisper`, which evaluates `routes/console.
 | `queue:prune-failed --hours=720` (delete failed jobs older than 30 days) | daily 03:00 UTC |
 | `queue:prune-batches --hours=48 --unfinished=72 --cancelled=72` | daily 03:10 UTC |
 | `auth:clear-resets` (delete expired password-reset tokens) | daily 03:20 UTC |
-| `model:prune --model=App\Models\ApiIdempotencyRecord` (delete `Idempotency-Key` results older than 24 hours) | daily 03:30 UTC |
+| `model:prune --model=App\Models\ApiIdempotencyRecord --model=App\Models\TaskComment` (delete `Idempotency-Key` results older than 24 hours, and deleted comments after their 30-day recovery window) | daily 03:30 UTC |
 | `trash:purge` (permanently delete teams and projects that have been in the trash for 30 days; local data only, never anything on GitHub) | daily 03:40 UTC |
+| `attachments:sweep` (finish attachment removals the storage could not complete, delete files of purged projects and teams, and orphaned files older than an hour) | hourly at :35 |
 | `exports:prune` (delete team exports and their archives 24 hours after they finish) | hourly at :50 |
 
 Run exactly one `scheduler`. Tasks also take a lock in the database cache (`onOneServer`), so an accidental second scheduler doesn't run them twice. You can run more than one `worker` (`docker compose up -d --scale worker=2`).
@@ -172,12 +173,26 @@ An error here shows the SMTP problem directly. Use an address you control.
 - **Registration** is open by default. Set `SN3_REGISTRATION_ENABLED=false` to close public sign-up; existing users can still sign in and reset passwords. Invitations (CORE-002) will remain the way to add people.
 - **Email is required for account flows.** Verification and password-reset links are sent by the queue worker. Configure SMTP (see [Mail](#mail)) before inviting users; with the default `log` mailer no one receives the links.
 - **HTTPS:** set `SESSION_SECURE_COOKIE=true` and an `https://` `APP_URL`. Signed verification links are checked against the URL the browser used, so `APP_URL`, the proxy's `X-Forwarded-*` headers and `TRUSTED_PROXIES` must agree.
-- **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset, verification, invitations and project create/update (20/minute per user). A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
+- **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset, verification, invitations, project create/update (20/minute per user) and attachment uploads (20/minute per user). A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
 - **Sessions** live in the `sessions` table (`SESSION_DRIVER=database`). Signing out deletes the session, and a password reset revokes every stored session of that user.
+
+## Attachments
+
+Files attached to tasks (CORE-008, ADR-027) are stored on a dedicated private disk, `storage/app/attachments` by default, part of the `sn3_app-storage` volume and of the backups. They are never served directly: every download goes through `GET /api/v1/attachments/{id}/download`, which re-checks the user's access and always answers as a download (`Content-Disposition: attachment`, `nosniff`, a sandboxing CSP). Only common document, image, media and archive types are accepted, recognised by their content, not by what the browser says.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `SN3_ATTACHMENTS_DISK` | `attachments` | Filesystem disk for attachment files (`config/filesystems.php`). Use a **dedicated private disk** (for example a private S3 bucket); SN3 only uses keys under `objects/` on it. Each attachment remembers the disk it was written to, so you can switch disks without moving files |
+| `SN3_ATTACHMENTS_PREVIOUS_DISKS` | (empty) | Comma-separated disks attachments were stored on earlier and no attachment uses any more; the purge and `attachments:sweep` clean them too. Disks that attachments still use are cleaned anyway |
+| `SN3_ATTACHMENTS_MAX_BYTES` | `26214400` (25 MiB) | Largest file accepted (`413` beyond it); `0` means no limit. PHP's `upload_max_filesize` and `post_max_size` (`deploy/docker/php/sn3.ini`: 26M and 27M) must be raised with it |
+| `SN3_ATTACHMENTS_TEAM_QUOTA_BYTES` | `2147483648` (2 GiB) | Stored attachments per team (`413` beyond it); `0` means no limit |
+| `SN3_RATE_LIMIT_ATTACHMENT_UPLOADS_PER_MINUTE` | `20` | Uploads per user per minute; `0` disables the limit |
+
+A reverse proxy in front of SN3 must accept request bodies of the upload size (Caddy and Apache do by default). Deleting an attachment deletes its file; the trash purge deletes the files of purged projects and teams; `attachments:sweep` removes anything an outage left behind.
 
 ## Team exports
 
-A team's Owner can export the team (members, projects including private ones, workflows, and later tasks and the rest) through `POST /api/v1/teams/{team}/exports`. The worker builds a zip archive (`manifest.json` plus one JSON file per section, ADR-024) in `storage/app/exports`, part of the `sn3_app-storage` volume (and left out of backups). Only the requesting Owner can download it, through a signed link, and it is deleted 24 hours after it is ready. Offer an export before deleting a team (DECIDED-011).
+A team's Owner can export the team (members, projects including private ones, workflows, tasks, comments, the activity log and attachments with their files) through `POST /api/v1/teams/{team}/exports`. The worker builds a zip archive (`manifest.json`, one JSON file per section, and attachment files under `files/`; ADR-024, ADR-027) in `storage/app/exports`, part of the `sn3_app-storage` volume (and left out of backups). Only the requesting Owner can download it, through a signed link, and it is deleted 24 hours after it is ready. Offer an export before deleting a team (DECIDED-011).
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -187,7 +202,7 @@ A team's Owner can export the team (members, projects including private ones, wo
 | `SN3_RATE_LIMIT_INVITATIONS_PER_HOUR` | `30` | Invitations a user may create per hour (each email invitation sends mail); `0` disables the limit |
 | `SN3_RATE_LIMIT_INVITATION_TOKENS_PER_MINUTE` | `10` | Invitation previews and accepts per signed-in user per minute, and four times that per IP address; `0` disables the limit |
 
-Exports run on the queue worker, within its 60-second job timeout. Today's sections are small; ADR-024 §8 lists what must change before tasks and attachments make archives large.
+Exports run on the queue worker, within its 60-second job timeout. On local storage a team with 10,000 tasks, 30,000 comments, 50,000 activity entries and its full 2 GiB of attachments builds in about 11 seconds (ADR-027 §7). Building needs free space in the work directory and on the export disk for the archive, which is as large as the team's attachments. Archives beyond 4 GiB or 65,535 entries are written as ZIP64, which current zip tools read.
 
 ## Backups
 
