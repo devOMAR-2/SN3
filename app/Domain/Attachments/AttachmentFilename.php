@@ -26,8 +26,7 @@ final class AttachmentFilename
     public static function sanitize(string $name): string
     {
         // Invalid UTF-8 cannot be shown faithfully; drop the broken bytes.
-        $converted = mb_convert_encoding($name, 'UTF-8', 'UTF-8');
-        $name = str_replace('\\', '/', is_string($converted) ? $converted : '');
+        $name = str_replace('\\', '/', mb_convert_encoding($name, 'UTF-8', 'UTF-8'));
         $segments = explode('/', $name);
         $name = (string) end($segments);
 

@@ -37,9 +37,7 @@ final class AttachmentQuota
 
     public static function used(string $teamId): int
     {
-        $sum = TaskAttachment::query()->where('team_id', $teamId)->live()->sum('size_bytes');
-
-        return is_numeric($sum) ? (int) $sum : 0;
+        return (int) TaskAttachment::query()->where('team_id', $teamId)->live()->sum('size_bytes');
     }
 
     /**

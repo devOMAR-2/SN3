@@ -3,7 +3,6 @@
 namespace App\Http\Resources;
 
 use App\Models\TaskComment;
-use App\Models\User;
 
 /**
  * A task comment (API_SPEC.md §6.2; CORE-008, ADR-027 §2). `body` is the Markdown source as written
@@ -20,9 +19,7 @@ final class CommentResource
         $mentions = [];
 
         foreach ($comment->mentions as $user) {
-            if ($user instanceof User) {
-                $mentions[] = $user->id;
-            }
+            $mentions[] = $user->id;
         }
 
         sort($mentions);

@@ -85,7 +85,7 @@ class TaskComment extends Model
      * Deleted comments past the 30-day recovery window (DATABASE.md §5 "soft-deletion follows the
      * 30-day recovery policy"), removed by the daily `model:prune`.
      *
-     * @return Builder<static>
+     * @return Builder<TaskComment>
      */
     public function prunable(): Builder
     {

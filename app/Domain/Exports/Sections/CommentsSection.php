@@ -6,7 +6,6 @@ use App\Domain\Exports\TeamExportContext;
 use App\Domain\Exports\TeamExportSection;
 use App\Models\Task;
 use App\Models\TaskComment;
-use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
@@ -37,9 +36,7 @@ final class CommentsSection implements TeamExportSection
             $mentions = [];
 
             foreach ($comment->mentions as $user) {
-                if ($user instanceof User) {
-                    $mentions[] = $user->id;
-                }
+                $mentions[] = $user->id;
             }
 
             sort($mentions);
