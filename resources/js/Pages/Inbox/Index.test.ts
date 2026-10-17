@@ -141,6 +141,45 @@ describe('Inbox', () => {
     expect(said).toEqual(['WEB-7 marked as read.', '', 'WEB-7 marked as read.']);
   });
 
+  it('keeps the live region empty for 75 ms, and lets only the latest announcement through', async () => {
+    vi.useFakeTimers();
+    try {
+      http.post.mockImplementation((url: string) =>
+        Promise.resolve(
+          url === '/notifications/read-all'
+            ? { data: { data: { marked_read: 1 } } }
+            : { data: { data: { ...items[0]!, read_at: '2026-10-17T12:00:00Z' } } },
+        ),
+      );
+      const { unmount } = renderInbox();
+      await vi.advanceTimersByTimeAsync(0);
+      const region = screen.getByRole('status');
+
+      await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+      await vi.advanceTimersByTimeAsync(74);
+      expect(region.textContent).toBe('');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(region.textContent).toBe('WEB-7 marked as read.');
+
+      // A second announcement within the gap replaces the first: the first never shows.
+      await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+      await vi.advanceTimersByTimeAsync(30);
+      await fireEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
+      await vi.advanceTimersByTimeAsync(50);
+      expect(region.textContent).toBe('');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(region.textContent).toBe('All notifications are marked as read.');
+
+      // Leaving the page drops a pending announcement.
+      await fireEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
+      await vi.advanceTimersByTimeAsync(10);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('names the task or the team in the announcement', async () => {
     http.post.mockResolvedValue({ data: { data: { ...items[0], read_at: '2026-10-17T12:00:00Z' } } });
     renderInbox('ar');

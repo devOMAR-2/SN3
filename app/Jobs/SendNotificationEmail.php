@@ -62,10 +62,15 @@ final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
     public const RECOVERY_GRACE_SECONDS = 900;
 
     /**
-     * @param  string|null  $dueAt  the job's own window end (`email_due_at`, ISO 8601 UTC, whole seconds)
+     * The job's own window end (`email_due_at`, ISO 8601 UTC, whole seconds). Not a promoted property
+     * on purpose: a job queued before it existed is unserialized without the key and without running
+     * the constructor, and only a declared default leaves it null (not uninitialized) then.
      */
-    public function __construct(public readonly string $notificationId, public readonly ?string $dueAt = null)
+    public ?string $dueAt = null;
+
+    public function __construct(public readonly string $notificationId, ?string $dueAt = null)
     {
+        $this->dueAt = $dueAt;
         $this->afterCommit();
     }
 

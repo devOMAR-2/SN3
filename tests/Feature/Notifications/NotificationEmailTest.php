@@ -296,18 +296,54 @@ it('lets a late failure close only its own window, never a reopened one that is 
     Notification::assertSentTimes(InboxNotificationMail::class, 1);
 });
 
-it('keeps the earlier rule for jobs queued without their window (before this change)', function () {
+/**
+ * A job exactly as the class before `dueAt` serialized it (5b48ce7): no `dueAt` key at all, so
+ * unserializing it never runs the constructor.
+ */
+function legacyEmailJob(string $notificationId): SendNotificationEmail
+{
+    $payload = 'O:30:"App\Jobs\SendNotificationEmail":2:{s:14:"notificationId";s:36:"'.$notificationId.'";s:11:"afterCommit";b:1;}';
+    $job = unserialize($payload);
+    assert($job instanceof SendNotificationEmail);
+
+    return $job;
+}
+
+it('runs jobs queued before their window was recorded with the earlier rule', function () {
     Queue::fake([SendNotificationEmail::class]);
     Notification::fake();
     notifyAssign($this->alice, $this->task, $this->bob);
     $row = storedNotificationsOf($this->bob)->first();
 
-    // Any open window is a legacy job's: it sends it, and its failure closes a due one.
+    // Any open window is a legacy job's: it sends it.
     $this->travel(3)->minutes();
-    runEmailJob(new SendNotificationEmail($row->id));
+    $legacy = legacyEmailJob($row->id);
+    expect($legacy->dueAt)->toBeNull();
+    runEmailJob($legacy);
     Notification::assertSentTimes(InboxNotificationMail::class, 1);
 
-    DB::table('notifications')->where('id', $row->id)->update(['email_due_at' => now()->subMinute()]);
-    (new SendNotificationEmail($row->id))->failed(new RuntimeException('smtp'));
+    // Its failure closes a window that is due, and leaves one still in the future alone.
+    DB::table('notifications')->where('id', $row->id)->update(['email_due_at' => now()->addMinute()]);
+    legacyEmailJob($row->id)->failed(new RuntimeException('smtp'));
+    expect($row->fresh()->email_due_at)->not->toBeNull();
+
+    $this->travel(2)->minutes();
+    legacyEmailJob($row->id)->failed(new RuntimeException('smtp'));
     expect($row->fresh()->email_due_at)->toBeNull();
+});
+
+it('sends nothing for a job whose window is already closed', function () {
+    Queue::fake([SendNotificationEmail::class]);
+    Notification::fake();
+    notifyAssign($this->alice, $this->task, $this->bob);
+    $job = Queue::pushed(SendNotificationEmail::class)->first();
+    $this->travel(3)->minutes();
+
+    runEmailJob($job);
+    Notification::assertSentTimes(InboxNotificationMail::class, 1);
+
+    // Run again (a leftover or retried copy) on the closed window: nothing more, for either kind of job.
+    runEmailJob($job);
+    runEmailJob(legacyEmailJob($job->notificationId));
+    Notification::assertSentTimes(InboxNotificationMail::class, 1);
 });
