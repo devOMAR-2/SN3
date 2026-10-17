@@ -57,6 +57,8 @@ const announcement = ref('');
 const dialogOpen = ref(false);
 const dialogTask = ref<Task | null>(null);
 const lastMoved = ref<string | null>(null);
+/** Set when the dialog submits a move, so only that close moves focus to the card. */
+let focusMoved = false;
 const root = useTemplateRef<HTMLElement>('root');
 
 function reloadAll(): void {
@@ -164,6 +166,7 @@ function openMove(task: Task): void {
 }
 
 function onDialogMove(task: Task, statusId: string, place: MovePlace): void {
+  focusMoved = true;
   const current = indexOf(task);
   const index = place === 'top' ? 0 : place === 'up' ? current - 1 : current + 1;
 
@@ -172,10 +175,15 @@ function onDialogMove(task: Task, statusId: string, place: MovePlace): void {
 
 /**
  * Where focus goes when the Move dialog closes (DESIGN_SYSTEM.md §8): the moved card's Move button, which
- * may now be in another column; if the card is not on screen (another column on a phone, or past the
+ * may now be in another column (after a submitted move only; Cancel returns to the opener); if the card is not on screen (another column on a phone, or past the
  * loaded cards), the board itself, so focus is never lost to the page.
  */
 function focusAfterMove(): HTMLElement | null {
+  if (!focusMoved) {
+    return null; // Cancelled: back to the button that opened the dialog.
+  }
+
+  focusMoved = false;
   const id = lastMoved.value;
   const card = id === null ? null : root.value?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"] button`);
 

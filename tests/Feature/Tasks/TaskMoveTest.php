@@ -260,6 +260,16 @@ it('orders neighbours by rank, not by its text, in long columns and with negativ
         ->and(rankOf($tasks[4]))->toBe('-6.0000000000');
 });
 
+it('finds the predecessor of a before-anchor by rank when ranks have two digits', function () {
+    $tasks = boardTasks($this->project, 13); // ranks 0..12; as text, '9' would beat '11'
+    $this->actingAs($this->member);
+
+    move($tasks[0], ['status_id' => $this->todo, 'before_task_id' => $tasks[12]->id])->assertOk();
+
+    expect(array_slice(column($this->project, $this->todo), -3))->toBe(['T12', 'T1', 'T13'])
+        ->and(rankOf($tasks[0]))->toBe('11.5000000000');
+});
+
 it('ignores trashed tasks as neighbours: the rank is the midpoint of the live ones', function () {
     [$a, $trashed, $b, $x] = boardTasks($this->project, 4);
     setRanks([$a->id => '0', $trashed->id => '1', $b->id => '4', $x->id => '9']);

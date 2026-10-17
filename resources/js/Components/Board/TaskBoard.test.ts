@@ -68,6 +68,14 @@ function renderBoard(canWrite = true) {
   state.props = sharedProps('en');
   http.get.mockImplementation((_url: string, config: { params: Record<string, unknown> }) => {
     const status = (config.params['status_id[]'] as string[])[0];
+
+    if (config.params.cursor === 'c') {
+      // The second page of To do, read after task-2 moved past the cursor: it comes back again.
+      return Promise.resolve({
+        data: { data: [{ ...task(2), version: 2 }, task(4)], meta: { next_cursor: null, has_more: false } },
+      });
+    }
+
     const data = status === 's1' ? [task(1), task(2), task(3)] : [];
 
     return Promise.resolve({
@@ -89,7 +97,9 @@ function renderBoard(canWrite = true) {
 }
 
 async function openMove(key: string) {
-  await fireEvent.click(await screen.findByRole('button', { name: `Move ${key}…` }));
+  const button = await screen.findByRole('button', { name: `Move ${key}…` });
+  button.focus(); // A real click focuses the button; jsdom's does not.
+  await fireEvent.click(button);
 
   return within(screen.getByRole('dialog', { hidden: true }));
 }
@@ -174,5 +184,51 @@ describe('Task board', () => {
 
     await waitFor(() => expect(view.emitted('locked')).toHaveLength(1));
     expect(titles()).toEqual(['Task 1', 'Task 2', 'Task 3']);
+  });
+
+  it('anchors after the last loaded card when moving below it, and lists the card once after Load more', async () => {
+    renderBoard();
+    http.post.mockResolvedValue({ data: { data: { ...task(2), version: 2 } } });
+
+    const dialog = await openMove('WEB-2');
+    await fireEvent.update(dialog.getByLabelText('Position'), 'down');
+    await fireEvent.click(dialog.getByRole('button', { name: 'Move' }));
+
+    expect(http.post).toHaveBeenCalledWith(
+      '/tasks/task-2/move',
+      { status_id: 's1', after_task_id: 'task-3' },
+      expect.anything(),
+    );
+    await waitFor(() => expect(titles()).toEqual(['Task 1', 'Task 3', 'Task 2']));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    await waitFor(() => expect(titles()).toEqual(['Task 1', 'Task 3', 'Task 2', 'Task 4']));
+  });
+
+  it("returns focus to the opener on Cancel, and starts a reopened dialog from the task's column", async () => {
+    renderBoard();
+
+    let dialog = await openMove('WEB-3');
+    await fireEvent.update(dialog.getByLabelText('Status'), 's2');
+    await fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
+
+    expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Move WEB-3…' }));
+    expect(http.post).not.toHaveBeenCalled();
+
+    dialog = await openMove('WEB-3');
+    expect((dialog.getByLabelText('Status') as HTMLSelectElement).value).toBe('s1');
+  });
+
+  it('refreshes the board when an anchor is gone (422)', async () => {
+    renderBoard();
+    http.post.mockRejectedValue(apiFailure(422, 'validation_failed'));
+
+    const dialog = await openMove('WEB-3');
+    await fireEvent.update(dialog.getByLabelText('Position'), 'top');
+    const reads = http.get.mock.calls.length;
+    await fireEvent.click(dialog.getByRole('button', { name: 'Move' }));
+
+    await waitFor(() => expect(http.get.mock.calls.length).toBeGreaterThan(reads));
+    await waitFor(() => expect(titles()).toEqual(['Task 1', 'Task 2', 'Task 3']));
   });
 });
