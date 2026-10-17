@@ -4,8 +4,6 @@ namespace App\Domain\Exports;
 
 use Illuminate\Contracts\Container\Container;
 use LogicException;
-use Phar;
-use PharData;
 use RuntimeException;
 
 /**
@@ -13,10 +11,12 @@ use RuntimeException;
  *
  *     manifest.json        format, version, IDs, generation time and, per section, file, record count, SHA-256
  *     data/<section>.json  a JSON array, one record per line, for each TeamExportFormat::SECTIONS entry
+ *     files/<id>           stored files of sections that have them (attachments, CORE-008, ADR-027 §7)
  *
- * Sections are streamed record by record to their file, so memory stays flat. The zip is written
- * with PharData (bundled with PHP; the image has no zip extension) and its entries are deflated when
- * zlib is available. Entry names are fixed by the format, never taken from data.
+ * Sections are streamed record by record to their file, so memory stays flat. The zip is streamed
+ * by ZipStreamWriter (PHP has no zip extension in the image; ADR-024 used PharData, which rewrote
+ * the whole archive to compress it): data entries are deflated, stored files are copied once, as
+ * they are. Entry names are fixed by the format and IDs, never taken from data.
  */
 final class TeamExportWriter
 {
@@ -32,10 +32,15 @@ final class TeamExportWriter
         $this->mkdir($workDir.'/data');
 
         $sections = [];
+        $withFiles = [];
 
         foreach (TeamExportFormat::SECTIONS as $class) {
             $section = $this->container->make($class);
             $name = $section->name();
+
+            if ($section instanceof TeamExportFiles) {
+                $withFiles[] = $section;
+            }
 
             if (preg_match('/^[a-z][a-z0-9_]{0,63}$/', $name) !== 1 || isset($sections[$name])) {
                 throw new LogicException("Invalid or duplicate export section name [{$name}].");
@@ -65,21 +70,30 @@ final class TeamExportWriter
         $this->put($workDir.'/manifest.json', json_encode($manifest, self::JSON_FLAGS | JSON_PRETTY_PRINT)."\n");
 
         $zipPath = $workDir.'/export.zip';
-        $zip = new PharData($zipPath, 0, null, Phar::ZIP);
-        $zip->startBuffering();
-        $zip->addFile($workDir.'/manifest.json', 'manifest.json');
+        $zip = new ZipStreamWriter($zipPath, now()->utc());
+        $zip->addFile('manifest.json', $workDir.'/manifest.json', deflate: true);
 
         foreach ($sections as $section) {
-            $zip->addFile($workDir.'/'.$section['file'], $section['file']);
+            $zip->addFile($section['file'], $workDir.'/'.$section['file'], deflate: true);
         }
 
-        $zip->stopBuffering();
+        // Stored files the records refer to (attachments, CORE-008), streamed from their disk once
+        // and stored as they are.
+        foreach ($withFiles as $section) {
+            foreach ($section->files($context) as $entry => $stream) {
+                if (preg_match('#^files/[0-9a-f-]{36}$#', $entry) !== 1) {
+                    throw new LogicException('Invalid export file entry name.');
+                }
 
-        if (Phar::canCompress(Phar::GZ)) {
-            $zip->compressFiles(Phar::GZ);
+                try {
+                    $zip->addStream($entry, $stream, deflate: false);
+                } finally {
+                    fclose($stream);
+                }
+            }
         }
 
-        unset($zip);
+        $zip->close();
 
         return $zipPath;
     }

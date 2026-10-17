@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\ApiIdempotencyRecord;
+use App\Models\TaskComment;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -23,8 +24,9 @@ Schedule::command('auth:clear-resets')
     ->dailyAt('03:20')
     ->onOneServer();
 
-// Idempotency-Key results are kept for 24 hours (FND-005, API_SPEC.md §1.4).
-Schedule::command('model:prune', ['--model' => [ApiIdempotencyRecord::class]])
+// Idempotency-Key results are kept for 24 hours (FND-005, API_SPEC.md §1.4); deleted comments for
+// the 30-day recovery window (CORE-008, DATABASE.md §5, ADR-027 §2).
+Schedule::command('model:prune', ['--model' => [ApiIdempotencyRecord::class, TaskComment::class]])
     ->dailyAt('03:30')
     ->onOneServer();
 
@@ -40,5 +42,12 @@ Schedule::command('trash:purge')
 // §13, ADR-024 §4). Hourly, so an archive outlives its expiry by at most an hour.
 Schedule::command('exports:prune')
     ->hourlyAt(50)
+    ->onOneServer()
+    ->withoutOverlapping(60);
+
+// Attachment files that no attachment needs any more: removals the storage could not finish, files
+// of purged projects and teams, and orphans of rolled-back uploads (CORE-008, ADR-027 §5).
+Schedule::command('attachments:sweep')
+    ->hourlyAt(35)
     ->onOneServer()
     ->withoutOverlapping(60);

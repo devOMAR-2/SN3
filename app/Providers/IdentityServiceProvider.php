@@ -66,6 +66,13 @@ class IdentityServiceProvider extends ServiceProvider
 
             return $max > 0 ? Limit::perHour($max)->by('team-exports:'.self::actorKey($request)) : Limit::none();
         });
+
+        // Attachment uploads (API_SPEC.md §1.4 "separate stricter limits for … uploads"; CORE-008,
+        // ADR-027 §6), per user, on top of the global 120/min.
+        RateLimiter::for('attachment-uploads', fn (Request $request): Limit => self::perMinute(
+            'sn3.rate_limits.attachment_uploads_per_minute',
+            'attachment-uploads:'.self::actorKey($request),
+        ) ?? Limit::none());
     }
 
     private static function actorKey(Request $request): string

@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
@@ -10,7 +11,6 @@ use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -71,11 +71,7 @@ final class TransferOwnership
             // The former Owner, now an Admin, keeps only explicit private memberships (ADR-023 §5).
             TaskAssignments::releaseIneligible($locked->id, $currentOwner->id, null, 'ownership_transferred');
 
-            Log::info('team.ownership_transferred', [
-                'team_id' => $locked->id,
-                'from_user_id' => $currentOwner->id,
-                'to_user_id' => $newOwnerId,
-            ]);
+            Activity::team($locked->id, $currentOwner, 'team.ownership_transferred', ['from_user_id' => $currentOwner->id, 'to_user_id' => $newOwnerId]);
 
             return $locked->setRelation('memberships', $locked->memberships()->where('user_id', $currentOwner->id)->get());
         });

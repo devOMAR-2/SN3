@@ -56,6 +56,9 @@ return [
         'project_writes_per_minute' => (int) env('SN3_RATE_LIMIT_PROJECT_WRITES_PER_MINUTE', 20),
         // Team export requests, per user per hour (CORE-012, ADR-024 §5).
         'team_exports_per_hour' => (int) env('SN3_RATE_LIMIT_TEAM_EXPORTS_PER_HOUR', 10),
+        // Attachment uploads, per user per minute: a stricter limit for uploads (API_SPEC.md §1.4;
+        // CORE-008, ADR-027 §6).
+        'attachment_uploads_per_minute' => (int) env('SN3_RATE_LIMIT_ATTACHMENT_UPLOADS_PER_MINUTE', 20),
     ],
 
     /*
@@ -85,6 +88,25 @@ return [
         'disk' => (string) env('SN3_EXPORTS_DISK', 'exports'),
         // Local working directory for archives being built (one subdirectory per export).
         'work_dir' => (string) env('SN3_EXPORTS_WORK_DIR', storage_path('app/exports/work')),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Task attachments (CORE-008, ADR-027; DECIDED-004, API_SPEC.md §6.3)
+    |--------------------------------------------------------------------------
+    |
+    | Files go to this dedicated private disk (under `objects/`), never to a
+    | public one, and leave it only through the authorized download route.
+    | Cloud keeps 25 MiB per file and 2 GiB per team; self-hosted operators may
+    | change both (0 means no limit). The PHP upload limits (upload_max_filesize,
+    | post_max_size in deploy/docker/php/sn3.ini) must be at least as large.
+    |
+    */
+
+    'attachments' => [
+        'disk' => (string) env('SN3_ATTACHMENTS_DISK', 'attachments'),
+        'max_bytes' => (int) env('SN3_ATTACHMENTS_MAX_BYTES', 25 * 1024 * 1024),
+        'team_quota_bytes' => (int) env('SN3_ATTACHMENTS_TEAM_QUOTA_BYTES', 2 * 1024 * 1024 * 1024),
     ],
 
 ];

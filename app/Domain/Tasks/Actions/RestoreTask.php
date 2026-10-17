@@ -2,12 +2,12 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Models\Task;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Restores a soft-deleted task (API_SPEC.md §6.1 `POST /tasks/{id}/restore`, "Project
@@ -43,12 +43,7 @@ final class RestoreTask
             $locked->version = $locked->version + 1;
             $locked->save();
 
-            Log::info('task.restored_from_trash', [
-                'team_id' => $project->team_id,
-                'project_id' => $project->id,
-                'task_id' => $locked->id,
-                'actor_id' => $actor->id,
-            ]);
+            Activity::task($locked, $actor, 'task.restored');
 
             return $locked->setRelation('project', $project);
         });

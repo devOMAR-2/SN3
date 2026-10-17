@@ -2,6 +2,7 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Tasks\TaskHierarchy;
@@ -14,7 +15,6 @@ use App\Support\Concurrency\OptimisticLock;
 use App\Support\Concurrency\StaleVersionException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -50,7 +50,13 @@ final class UpdateTask
             $labelsChanged = false;
 
             $updated = OptimisticLock::update($task, $expectedVersion, function (Task $locked) use ($project, $changes, $expectedVersion, &$before, &$labelsChanged): void {
-                $before = ['status_id' => $locked->status_id, 'assignee_user_id' => $locked->assignee_user_id];
+                $before = [
+                    'status_id' => $locked->status_id,
+                    'assignee_user_id' => $locked->assignee_user_id,
+                    'parent_task_id' => $locked->parent_task_id,
+                    'priority' => $locked->priority->value,
+                    'due_date' => $locked->due_date?->toDateString(),
+                ];
 
                 if (array_key_exists('title', $changes)) {
                     $locked->title = $changes['title'];
@@ -120,33 +126,35 @@ final class UpdateTask
     }
 
     /**
-     * IDs and field names only: titles and descriptions may be private (ADR-020 §9).
+     * The `task.updated` activity entry, in the edit's transaction (FR-COL-002, ARCHITECTURE.md §7):
+     * the names of the changed fields, and the old and new value of those that are IDs, enum values
+     * or dates. Titles and descriptions are never copied, because they may be private.
      *
      * @param  array<string, string|null>  $before
      */
     private static function log(Task $task, User $actor, array $before, bool $labelsChanged): void
     {
-        $context = [
-            'team_id' => $task->team_id,
-            'project_id' => $task->project_id,
-            'task_id' => $task->id,
-            'actor_id' => $actor->id,
-        ];
-
         $fields = array_values(array_diff(array_keys($task->getChanges()), ['version', 'updated_at', 'position']));
 
         if ($labelsChanged) {
             $fields[] = 'label_ids';
         }
 
-        Log::info('task.updated', [...$context, 'fields' => $fields]);
+        $after = [
+            'status_id' => $task->status_id,
+            'assignee_user_id' => $task->assignee_user_id,
+            'parent_task_id' => $task->parent_task_id,
+            'priority' => $task->priority->value,
+            'due_date' => $task->due_date?->toDateString(),
+        ];
+        $changes = ['fields' => $fields];
 
-        if ($task->wasChanged('status_id')) {
-            Log::info('task.status_changed', [...$context, 'from' => $before['status_id'] ?? null, 'to' => $task->status_id]);
+        foreach ($after as $field => $value) {
+            if (in_array($field, $fields, true)) {
+                $changes[$field] = ['from' => $before[$field] ?? null, 'to' => $value];
+            }
         }
 
-        if ($task->wasChanged('assignee_user_id')) {
-            Log::info('task.assignee_changed', [...$context, 'from' => $before['assignee_user_id'] ?? null, 'to' => $task->assignee_user_id]);
-        }
+        Activity::task($task, $actor, 'task.updated', $changes);
     }
 }

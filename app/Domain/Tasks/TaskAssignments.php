@@ -2,11 +2,11 @@
 
 namespace App\Domain\Tasks;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Projects\ProjectVisibility;
 use App\Domain\Teams\TeamRole;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use stdClass;
 
 /**
@@ -49,14 +49,7 @@ final class TaskAssignments
      */
     public static function releaseUser(string $teamId, string $userId, string $reason): int
     {
-        $released = DB::update(
-            'UPDATE tasks SET assignee_user_id = NULL, version = version + 1, updated_at = now() WHERE team_id = ? AND assignee_user_id = ?',
-            [$teamId, $userId],
-        );
-
-        self::log($released, $teamId, $userId, null, $reason);
-
-        return $released;
+        return self::release('t.team_id = ? AND t.assignee_user_id = ?', [$teamId, $userId], $reason);
     }
 
     /**
@@ -67,25 +60,43 @@ final class TaskAssignments
      */
     public static function releaseIneligible(string $teamId, ?string $userId, ?string $projectId, string $reason): int
     {
-        $sql = 'UPDATE tasks AS t SET assignee_user_id = NULL, version = t.version + 1, updated_at = now() '
-            .'WHERE t.team_id = ? AND t.assignee_user_id IS NOT NULL';
+        $where = 't.team_id = ? AND t.assignee_user_id IS NOT NULL';
         $bindings = [$teamId];
 
         if ($userId !== null) {
-            $sql .= ' AND t.assignee_user_id = ?';
+            $where .= ' AND t.assignee_user_id = ?';
             $bindings[] = $userId;
         }
 
         if ($projectId !== null) {
-            $sql .= ' AND t.project_id = ?';
+            $where .= ' AND t.project_id = ?';
             $bindings[] = $projectId;
         }
 
-        $released = DB::update($sql.' AND NOT '.self::predicate('t.project_id', 't.assignee_user_id'), $bindings);
+        return self::release($where.' AND NOT '.self::predicate('t.project_id', 't.assignee_user_id'), $bindings, $reason);
+    }
 
-        self::log($released, $teamId, $userId, $projectId, $reason);
+    /**
+     * Unassigns the tasks `$where` selects (alias `t`), recording one `task.assignee_released` activity
+     * entry per task first (CORE-008, ADR-027 §3), in the caller's transaction.
+     *
+     * @param  array<int, mixed>  $bindings
+     */
+    private static function release(string $where, array $bindings, string $reason): int
+    {
+        Activity::forTasksSql(
+            "SELECT t.id, t.project_id, t.team_id, t.assignee_user_id FROM tasks AS t WHERE {$where}",
+            $bindings,
+            'task.assignee_released',
+            ['reason' => $reason],
+            ['from' => 'assignee_user_id'],
+            actorId: null,
+        );
 
-        return $released;
+        return DB::update(
+            "UPDATE tasks AS t SET assignee_user_id = NULL, version = t.version + 1, updated_at = now() WHERE {$where}",
+            $bindings,
+        );
     }
 
     /**
@@ -104,20 +115,5 @@ final class TaskAssignments
             ."WHERE ep.id = {$project} AND etm.user_id = {$user} AND eu.disabled_at IS NULL "
             ."AND (etm.role = '{$owner}' OR (etm.role IN ({$writers}) AND (ep.visibility = '{$team}' "
             ."OR EXISTS (SELECT 1 FROM project_memberships AS epm WHERE epm.project_id = ep.id AND epm.user_id = etm.user_id AND epm.project_role IN ({$roles}))))))";
-    }
-
-    private static function log(int $released, string $teamId, ?string $userId, ?string $projectId, string $reason): void
-    {
-        if ($released === 0) {
-            return;
-        }
-
-        Log::info('task.assignments_released', array_filter([
-            'team_id' => $teamId,
-            'project_id' => $projectId,
-            'user_id' => $userId,
-            'reason' => $reason,
-            'tasks' => $released,
-        ], fn (mixed $value): bool => $value !== null));
     }
 }

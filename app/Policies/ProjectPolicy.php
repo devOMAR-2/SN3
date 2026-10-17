@@ -92,6 +92,17 @@ class ProjectPolicy
         return $this->manageMembers($user, $project);
     }
 
+    /**
+     * Moderating other people's collaboration content: deleting their comments and attachments
+     * (API_SPEC.md §6.2 "Author or Owner/Project Manager", §6.3 "Uploader or Owner/Project Manager";
+     * CORE-008, ADR-027 §1). The same rule as the workflow: a Team Admin needs the `manager` role,
+     * a Team Viewer never qualifies.
+     */
+    public function moderate(User $user, Project $project): bool
+    {
+        return $this->manageMembers($user, $project);
+    }
+
     /** Write access to project content: tasks, comments and ordinary collaboration (CORE-005+). */
     public function contribute(User $user, Project $project): bool
     {

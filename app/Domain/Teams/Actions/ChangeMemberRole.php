@@ -2,6 +2,7 @@
 
 namespace App\Domain\Teams\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Tasks\TaskAssignments;
 use App\Domain\Teams\TeamRole;
 use App\Models\Team;
@@ -10,7 +11,6 @@ use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
 use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 
 /**
@@ -57,13 +57,7 @@ final class ChangeMemberRole
             // A Team Viewer cannot be an assignee (API_SPEC.md §6.1, ADR-023 §5).
             TaskAssignments::releaseIneligible($team->id, $locked->user_id, null, 'team_role_changed');
 
-            Log::info('team.member_role_changed', [
-                'team_id' => $team->id,
-                'user_id' => $locked->user_id,
-                'actor_id' => $actor->id,
-                'from' => $from->value,
-                'to' => $role->value,
-            ]);
+            Activity::team($team->id, $actor, 'team.member_role_changed', ['user_id' => $locked->user_id, 'from' => $from->value, 'to' => $role->value]);
 
             return $locked->setRelation('user', $membership->user);
         });

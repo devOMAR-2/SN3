@@ -295,6 +295,8 @@ it('reaches every descendant by cascade, and no key can block the purge (ADR-022
     expect(purgeSubtree($keys))->toContain('team_memberships', 'project_memberships', 'api_idempotency_records')
         // CORE-005 (ADR-023 §2): tasks and everything below them.
         ->and(purgeSubtree($keys))->toContain('project_statuses', 'tasks', 'labels', 'task_labels', 'task_checklist_items')
+        // CORE-008 (ADR-027): comments, their mentions, attachments and the activity log.
+        ->and(purgeSubtree($keys))->toContain('task_comments', 'task_comment_mentions', 'task_attachments', 'task_activities')
         ->and(purgeBlockingKeys($keys))->toBe([]);
 });
 

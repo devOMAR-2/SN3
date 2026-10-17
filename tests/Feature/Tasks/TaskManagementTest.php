@@ -8,6 +8,7 @@ use App\Domain\Teams\TeamRole;
 use App\Models\Label;
 use App\Models\Project;
 use App\Models\Task;
+use App\Models\TaskActivity;
 use App\Models\Team;
 use App\Models\User;
 use App\Support\Exceptions\DomainConflictException;
@@ -15,7 +16,6 @@ use App\Support\Tenancy\AccessibleProjects;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 // CORE-005: task create, read, edit, delete and restore (API_SPEC.md §6.1, §1.4, §14.1, §14.3).
@@ -232,16 +232,16 @@ it('freezes the project key with the first task and keeps task keys stable (PROJ
     expect($this->project->fresh()->project_key)->toBe('WEB');
 });
 
-it('logs task creation with IDs only', function () {
-    Log::spy();
+it('records task creation in the activity log with IDs only (CORE-008)', function () {
+    $id = postTask($this->project, $this->member, ['title' => 'Secret plan', 'description' => 'Very private'])->assertCreated()->json('data.id');
 
-    postTask($this->project, $this->member, ['title' => 'Secret plan', 'description' => 'Very private'])->assertCreated();
+    $entries = TaskActivity::query()->where('task_id', $id)->get();
 
-    Log::shouldHaveReceived('info')->withArgs(function (string $event, array $context) {
-        return $event === 'task.created'
-            && array_keys($context) === ['team_id', 'project_id', 'task_id', 'actor_id', 'status_id']
-            && ! str_contains(json_encode($context), 'Secret');
-    })->once();
+    expect($entries)->toHaveCount(1)
+        ->and($entries[0]->action)->toBe('task.created')
+        ->and($entries[0]->actor_user_id)->toBe($this->member->id)
+        ->and($entries[0]->changes)->toBe(['priority' => 'none', 'status_id' => taskDefaultStatusId($this->project)])
+        ->and(json_encode($entries[0]->changes))->not->toContain('Secret');
 });
 
 // --- Read --------------------------------------------------------------------------------------------

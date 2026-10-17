@@ -2,6 +2,7 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Models\Task;
 use App\Models\User;
@@ -9,7 +10,6 @@ use App\Support\Concurrency\OptimisticLock;
 use App\Support\Concurrency\StaleVersionException;
 use App\Support\Exceptions\DomainConflictException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Soft-deletes a task (API_SPEC.md §6.1 DELETE "Project writer") against its `If-Match` version.
@@ -30,7 +30,7 @@ final class TrashTask
     public function handle(Task $task, User $actor, int $expectedVersion): void
     {
         DB::transaction(function () use ($task, $actor, $expectedVersion): void {
-            $project = ProjectWriteLock::project($task->project, $actor, 'contribute');
+            ProjectWriteLock::project($task->project, $actor, 'contribute');
 
             $trashed = OptimisticLock::update($task, $expectedVersion, function (Task $locked): void {
                 if ($locked->children()->exists()) {
@@ -40,12 +40,7 @@ final class TrashTask
                 $locked->deleted_at = now();
             }, lock: Task::WRITE_LOCK);
 
-            Log::info('task.trashed', [
-                'team_id' => $project->team_id,
-                'project_id' => $project->id,
-                'task_id' => $trashed->id,
-                'actor_id' => $actor->id,
-            ]);
+            Activity::task($trashed, $actor, 'task.trashed');
         });
     }
 }

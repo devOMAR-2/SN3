@@ -2,6 +2,7 @@
 
 namespace App\Domain\Projects\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Tasks\TaskAssignments;
 use App\Models\Project;
@@ -9,7 +10,6 @@ use App\Models\ProjectMembership;
 use App\Models\User;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Removes an explicit project membership (FR-PROJ-006, API_SPEC.md §4). Owner or project manager
@@ -37,13 +37,7 @@ final class RemoveProjectMember
             // Without the membership they may no longer write in a private project (ADR-023 §5).
             TaskAssignments::releaseIneligible($locked->team_id, $userId, $locked->id, 'project_member_removed');
 
-            Log::info('project.member_removed', [
-                'team_id' => $locked->team_id,
-                'project_id' => $locked->id,
-                'user_id' => $userId,
-                'actor_id' => $actor->id,
-                'role' => $membership->project_role->value,
-            ]);
+            Activity::project($locked, $actor, 'project.member_removed', ['user_id' => $userId, 'role' => $membership->project_role->value]);
         });
     }
 }

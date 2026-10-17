@@ -2,6 +2,7 @@
 
 namespace App\Domain\Tasks\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Domain\Projects\ProjectWriteLock;
 use App\Domain\Projects\TaskNumbers;
 use App\Domain\Tasks\TaskAssignments;
@@ -15,7 +16,6 @@ use App\Models\ProjectStatus;
 use App\Models\Task;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 use LogicException;
 
@@ -79,14 +79,13 @@ final class CreateTask
 
             TaskLabels::sync($task, $labelIds);
 
-            Log::info('task.created', array_filter([
-                'team_id' => $locked->team_id,
-                'project_id' => $locked->id,
-                'task_id' => $task->id,
-                'actor_id' => $actor->id,
+            // In the same transaction as the task (DATABASE.md §11 "insert task and activity atomically").
+            Activity::task($task, $actor, 'task.created', array_filter([
                 'status_id' => $status->id,
                 'assignee_user_id' => $assigneeId,
                 'parent_task_id' => $parentId,
+                'priority' => $task->priority->value,
+                'due_date' => $input['due_date'] ?? null,
             ], fn (mixed $value): bool => $value !== null));
 
             return $task->setRelation('project', $locked);
