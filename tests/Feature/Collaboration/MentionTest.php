@@ -92,8 +92,10 @@ it('never matches names or e-mail-like text, and bounds the candidates', functio
         ->and(CommentMentions::candidates("(@{$id}), «@{$id}»"))->toBe([$id])
         ->and(CommentMentions::candidates('@'.substr($id, 0, 35)))->toBe([]);
 
-    $many = collect(range(1, CommentMentions::MAX + 10))->map(fn () => '@'.Str::uuid7())->implode(' ');
-    expect(CommentMentions::candidates($many))->toHaveCount(CommentMentions::MAX);
+    // At most 50 distinct candidates per comment (ADR-027 §2).
+    $many = collect(range(1, 60))->map(fn () => '@'.Str::uuid7())->implode(' ');
+    expect(CommentMentions::candidates($many))->toHaveCount(50)
+        ->and(CommentMentions::MAX)->toBe(50);
 
     mentionPost($this->author, $task, "@{$this->colleague->name} mail user@{$id}")
         ->assertCreated()

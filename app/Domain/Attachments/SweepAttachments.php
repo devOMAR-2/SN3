@@ -5,6 +5,9 @@ namespace App\Domain\Attachments;
 use App\Models\TaskAttachment;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use League\Flysystem\DirectoryAttributes;
+use League\Flysystem\FileAttributes;
+use League\Flysystem\StorageAttributes;
 use Throwable;
 
 /**
@@ -20,6 +23,8 @@ use Throwable;
  *    ORPHAN_GRACE_MINUTES (so an upload between its write and its commit is never touched), are
  *    deleted: the leftovers of uploads whose transaction rolled back while the process died.
  *
+ * Every disk attachments may be on is swept (AttachmentStorage::diskNames(): the configured one, the
+ * previous ones an operator listed, and every disk a row still names), and its tree is walked lazily.
  * Only keys under `objects/` that match AttachmentStorage::KEY_PATTERN are ever considered.
  */
 final class SweepAttachments
@@ -60,60 +65,22 @@ final class SweepAttachments
 
     private function deletePurgedPrefixes(): int
     {
-        $disk = $this->storage->disk();
         $deleted = 0;
 
-        foreach ($this->uuidNames($disk->directories(AttachmentStorage::PREFIX)) as $teamId) {
-            if (! DB::table('teams')->where('id', $teamId)->exists()) {
-                $deleted += $this->files->purgeTeam($teamId) ? 1 : 0;
+        foreach ($this->storage->diskNames() as $diskName) {
+            $driver = $this->storage->disk($diskName)->getDriver();
 
-                continue;
-            }
+            foreach ($this->directoryNames($driver->listContents(AttachmentStorage::PREFIX, false)) as $teamId) {
+                if (! DB::table('teams')->where('id', $teamId)->exists()) {
+                    $deleted += $this->files->purgeTeam($teamId) ? 1 : 0;
 
-            foreach ($this->uuidNames($disk->directories($this->storage->teamPrefix($teamId))) as $projectId) {
-                if (! DB::table('projects')->where('id', $projectId)->where('team_id', $teamId)->exists()) {
-                    $deleted += $this->files->purgeProject($teamId, $projectId) ? 1 : 0;
-                }
-            }
-        }
-
-        return $deleted;
-    }
-
-    private function deleteOrphans(): int
-    {
-        $disk = $this->storage->disk();
-        $cutoff = now()->subMinutes(self::ORPHAN_GRACE_MINUTES)->getTimestamp();
-        $deleted = 0;
-
-        foreach (array_chunk($disk->allFiles(AttachmentStorage::PREFIX), self::BATCH) as $keys) {
-            $candidates = array_values(array_filter($keys, fn (string $key): bool => preg_match(AttachmentStorage::KEY_PATTERN, $key) === 1));
-
-            if ($candidates === []) {
-                continue;
-            }
-
-            $known = [];
-
-            foreach (DB::table('task_attachments')->whereIn('storage_key', $candidates)->pluck('storage_key') as $key) {
-                if (is_string($key)) {
-                    $known[$key] = true;
-                }
-            }
-
-            foreach ($candidates as $key) {
-                if (isset($known[$key])) {
                     continue;
                 }
 
-                try {
-                    if ($disk->lastModified($key) <= $cutoff) {
-                        $disk->delete($key);
-                        $deleted++;
-                        Log::info('attachment.orphan_deleted', ['storage_key_prefix' => dirname($key)]);
+                foreach ($this->directoryNames($driver->listContents($this->storage->teamPrefix($teamId), false)) as $projectId) {
+                    if (! DB::table('projects')->where('id', $projectId)->where('team_id', $teamId)->exists()) {
+                        $deleted += $this->files->purgeProject($teamId, $projectId) ? 1 : 0;
                     }
-                } catch (Throwable) {
-                    // Gone meanwhile, or the storage is unavailable: the next run tries again.
                 }
             }
         }
@@ -122,19 +89,88 @@ final class SweepAttachments
     }
 
     /**
-     * The last path segments that are UUIDs.
+     * Walks each disk's `objects/` tree lazily (a listing, never the whole tree in memory) and checks
+     * the files against the rows of that disk in batches.
+     */
+    private function deleteOrphans(): int
+    {
+        $cutoff = now()->subMinutes(self::ORPHAN_GRACE_MINUTES)->getTimestamp();
+        $deleted = 0;
+
+        foreach ($this->storage->diskNames() as $diskName) {
+            $disk = $this->storage->disk($diskName);
+            $batch = [];
+
+            foreach ($disk->getDriver()->listContents(AttachmentStorage::PREFIX, true) as $item) {
+                if ($item instanceof FileAttributes && preg_match(AttachmentStorage::KEY_PATTERN, $item->path()) === 1) {
+                    $batch[$item->path()] = $item->lastModified();
+                }
+
+                if (count($batch) >= self::BATCH) {
+                    $deleted += $this->deleteUnknown($diskName, $batch, $cutoff);
+                    $batch = [];
+                }
+            }
+
+            $deleted += $this->deleteUnknown($diskName, $batch, $cutoff);
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * @param  array<string, int|null>  $files  key => last modified (null when the listing has none)
+     */
+    private function deleteUnknown(string $diskName, array $files, int $cutoff): int
+    {
+        if ($files === []) {
+            return 0;
+        }
+
+        $known = [];
+
+        foreach (DB::table('task_attachments')->where('storage_disk', $diskName)->whereIn('storage_key', array_keys($files))->pluck('storage_key') as $key) {
+            if (is_string($key)) {
+                $known[$key] = true;
+            }
+        }
+
+        $disk = $this->storage->disk($diskName);
+        $deleted = 0;
+
+        foreach ($files as $key => $modified) {
+            if (isset($known[$key])) {
+                continue;
+            }
+
+            try {
+                if (($modified ?? $disk->lastModified($key)) <= $cutoff) {
+                    $disk->delete($key);
+                    $deleted++;
+                    Log::info('attachment.orphan_deleted', ['disk' => $diskName, 'storage_key_prefix' => dirname($key)]);
+                }
+            } catch (Throwable) {
+                // Gone meanwhile, or the storage is unavailable: the next run tries again.
+            }
+        }
+
+        return $deleted;
+    }
+
+    /**
+     * The names of the directories in a listing that are UUIDs.
      *
-     * @param  array<int, string>  $paths
+     * @param  iterable<StorageAttributes>  $listing
      * @return list<string>
      */
-    private function uuidNames(array $paths): array
+    private function directoryNames(iterable $listing): array
     {
         $names = [];
 
-        foreach ($paths as $path) {
-            $name = basename($path);
+        foreach ($listing as $item) {
+            $name = basename($item->path());
 
-            if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $name) === 1) {
+            if ($item instanceof DirectoryAttributes && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/', $name) === 1) {
                 $names[] = $name;
             }
         }

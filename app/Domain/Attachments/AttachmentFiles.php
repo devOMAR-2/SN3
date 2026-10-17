@@ -13,7 +13,8 @@ use Throwable;
  * - **One attachment** (`finish()`): after its deletion committed (the row is marked `deleted_at`),
  *   the file is deleted and then the row. If the storage fails, the marked row stays and
  *   `attachments:sweep` tries again; the attachment is invisible and out of the quota meanwhile.
- * - **A purged project or team** (`purgeProject()`, `purgeTeam()`): its whole key prefix goes, called
+ * - **A purged project or team** (`purgeProject()`, `purgeTeam()`): its whole key prefix goes, on
+ *   every disk attachments may be on (AttachmentStorage::diskNames()), called
  *   by the trash purge once the rows are gone (DeletePurgedAttachmentFiles), and by the sweeper for
  *   prefixes whose project or team no longer exists.
  *
@@ -49,18 +50,23 @@ final class AttachmentFiles
     }
 
     /**
+     * Deletes the prefix on every disk attachments may be on (AttachmentStorage::diskNames()).
+     *
      * @param  array<string, string>  $context
      */
     private function deletePrefix(string $prefix, array $context): bool
     {
-        try {
-            $this->storage->disk()->deleteDirectory($prefix);
+        $done = true;
 
-            return true;
-        } catch (Throwable) {
-            Log::warning('attachment.prefix_delete_failed', $context);
-
-            return false;
+        foreach ($this->storage->diskNames() as $disk) {
+            try {
+                $this->storage->disk($disk)->deleteDirectory($prefix);
+            } catch (Throwable) {
+                Log::warning('attachment.prefix_delete_failed', [...$context, 'disk' => $disk]);
+                $done = false;
+            }
         }
+
+        return $done;
     }
 }

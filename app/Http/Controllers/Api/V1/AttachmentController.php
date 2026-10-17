@@ -24,6 +24,7 @@ use Throwable;
  * `{attachment}` resolves through AccessibleAttachments on every request, so access is re-checked at
  * download time and a revoked member, a hidden project or a guessed ID gets the 404 of a missing file
  * (AUTH-05, DB-T08). Files are streamed through this route; there is no public or signed storage URL.
+ * A visible attachment whose file cannot be read is a 503 `service_unavailable`, logged as an error.
  * Every download is `Content-Disposition: attachment` with the sanitised name, `nosniff`, a sandboxing
  * CSP and `no-store`, so a browser never renders or runs a file inline, polyglots included.
  */
@@ -40,10 +41,11 @@ class AttachmentController extends Controller
         }
 
         if (! is_resource($stream)) {
-            // The row is there and visible, its file is not: an integrity problem, never a disclosure.
-            Log::warning('attachment.file_missing', ['attachment_id' => $attachment->id, 'team_id' => $attachment->team_id]);
+            // The row is there and visible, its file is not (or the storage is down): an integrity
+            // error for the operator, a temporary 503 for the client, never a disclosure.
+            Log::error('attachment.file_missing', ['attachment_id' => $attachment->id, 'team_id' => $attachment->team_id, 'disk' => $attachment->storage_disk]);
 
-            throw new HttpException(410);
+            throw new HttpException(503);
         }
 
         $name = $attachment->original_name;

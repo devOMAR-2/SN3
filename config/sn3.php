@@ -112,6 +112,9 @@ return [
         'disk' => (string) env('SN3_ATTACHMENTS_DISK', 'attachments'),
         'max_bytes' => (int) env('SN3_ATTACHMENTS_MAX_BYTES', 25 * 1024 * 1024),
         'team_quota_bytes' => (int) env('SN3_ATTACHMENTS_TEAM_QUOTA_BYTES', 2 * 1024 * 1024 * 1024),
+        // Disks attachments were stored on before SN3_ATTACHMENTS_DISK changed (comma-separated). The
+        // purge and the sweep clean them too, besides every disk an attachment row still names.
+        'previous_disks' => array_values(array_filter(array_map('trim', explode(',', (string) env('SN3_ATTACHMENTS_PREVIOUS_DISKS', ''))))),
     ],
 
 ];

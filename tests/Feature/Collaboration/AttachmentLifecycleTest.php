@@ -123,6 +123,43 @@ it('deletes orphaned files after a grace period, never a file whose upload may s
         ->and(collabStoredFiles())->toEqualCanonicalizing([$kept->storage_key, 'objects/readme.txt', 'elsewhere/file']);
 });
 
+it('purges and sweeps attachment files on every disk they were written to', function () {
+    $oldDisk = ['driver' => 'local', 'root' => storage_path('framework/testing/disks/attachments-old'), 'throw' => true];
+    config(['filesystems.disks.attachments-old' => $oldDisk, 'filesystems.disks.attachments-older' => $oldDisk]);
+    Storage::fake('attachments-old');
+    Storage::fake('attachments-older');
+    $storage = app(AttachmentStorage::class);
+
+    // Written before SN3_ATTACHMENTS_DISK changed: the row keeps its disk.
+    $purged = taskProject($this->team);
+    $onOldDisk = TaskAttachment::factory()->for(taskIn($purged))->create(['storage_disk' => 'attachments-old']);
+    $keptOnOldDisk = TaskAttachment::factory()->for($this->task)->create(['storage_disk' => 'attachments-old']);
+    $purged->forceFill(['deleted_at' => now()->subDays(31)])->save();
+
+    expect($storage->diskNames())->toEqualCanonicalizing(['attachments', 'attachments-old']);
+
+    app(PurgeTrash::class)->handle();
+
+    expect(Storage::disk('attachments-old')->exists($onOldDisk->storage_key))->toBeFalse()
+        ->and(Storage::disk('attachments-old')->exists($keptOnOldDisk->storage_key))->toBeTrue();
+
+    // A disk no row names any more is cleaned only once the operator lists it.
+    $leftover = $storage->newKey(Str::uuid7()->toString(), Str::uuid7()->toString());
+    Storage::disk('attachments-older')->put($leftover, 'left behind');
+    // An orphan on the old disk whose key a row of another disk uses is still an orphan there.
+    Storage::disk('attachments-old')->put(TaskAttachment::factory()->for($this->task)->create()->storage_key, 'stray copy');
+
+    app(SweepAttachments::class)->handle();
+    expect(Storage::disk('attachments-older')->exists($leftover))->toBeTrue();
+
+    config(['sn3.attachments.previous_disks' => ['attachments-older', 'not-a-disk']]);
+    $this->travel(SweepAttachments::ORPHAN_GRACE_MINUTES + 1)->minutes();
+
+    expect(app(SweepAttachments::class)->handle())->toBe(['pending' => 0, 'prefixes' => 1, 'orphans' => 1])
+        ->and(Storage::disk('attachments-older')->allFiles())->toBe([])
+        ->and(Storage::disk('attachments-old')->allFiles())->toBe([$keptOnOldDisk->storage_key]);
+});
+
 it('keeps attachment files in place when a task is trashed and restored', function () {
     $attachment = TaskAttachment::factory()->for($this->task)->create();
     $this->actingAs($this->owner)->deleteJson("/api/v1/tasks/{$this->task->id}", [], taskIfMatch(1))->assertNoContent();

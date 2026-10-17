@@ -2,15 +2,18 @@
 
 require_once __DIR__.'/CollaborationHelpers.php';
 
+use App\Domain\Attachments\Actions\UploadAttachment;
 use App\Domain\Attachments\AttachmentFilename;
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Teams\TeamRole;
+use App\Models\Task;
 use App\Models\TaskActivity;
 use App\Models\TaskAttachment;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -158,6 +161,44 @@ it('refuses an upload that would exceed the team quota before storing anything (
     collabUploadTo($this->member, $this->task, collabUpload(str_repeat('a', 60), 'b.txt'))->assertCreated();
 });
 
+it('refuses an over-quota upload before anything reaches the storage (LIM-02)', function () {
+    config(['sn3.attachments.team_quota_bytes' => 100]);
+    TaskAttachment::factory()->for($this->task)->withContent(str_repeat('x', 95))->create();
+
+    // Any write to the attachments disk fails the test.
+    $spy = Mockery::mock(Storage::disk('attachments'))->makePartial();
+    $spy->shouldNotReceive('writeStream');
+    $spy->shouldNotReceive('put');
+    $spy->shouldNotReceive('putFile');
+    Storage::set('attachments', $spy);
+
+    collabUploadTo($this->member, $this->task, collabUpload(collabFixture('text'), 'a.txt'))->assertStatus(413);
+
+    expect(TaskAttachment::query()->count())->toBe(1);
+});
+
+it('removes the stored file when a surrounding transaction rolls back after the upload committed its part', function () {
+    $path = tempnam(sys_get_temp_dir(), 'sn3-upload');
+    file_put_contents($path, collabFixture('text'));
+    $task = Task::query()->findOrFail($this->task->id);
+    $during = null;
+
+    expect(function () use ($task, $path, &$during): void {
+        DB::transaction(function () use ($task, $path, &$during): void {
+            app(UploadAttachment::class)->handle($task, $this->member, $path, 'a.txt', 'text/plain');
+            $during = collabStoredFiles();
+
+            throw new RuntimeException('A later step of the request failed.');
+        });
+    })->toThrow(RuntimeException::class, 'A later step of the request failed.');
+
+    expect($during)->toHaveCount(1)
+        ->and(collabStoredFiles())->toBe([])
+        ->and(TaskAttachment::query()->count())->toBe(0);
+
+    @unlink($path);
+});
+
 it('uses a 2 GiB team quota on Cloud, and 0 disables it for self-hosted operators', function () {
     expect(config('sn3.attachments.team_quota_bytes'))->toBe(2 * 1024 * 1024 * 1024);
 
@@ -247,6 +288,10 @@ it('keeps only a safe display name: no paths, control or bidi characters', funct
     'right-to-left override' => ["invoice\u{202E}txt.exe.txt", 'invoicetxt.exe.txt'],
     'Arabic name' => ['ملاحظات الاجتماع.txt', 'ملاحظات الاجتماع.txt'],
     'trailing dots and spaces' => ['notes.txt. . ', 'notes.txt'],
+    'line and paragraph separators' => ["notes\u{2028}\u{2029}.txt", 'notes.txt'],
+    'zero-width space' => ["rep\u{200B}ort.txt", 'report.txt'],
+    // Joiners shape Arabic and Persian script: they stay.
+    'zero-width joiner and non-joiner kept' => ["می\u{200C}خواهم\u{200D}.txt", "می\u{200C}خواهم\u{200D}.txt"],
 ]);
 
 it('sanitises names consistently, including long and empty ones', function () {
@@ -409,14 +454,17 @@ it('refuses attachment writes in archived projects and teams (423), and keeps do
     expect(TaskAttachment::query()->count())->toBe(1)->and(collabStoredFiles())->toHaveCount(1);
 })->with(['project', 'team']);
 
-it('answers 410 when a visible attachment\'s file is missing, without details', function () {
+it('answers 503 when a visible attachment\'s file is missing, logs an integrity error, and discloses nothing', function () {
+    Log::spy();
     $attachment = TaskAttachment::factory()->for($this->task)->create();
     Storage::disk('attachments')->delete($attachment->storage_key);
 
     $this->actingAs($this->member)->get("/api/v1/attachments/{$attachment->id}/download", ['Accept' => 'application/json'])
-        ->assertStatus(410)
-        ->assertJsonPath('error.code', 'expired')
+        ->assertStatus(503)
+        ->assertJsonPath('error.code', 'service_unavailable')
         ->assertDontSee('objects/');
+
+    Log::shouldHaveReceived('error')->with('attachment.file_missing', ['attachment_id' => $attachment->id, 'team_id' => $this->team->id, 'disk' => 'attachments'])->once();
 });
 
 it('requires authentication for every attachment endpoint', function () {

@@ -11,9 +11,11 @@ use Normalizer;
  *
  * - only the last path segment is kept, for `/` and `\` alike, so `../../etc/passwd.txt` is
  *   `passwd.txt` and `C:\Users\x\a.pdf` is `a.pdf`;
- * - control characters, NUL, and the bidirectional overrides and isolates (U+202A–U+202E,
+ * - control characters, NUL, line and paragraph separators (U+2028, U+2029), the zero-width space
+ *   (U+200B), the byte-order mark, and the bidirectional overrides and isolates (U+202A–U+202E,
  *   U+2066–U+2069, plus U+200E/U+200F and U+061C) are removed, so a right-to-left override cannot
- *   make `invoice‮fdp.exe` look like a PDF (important in an Arabic-first product);
+ *   make `invoice‮fdp.exe` look like a PDF (important in an Arabic-first product). The zero-width
+ *   joiner and non-joiner (U+200D, U+200C) stay: Arabic and Persian names need them;
  * - the result is NFC-normalised, trimmed of spaces and dots at both ends, and cut to 255
  *   characters keeping the extension; `.` and `..` (or nothing at all) become `file`.
  */
@@ -30,7 +32,7 @@ final class AttachmentFilename
         $segments = explode('/', $name);
         $name = (string) end($segments);
 
-        $name = (string) preg_replace('/[\p{Cc}\x{200E}\x{200F}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]/u', '', $name);
+        $name = (string) preg_replace('/[\p{Cc}\p{Zl}\p{Zp}\x{200B}\x{200E}\x{200F}\x{061C}\x{202A}-\x{202E}\x{2066}-\x{2069}\x{FEFF}]/u', '', $name);
 
         $normalized = Normalizer::normalize($name, Normalizer::FORM_C);
         $name = is_string($normalized) ? $normalized : $name;

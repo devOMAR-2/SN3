@@ -4,6 +4,7 @@ namespace App\Domain\Attachments;
 
 use App\Models\TaskAttachment;
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 /**
@@ -33,6 +34,35 @@ final class AttachmentStorage
     public function disk(?string $name = null): FilesystemAdapter
     {
         return Storage::disk($name ?? $this->diskName());
+    }
+
+    /**
+     * Every disk attachment files may be on: the configured one, the previous ones the operator
+     * listed (`sn3.attachments.previous_disks`), and every disk an attachment row still names (a row
+     * keeps the disk it was written to when SN3_ATTACHMENTS_DISK changes). Unknown disk names are
+     * skipped. The purge and the sweep clean all of them.
+     *
+     * @return list<string>
+     */
+    public function diskNames(): array
+    {
+        $names = [$this->diskName()];
+
+        foreach (config()->array('sn3.attachments.previous_disks') as $name) {
+            if (is_string($name)) {
+                $names[] = $name;
+            }
+        }
+
+        foreach (DB::table('task_attachments')->distinct()->pluck('storage_disk') as $name) {
+            if (is_string($name)) {
+                $names[] = $name;
+            }
+        }
+
+        $known = array_keys(config()->array('filesystems.disks'));
+
+        return array_values(array_unique(array_filter($names, fn (string $name): bool => in_array($name, $known, true))));
     }
 
     /** The disk an attachment's file is on (the one it was written to). */
