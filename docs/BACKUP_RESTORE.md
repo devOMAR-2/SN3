@@ -13,7 +13,7 @@ Each run writes one **backup set** named `sn3-<UTC time>`, for example `sn3-2026
 | File | Content |
 |---|---|
 | `<set>.db.dump.gpg` | `pg_dump` custom format (compressed) of the whole SN3 database, encrypted |
-| `<set>.storage.tar.gz.gpg` | The `storage/app` volume (private files; attachments once they exist), encrypted. Team export archives (`storage/app/exports`) are left out: they are deleted 24 hours after they are made and are not data of record |
+| `<set>.storage.tar.gz.gpg` | The `storage/app` volume (private files, task attachments in `storage/app/attachments`), encrypted. Team export archives (`storage/app/exports`) are left out: they are deleted 24 hours after they are made and are not data of record |
 | `<set>.sha256` | SHA-256 of the two encrypted files. It is written last, so a set without it is incomplete and is never restored |
 
 - **Encryption:** OpenPGP symmetric encryption with AES-256, using `gpg` and a passphrase that you supply in a file (key derivation: iterated and salted SHA-512). Nothing is ever written unencrypted to the backup directory, and the passphrase is never logged.

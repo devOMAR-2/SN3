@@ -151,7 +151,7 @@ Create team body: `name` (1–100), optional `slug` (`[a-z0-9-]{3,40}`, unique),
 - **Export representation:** `{ "id", "team_id", "requested_by", "status", "format": "sn3.team-export", "format_version": 1, "size_bytes", "sha256", "download_url", "created_at", "completed_at", "expires_at" }`. `status` is `pending`, `processing`, `ready`, `failed` or `expired`. `size_bytes`, `sha256` and `download_url` are `null` unless the export is `ready`.
 - **Download (technical settlement: the route behind the signed URL):** `GET /teams/{team_id}/exports/{export_id}/download?expires=…&signature=…` returns the zip (`application/zip`, attachment, `Cache-Control: no-store`). The signature expires with the export, 24 hours after it completed, and the request also needs the requesting Owner's session. Invalid or expired signature: `403`; export not ready: `404`; archive already removed: `410 expired`.
 - **Expiry:** the export and its archive are deleted within an hour after `expires_at` (24 hours after completion or failure; a request that is never processed expires 24 hours after it was made). Afterwards the export ID is `404`.
-- **Format:** a zip with `manifest.json` (format, version, IDs, generation time, and per section its file, record count and SHA-256) and one JSON array per section in `data/`: `team`, `members`, `projects`, `project_members`, `statuses`, and since CORE-005 `labels`, `tasks`, `task_labels`, `task_checklist_items` (all still version 1, an additive change), more as later tasks add data. New sections and fields keep the version; anything else bumps it (ADR-024 §2). Secrets, password hashes, tokens and sessions are never included; projects are those the Owner can see, private ones included, trashed ones excluded; likewise, tasks in the task trash (with their label links and checklist items) are excluded (ADR-023 §11).
+- **Format:** a zip with `manifest.json` (format, version, IDs, generation time, and per section its file, record count and SHA-256) and one JSON array per section in `data/`: `team`, `members`, `projects`, `project_members`, `statuses`, since CORE-005 `labels`, `tasks`, `task_labels`, `task_checklist_items`, and since CORE-008 `comments`, `activity` and `attachments`, with each attachment's file as the entry `files/<attachment_id>` (all still version 1, an additive change; ADR-027 §7), more as later tasks add data. New sections and fields keep the version; anything else bumps it (ADR-024 §2). Secrets, password hashes, tokens and sessions are never included; projects are those the Owner can see, private ones included, trashed ones excluded; likewise, tasks in the task trash (with their label links and checklist items) are excluded (ADR-023 §11).
 
 ### 3.1 Invitations
 
@@ -206,7 +206,7 @@ Create: `{ "name":"Website", "key":"WEB", "visibility":"team", "template_id":nul
 - **Member list:** each entry has `user_id`, `name`, `role`, `added_by` and `added_at`. `email` is included only for the Team Owner and Admins.
 - **Status codes:** an archived team or project gives `423 resource_locked` on every write, checked before `If-Match` (423 wins over 412). A caller who can no longer see the project when their request reaches the lock gets `404`; one who still sees it but lost the right gets `409 conflict`. A taken key is a generic `409 conflict` that names no project (DEC-018); project create and `PATCH` are rate-limited per user (`429 rate_limited`).
 - **Archive and trash:** `/archive`, `/restore`, `DELETE` and `/restore-deleted` follow the CORE-010 contract in §3 (ADR-022).
-- **Not yet implemented:** `/activity` (CORE-008).
+- **`GET /projects/{project_id}/activity` (CORE-008, ADR-027 §4):** the project's own entries (creation, visibility and membership changes) and those of its tasks, newest first (`created_at desc, id desc`), cursor-paginated, for anyone who can see the project; a hidden project is `404`. The entry representation is in §9.
 
 ## 5. Workflows, labels and project configuration (P0/P1)
 
@@ -311,7 +311,8 @@ Create body:
 - **List (`GET /projects/{project_id}/tasks`):** `q` matches the title as a case-insensitive literal substring, or the number or key exactly (`104`, `WEB-104`); several values of one key are alternatives, different keys must all hold; `due_after` and `due_before` are inclusive and leave out tasks without a due date (`due_before` earlier than `due_after` is `422 after_or_equal`). `sort`: `created_at` (default, newest first), `updated_at` (newest first), `due_date` (soonest first, none last), `priority` (urgent first), `position` (board order: status position, then the rank within the status); ties by `id`. A cursor is bound to the sort it was issued for: reused with another `sort` it is `400 bad_request` (also on `/me/tasks`). `sprint_id` is `prohibited` until FLEX-005.
 - **Idempotent replay:** a replayed create returns the original status, body and `ETag`, with `Idempotent-Replayed: true`.
 - **Status codes:** an archived team or project is `423` on every task, label and checklist write; a trashed one, or a task the caller cannot see, is `404`. A caller who can see the project but may not write gets `403` whatever the body. One who lost access while the request waited gets `404`, one who lost the right `409`.
-- **Not yet implemented:** `/move` (CORE-007), `/activity` (CORE-008), `/watchers` (CORE-009), dependencies (§19).
+- **`GET /tasks/{task_id}/activity` (CORE-008, ADR-027 §4):** the task's entries, newest first, cursor-paginated, for anyone who can see the task (§9 representation).
+- **Not yet implemented:** `/move` (CORE-007), `/watchers` (CORE-009), dependencies (§19).
 
 ### 6.2 Comments and checklist
 
@@ -330,6 +331,16 @@ Create body:
 
 Comment body `{ "body":"Please review @..." }`, max 10,000 Markdown chars; mention IDs must be explicit server-validated eligible users, not arbitrary free-text matches. Checklist text max 300; maximum 100 checklist items per task. Comment edits keep edit timestamp and audit record; deleted comments become tombstones in activity logs without exposing content to unauthorized users.
 
+**Implementation contract (CORE-008, ADR-027 §1–§2): comments.**
+
+- **Representation:** `id`, `task_id`, `author_user_id`, `body` (Markdown source as written; clients sanitise when rendering), `mention_user_ids` (sorted), `edited_at` (`null` until the author changed the body), `created_at`, `updated_at`.
+- **`GET`:** live comments of the task, newest first (`created_at desc, id desc`), cursor-paginated; deleted comments are left out.
+- **`POST`:** `{ "body" }`, 1–10,000 characters (`required`, `string`, `max`; whitespace only is `required`); any other field is `unknown_field`. `201`. Comments are not among the versioned resources or idempotent creates of §1.4: no `If-Match`, no `Idempotency-Key`.
+- **`PATCH`:** `{ "body" }`, the same rules. Only the author, and only while they may write in the project ("Author; project write permission"); everyone else who can see the comment gets `403`. A real change sets `edited_at` and records `comment.edited`; the same body again is a no-op. The previous text is not kept.
+- **`DELETE`:** the author (while they may write), or a moderator: the Team Owner or a project `manager` who is a Team Admin or Member ("Owner/Project Manager", the workflow rule of §12's note). `204`. The comment is soft-deleted: gone from every read path, its mentions removed, and a `comment.deleted` tombstone (comment ID, `moderated`) in the activity log; the row is hard-deleted after the 30-day recovery window (DATABASE.md §5). There is no restore endpoint.
+- **Mentions:** a mention is `@` followed by a user's UUID (`@018f8c70-…`), inserted by the client; names are never matched, and the token must not follow a letter, digit, `_` or `@` (no e-mail addresses) nor run on into more letters, digits, `_` or `-`. At most 50 distinct candidates per comment are considered. Only users who can see the project are mentioned (an enabled team member; on a private project, the Team Owner or an explicit member); anyone else stays plain text with an identical response. Edits re-resolve mentions. Newly mentioned users are announced after commit for CORE-009 notifications, which re-check access at send time.
+- **Status codes:** a `{comment_id}` that is not a live comment of `{task_id}` is `404`; a hidden or trashed task or project `404`; an archived team or project `423` on every write; a caller who can see the task but may not write `403` whatever the body; one who lost access while the request waited `404`, one who lost the right `409`.
+
 ### 6.3 Attachments
 
 | Method | Path | Operation | Permission |
@@ -340,6 +351,17 @@ Comment body `{ "body":"Please review @..." }`, max 10,000 Markdown chars; menti
 | DELETE | `/attachments/{attachment_id}` | Remove attachment | Uploader or Owner/Project Manager |
 
 Cloud: maximum 25 MiB per file, 2 GiB stored attachments per team; reject over quota before persisting. Self-Hosted may configure limits. Validate actual MIME/file signature where feasible; randomized storage key; original filename is metadata only; never use public storage for private project attachments. Download must re-check current project access and use short-lived signed object-storage URLs (≤60 seconds) or stream through authorized Laravel endpoint. Malware scanning may be asynchronous; quarantined files cannot be downloaded.
+
+**Implementation contract (CORE-008, ADR-027 §5): attachments.**
+
+- **Representation:** `id`, `task_id`, `uploaded_by`, `filename` (the sanitised original name), `mime_type` (sniffed from the content), `size_bytes`, `sha256` (hex), `download_url` (`/api/v1/attachments/{id}/download`), `created_at`. Storage disks and keys never appear.
+- **`POST /tasks/{task_id}/attachments`:** `multipart/form-data` with exactly one file in `file`; `Idempotency-Key` required (`400` without; the same key with another file is `409 idempotency_key_reused`, the same file replays the `201`). Checks in this order: `403` for a caller who may not write, whatever was sent; **`413 payload_too_large`** for a file over the per-file limit (25 MiB on Cloud, measured on the received file) or one that would take the team over its quota (2 GiB on Cloud), before anything is stored; `422` for a missing or repeated file (`required`, `file`), an empty file (`min`), a type outside the allowlist or a name whose extension does not match the sniffed type (`mimetypes`), any other field (`unknown_field`). The client's `Content-Type` is ignored. Rate-limited per user (20/minute on Cloud, `429 rate_limited`). `201` with `Location: /api/v1/attachments/{id}/download`.
+- **Allowed types:** PNG, JPEG, GIF, WebP, HEIC/HEIF, PDF, plain text (`txt`, `md`, `csv`, `tsv`, `log`), JSON, zip (and zip-based `docx`, `xlsx`, `pptx`, `odt`, `ods`, `odp`), gzip, tar, MP4, QuickTime, WebM, MP3, Ogg, WAV. HTML, SVG, XML, scripts, executables, unknown binaries and legacy Office files are refused.
+- **File names:** the last path segment only; control characters and bidirectional overrides removed; NFC; trimmed of spaces and dots at both ends; at most 255 characters; `file` when nothing is left. Names are metadata only, never part of a storage path.
+- **`GET /tasks/{task_id}/attachments`:** newest first, cursor-paginated.
+- **`GET /attachments/{attachment_id}/download` (technical settlement: streamed, no signed storage URL):** access is re-checked on every request (a removed member, a hidden project or a trashed task is `404`). The response streams the file with its stored type, `Content-Disposition: attachment` (ASCII fallback plus UTF-8 `filename*`), `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; sandbox`, `Cache-Control: no-store, private`. A visible attachment whose file is missing is `410 expired`.
+- **`DELETE /attachments/{attachment_id}`:** the uploader (while they may write) or a moderator (Team Owner, project `manager`). `204`; the file is deleted, the space is freed at once, and `attachment.removed` is recorded. Archived team or project: `423`.
+- **Files and the trash:** files of trashed projects and teams stay until the purge, which deletes them with the rows (DATABASE.md §13).
 
 ## 7. Sprints and backlog (public v1.0; optional per project)
 
@@ -384,6 +406,12 @@ Custom field types: `text`, `number`, `date`, `boolean`, `single_select`, `multi
 | GET | `/me/activity` | Own authorized recent activity | Authenticated |
 
 Notifications triggered by assignment, comment mention, invitation, and task update for watchers; batch/dedupe noisy events. If project access is revoked, redact or remove inaccessible notifications immediately; unread counts cannot leak private project names. Email notifications are queued and respect per-user preferences. Activity is append-only with actor, action, timestamp and authorized resource reference; do not store secrets or sensitive webhook payloads in activity text.
+
+**Implementation contract (CORE-008, ADR-027 §3–§4): activity.**
+
+- **Entry representation:** `id`, `team_id`, `project_id` (`null` for team entries), `task_id` (`null` for project and team entries), `actor_user_id` (`null` for system changes), `action` (`<domain>.<event>`, e.g. `task.updated`, `comment.deleted`, `project.member_added`, `team.ownership_transferred`), `changes` (a JSON object of IDs, enum values, dates, counts and field names, with `from`/`to` pairs; never titles, descriptions, comment bodies or file names), `source` (`user`, `system`), `created_at`. Entries are append-only.
+- **`GET /me/activity`:** "own" is read as the caller's own entries (`actor_user_id`), limited to what they may see now: entries of projects they can see and team entries of teams they belong to. Newest first, cursor-paginated. There is no team-wide activity feed.
+- Project and task timelines: §4 and §6.1.
 
 ## 10. GitHub App and repository linkage (public v1.0)
 

@@ -15,18 +15,18 @@ FR-TEAM-007,CORE-001,Teams,R1,TEST-FR-TEAM-007,"Automated: tests/Feature/Teams/{
 FR-PROJ-001,CORE-003,Projects,R1,TEST-FR-PROJ-001,"Partially automated: name, key and description in tests/Feature/Projects/ProjectManagementTest.php; icon/color are not in DATABASE.md section 4 and templates follow with FLEX-004 (ADR-020)"
 FR-PROJ-002,CORE-003,Projects,R1,TEST-FR-PROJ-002,"Automated: tests/Feature/Projects/{ProjectManagementTest,ProjectAccessMatrixTest,ProjectSchemaTest}.php"
 FR-PROJ-003,CORE-003,Projects,R1,TEST-FR-PROJ-003,"Automated: tests/Feature/Projects/ProjectAccessMatrixTest.php (team role x visibility x project role matrix)"
-FR-PROJ-004,CORE-003,Projects,R1,TEST-FR-PROJ-004,"Partially automated: project detail, list and members in tests/Feature/Projects/{ProjectAccessMatrixTest,ProjectManagementTest}.php; tasks, labels and checklists in tests/Feature/Tasks/TaskAccessMatrixTest.php; files, search and notifications follow with CORE-008/009"
-FR-PROJ-005,CORE-003,Projects,R1,TEST-FR-PROJ-005,"Partially automated: project detail, list, members and self-add in tests/Feature/Projects/ProjectAccessMatrixTest.php; tasks, labels and checklists in tests/Feature/Tasks/TaskAccessMatrixTest.php; files, search and notifications follow with CORE-008/009"
+FR-PROJ-004,CORE-003,Projects,R1,TEST-FR-PROJ-004,"Partially automated: project detail, list and members in tests/Feature/Projects/{ProjectAccessMatrixTest,ProjectManagementTest}.php; tasks, labels and checklists in tests/Feature/Tasks/TaskAccessMatrixTest.php; comments, attachments (files included) and activity in tests/Feature/Collaboration/{CollaborationAccessMatrixTest,AttachmentTest,ActivityTest}.php (CORE-008); search and notifications follow with CORE-009"
+FR-PROJ-005,CORE-003,Projects,R1,TEST-FR-PROJ-005,"Partially automated: project detail, list, members and self-add in tests/Feature/Projects/ProjectAccessMatrixTest.php; tasks, labels and checklists in tests/Feature/Tasks/TaskAccessMatrixTest.php; comments, attachments and activity for a non-member Team Admin in tests/Feature/Collaboration/{CollaborationAccessMatrixTest,AttachmentTest,ActivityTest}.php (CORE-008); search and notifications follow with CORE-009"
 FR-PROJ-006,CORE-003,Projects,R1,TEST-FR-PROJ-006,"Automated: tests/Feature/Projects/{ProjectManagementTest,ProjectAccessMatrixTest,ProjectConcurrencyTest}.php"
-FR-PROJ-007,CORE-003,Projects,R1,TEST-FR-PROJ-007,"Partially automated: visibility changes re-evaluated for project detail, list and members in tests/Feature/Projects/ProjectManagementTest.php; search, files, notifications and GitHub content follow with CORE-008/009 and GH-*"
+FR-PROJ-007,CORE-003,Projects,R1,TEST-FR-PROJ-007,"Partially automated: visibility changes re-evaluated for project detail, list and members in tests/Feature/Projects/ProjectManagementTest.php; attachment downloads and the own-activity feed re-checked at read time in tests/Feature/Collaboration/{AttachmentTest,ActivityTest}.php (CORE-008); search, notifications and GitHub content follow with CORE-009 and GH-*"
 FR-PROJ-008,CORE-010,Projects,R1,TEST-FR-PROJ-008,"Partially automated: API in tests/Feature/Projects/ProjectLifecycleTest.php, tests/Feature/Teams/TeamLifecycleTest.php, tests/Feature/Trash/{TrashPurgeTest,PurgeCommitTest,RecoverableResourcesTest,LifecycleConcurrencyTest}.php; UI follows in CORE-006"
 FR-TASK-001,CORE-005,Tasks,R1,TEST-FR-TASK-001,"Automated: tests/Feature/Tasks/{TaskManagementTest,LabelManagementTest,TaskSchemaTest}.php (one task model; optional labels); custom fields follow with FLEX-001"
 FR-TASK-002,CORE-005,Tasks,R1,TEST-FR-TASK-002,"Automated: tests/Feature/Tasks/{TaskManagementTest,TaskSchemaTest}.php"
 FR-TASK-003,CORE-005,Tasks,R1,TEST-FR-TASK-003,"Automated: tests/Feature/Projects/ProjectSettingsAndTaskKeyTest.php, tests/Feature/Workflows/TaskNumberConcurrencyTest.php, tests/Feature/Tasks/{TaskManagementTest,TaskConcurrencyTest}.php"
 FR-TASK-004,CORE-005,Tasks,R1,TEST-FR-TASK-004,"Partially automated: create, edit, assign, status changes (complete = a done status) and delete/restore in tests/Feature/Tasks/{TaskManagementTest,TaskAccessMatrixTest,AssignmentRevocationTest,TaskConcurrencyTest}.php; ordered moves follow with CORE-007"
 FR-TASK-005,CORE-007,Tasks,R1,TEST-FR-TASK-005,Planned; not executed
-FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,"Partially automated: structured task audit events with IDs only in tests/Feature/Tasks/{TaskManagementTest,AssignmentRevocationTest}.php; comments and the activity model follow with CORE-008"
-FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,"Planned: not fully delivered by CORE-005. Subtasks and checklists are automated in tests/Feature/Tasks/{SubtaskTest,ChecklistTest}.php; attachments and mentions follow with CORE-008; task dependencies (API_SPEC section 19) are a follow-up of PR #70 and need an owning task"
+FR-TASK-006,CORE-005,Tasks,R1,TEST-FR-TASK-006,"Automated: comments in tests/Feature/Collaboration/CommentTest.php; the append-only activity log (task, checklist, comment, attachment and assignment entries, same transaction, IDs only) in tests/Feature/Collaboration/ActivityTest.php and tests/Feature/Tasks/{TaskManagementTest,AssignmentRevocationTest}.php (CORE-008)"
+FR-TASK-007,CORE-005,Tasks,R1,TEST-FR-TASK-007,"Partially automated: subtasks and checklists in tests/Feature/Tasks/{SubtaskTest,ChecklistTest}.php; attachments and mentions in tests/Feature/Collaboration/{AttachmentTest,AttachmentLifecycleTest,AttachmentConcurrencyTest,MentionTest}.php (CORE-008); task dependencies (API_SPEC section 19) are a follow-up of PR #70 and need an owning task"
 FR-TASK-008,CORE-005,Tasks,R1,TEST-FR-TASK-008,"Partially automated: task detail, project task list, filters, title/key search and my tasks scoped by AccessibleProjects in tests/Feature/Tasks/{TaskAccessMatrixTest,TaskListTest}.php; cross-project search and deep links follow with CORE-006/CORE-009"
 FR-TASK-009,CORE-005,Tasks,R1,TEST-FR-TASK-009,"Planned: not delivered by CORE-005. Bulk actions and saved filters need an owning task (saved views are FLEX-003); the list filters they would store are allowlisted in tests/Feature/Tasks/TaskListTest.php"
 FR-CUST-001,CORE-004,Custom fields,R1,TEST-FR-CUST-001,"Automated: tests/Feature/Workflows/{ProjectStatusManagementTest,ProjectStatusSchemaTest,TaskNumberConcurrencyTest}.php"
@@ -43,10 +43,10 @@ FR-SPR-003,FLEX-005,Sprints,R2,TEST-FR-SPR-003,Planned; not executed
 FR-SPR-004,FLEX-005,Sprints,R2,TEST-FR-SPR-004,Planned; not executed
 FR-SPR-005,FLEX-005,Sprints,R2,TEST-FR-SPR-005,Planned; not executed
 FR-SPR-006,FLEX-005,Sprints,R2,TEST-FR-SPR-006,Planned; not executed
-FR-COL-001,CORE-008,Collaboration,R1,TEST-FR-COL-001,Planned; not executed
-FR-COL-002,CORE-008,Collaboration,R1,TEST-FR-COL-002,Planned; not executed
+FR-COL-001,CORE-008,Collaboration,R1,TEST-FR-COL-001,"Automated: tests/Feature/Collaboration/{CommentTest,CollaborationAccessMatrixTest,CollaborationLockRecheckTest}.php (author identity, timestamps, edit time, own or moderated deletes, tombstones)"
+FR-COL-002,CORE-008,Collaboration,R1,TEST-FR-COL-002,"Automated: tests/Feature/Collaboration/ActivityTest.php (task, project and team entries in the transaction of the change; append-only; scoped timelines) and tests/Feature/Exports/TeamExportCollaborationTest.php (audit metadata in the export)"
 FR-COL-003,CORE-009,Collaboration,R1,TEST-FR-COL-003,Planned; not executed
-FR-COL-004,CORE-009,Collaboration,R1,TEST-FR-COL-004,Planned; not executed
+FR-COL-004,CORE-009,Collaboration,R1,TEST-FR-COL-004,"Partially automated: mentions (explicit, server-validated, eligible users only; the UsersMentioned hook) in tests/Feature/Collaboration/MentionTest.php (CORE-008); email notifications and preferences follow with CORE-009"
 FR-COL-005,CORE-009,Collaboration,R1,TEST-FR-COL-005,Planned; not executed
 FR-GH-001,GH-001,GitHub,R3,TEST-FR-GH-001,Planned; not executed
 FR-GH-002,GH-002,GitHub,R3,TEST-FR-GH-002,Planned; not executed
@@ -64,9 +64,9 @@ FR-GH-013,FUTURE-GH-ACTIONS-001,GitHub,Post-v1.1,TEST-FR-GH-013,Deferred; not ex
 FR-GH-014,GH-007,GitHub,R3,TEST-FR-GH-014,Planned; not executed
 NFR-SEC-001,FND-003,Quality/Operations,R0,TEST-NFR-SEC-001,Planned; not executed
 NFR-SEC-002,FND-003,Quality/Operations,R0,TEST-NFR-SEC-002,Planned; not executed
-NFR-SEC-003,FND-003,Quality/Operations,R0,TEST-NFR-SEC-003,Planned; not executed
+NFR-SEC-003,FND-003,Quality/Operations,R0,TEST-NFR-SEC-003,"Partially automated: attachment IDOR, guessed IDs, hidden projects and no storage URL or key leakage in tests/Feature/Collaboration/{AttachmentTest,CollaborationAccessMatrixTest}.php (CORE-008); tenant-scoped resolution throughout the Projects and Tasks suites"
 NFR-SEC-004,FND-003,Quality/Operations,R0,TEST-NFR-SEC-004,Planned; not executed
-NFR-SEC-005,FND-003,Quality/Operations,R0,TEST-NFR-SEC-005,Planned; not executed
+NFR-SEC-005,FND-003,Quality/Operations,R0,TEST-NFR-SEC-005,"Automated: membership, role, ownership and visibility changes recorded in the append-only activity log in tests/Feature/Collaboration/ActivityTest.php, tests/Feature/Projects/ProjectManagementTest.php and tests/Feature/Teams/TeamManagementTest.php (CORE-008)"
 NFR-SEC-006,FND-003,Quality/Operations,R0,TEST-NFR-SEC-006,"Partially automated: export scope, secrets exclusion and 24-hour removal in tests/Feature/Exports/{TeamExportTest,TeamExportPruneTest}.php (CORE-012); 30-day trash in tests/Feature/Trash/*.php (CORE-010); backup lifecycle (encrypted, 14 days) in .github/scripts/compose-install-smoke.sh and docs/BACKUP_RESTORE.md; Cloud bucket lifecycle is Cloud operations (ADR-024 §7)"
 NFR-PERF-001,FND-003,Quality/Operations,R0,TEST-NFR-PERF-001,Planned; not executed
 NFR-PERF-002,FND-003,Quality/Operations,R0,TEST-NFR-PERF-002,Planned; not executed
