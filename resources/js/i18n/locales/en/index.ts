@@ -3,6 +3,7 @@
 import account from './account';
 import auth from './auth';
 import common from './common';
+import invitations from './invitations';
 import layout from './layout';
 import validation from './validation';
 import welcome from './welcome';
@@ -11,6 +12,7 @@ const en = {
   account,
   auth,
   common,
+  invitations,
   layout,
   validation,
   welcome,

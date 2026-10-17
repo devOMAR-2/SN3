@@ -10,6 +10,7 @@ use App\Models\User;
 use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
@@ -29,12 +30,19 @@ use Throwable;
  *   (`ETag`, `Location`), with `Idempotent-Replayed: true`; a different payload is 409
  *   `idempotency_key_reused`.
  *
+ * - A controller may name response fields that must never be stored (dot paths in the request
+ *   attribute `REDACT_ATTRIBUTE`, e.g. an invitation's raw token, ADR-025 §2): they are stored, and
+ *   so replayed, as null. The first response still carries them.
+ *
  * Jobs dispatched by these routes should use ->afterCommit() so a queue other than the database
  * driver cannot run them before the request commits.
  */
 final class EnforceIdempotency
 {
     public const HEADER = 'Idempotency-Key';
+
+    /** Request attribute: list of dot paths in the JSON response stored (and replayed) as null. */
+    public const REDACT_ATTRIBUTE = 'idempotency.redact';
 
     /** Response headers stored with the result and replayed with it (e.g. a created task's version). */
     private const REPLAYED_HEADERS = ['ETag', 'Location'];
@@ -99,7 +107,7 @@ final class EnforceIdempotency
                 'request_digest' => $digest,
                 'response_status' => $response->getStatusCode(),
                 // A successful response without a JSON body (204, or 202 without content) replays empty.
-                'response_json' => $response instanceof JsonResponse ? $response->getData(true) : [],
+                'response_json' => $response instanceof JsonResponse ? self::storedBody($request, $response) : [],
                 'response_headers' => self::storedHeaders($response),
                 'expires_at' => now()->addHours(ApiIdempotencyRecord::TTL_HOURS),
             ])->save();
@@ -121,6 +129,27 @@ final class EnforceIdempotency
         return $stored->response_status === Response::HTTP_NO_CONTENT
             ? new Response('', Response::HTTP_NO_CONTENT, $headers)
             : new JsonResponse($stored->response_json, $stored->response_status, $headers);
+    }
+
+    /**
+     * @return array<array-key, mixed>
+     */
+    private static function storedBody(Request $request, JsonResponse $response): array
+    {
+        $body = $response->getData(true);
+        $redact = $request->attributes->get(self::REDACT_ATTRIBUTE, []);
+
+        if (! is_array($body)) {
+            return [];
+        }
+
+        foreach (is_array($redact) ? $redact : [] as $path) {
+            if (is_string($path) && Arr::get($body, $path) !== null) {
+                Arr::set($body, $path, null);
+            }
+        }
+
+        return $body;
     }
 
     /**

@@ -157,7 +157,7 @@ User-facing mail (sign-in verification, password reset, invitations) is always s
 | `smtp` | Delivers through `MAIL_HOST`/`MAIL_PORT` (`MAIL_SCHEME`, `MAIL_USERNAME`, `MAIL_PASSWORD`). A connection attempt gives up after `MAIL_TIMEOUT` (10) seconds. Failures are retried as above. **Recommended once you have SMTP.** |
 | `failover` | Tries `smtp`, and if that fails, falls back to `log`. The job then succeeds, but the message is **not delivered** and cannot be retried. Use it only if you prefer losing a message to keeping it in `failed_jobs`. |
 
-Without working SMTP, people can't receive verification, password-reset or invitation emails. SN3 doesn't pretend otherwise.
+Without working SMTP, people can't receive verification, password-reset or invitation emails. SN3 doesn't pretend otherwise. An Owner or Admin can still copy an invitation link when creating it and share it another way.
 
 To check SMTP settings, send a test message from the worker (it uses the same configuration):
 
@@ -172,7 +172,7 @@ An error here shows the SMTP problem directly. Use an address you control.
 - **Registration** is open by default. Set `SN3_REGISTRATION_ENABLED=false` to close public sign-up; existing users can still sign in and reset passwords. Invitations (CORE-002) will remain the way to add people.
 - **Email is required for account flows.** Verification and password-reset links are sent by the queue worker. Configure SMTP (see [Mail](#mail)) before inviting users; with the default `log` mailer no one receives the links.
 - **HTTPS:** set `SESSION_SECURE_COOKIE=true` and an `https://` `APP_URL`. Signed verification links are checked against the URL the browser used, so `APP_URL`, the proxy's `X-Forwarded-*` headers and `TRUSTED_PROXIES` must agree.
-- **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset, verification and project create/update (20/minute per user). A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
+- **Rate limits** (`SN3_RATE_LIMIT_*`): 120 requests/minute per signed-in user with a 20/second burst cap, plus stricter limits on sign-in, registration, password reset, verification, invitations and project create/update (20/minute per user). A self-hosted operator can raise them or set a limit to `0` to disable it; features never change.
 - **Sessions** live in the `sessions` table (`SESSION_DRIVER=database`). Signing out deletes the session, and a password reset revokes every stored session of that user.
 
 ## Team exports
@@ -184,6 +184,8 @@ A team's Owner can export the team (members, projects including private ones, wo
 | `SN3_EXPORTS_DISK` | `exports` | Filesystem disk for the archives (`config/filesystems.php`). Use a **dedicated private disk**; SN3 only uses keys under `archives/` on it |
 | `SN3_EXPORTS_WORK_DIR` | `storage/app/exports/work` | Local directory where archives are built; leftovers older than 2 hours are removed |
 | `SN3_RATE_LIMIT_TEAM_EXPORTS_PER_HOUR` | `10` | Export requests per user per hour; `0` disables the limit. At most one export per team runs at a time |
+| `SN3_RATE_LIMIT_INVITATIONS_PER_HOUR` | `30` | Invitations a user may create per hour (each email invitation sends mail); `0` disables the limit |
+| `SN3_RATE_LIMIT_INVITATION_TOKENS_PER_MINUTE` | `10` | Invitation previews and accepts per signed-in user per minute, and four times that per IP address; `0` disables the limit |
 
 Exports run on the queue worker, within its 60-second job timeout. Today's sections are small; ADR-024 §8 lists what must change before tasks and attachments make archives large.
 

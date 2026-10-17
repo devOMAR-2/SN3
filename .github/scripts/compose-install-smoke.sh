@@ -21,6 +21,8 @@ BASE=http://127.0.0.1:8080
 EMAIL="smoke.$(date +%s)@example.com"
 PASSWORD="smoke-$(openssl rand -hex 12)"
 SIGNATURE_PROBE="probe$(openssl rand -hex 16)"
+# A well-formed invitation token (43 base64url characters) that exists nowhere (ADR-025 §2).
+INVITATION_PROBE="$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\n' | cut -c1-43)"
 EMAIL_PROBE="leak.$(openssl rand -hex 6)@example.com"
 JAR="$(mktemp)"
 BODY="$(mktemp)"
@@ -104,12 +106,19 @@ grep -q "\"email\":\"$EMAIL\"" <<< "$me" || fail "/api/v1/me does not return the
 curl -sS -o /dev/null "$BASE/api/v1/auth/email/verify/x/y?expires=1&signature=$SIGNATURE_PROBE"
 curl -sS -o /dev/null "$BASE/login?email=$EMAIL_PROBE"
 curl -sS -o /dev/null -H "Referer: $BASE/reset?signature=$SIGNATURE_PROBE" "$BASE/login"
+curl -sS -o /dev/null -H 'Accept: application/json' "$BASE/api/v1/invitations/$INVITATION_PROBE/preview"
 sleep 1
 logs="$(docker compose logs --no-color app)"
 # Positive control: the access lines are in this log, with the path but not the query string.
 grep -q '"GET /login HTTP/1.1" 200' <<< "$logs" || fail "no access-log line for GET /login in the app log"
 if grep -q -e "$SIGNATURE_PROBE" -e "$EMAIL_PROBE" -e "$EMAIL" <<< "$logs"; then
   fail "a signature or an email address reached the app log"
+fi
+# Invitation tokens travel in the API path: the access line keeps the action, not the token.
+grep -q '"GET /api/v1/invitations/\[REDACTED\]/preview HTTP/1.1" 404' <<< "$logs" \
+  || fail "no redacted access-log line for the invitation preview"
+if grep -q -F -e "$INVITATION_PROBE" <<< "$logs"; then
+  fail "an invitation token reached the app log"
 fi
 
 # --- Data survives a restart -------------------------------------------------------------------
