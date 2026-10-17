@@ -55,3 +55,22 @@ it('renders user-written names in the email as plain text, never as links or ima
         ->and($html)->toContain('evil.example/p.png')
         ->and($html)->toContain('href="'.url('/invite').'#'.str_repeat('A', 43).'"');
 });
+
+it('keeps ordinary punctuation and Arabic names readable in the email', function () {
+    $notification = new TeamInvitationNotification(
+        teamName: 'R&D\'s "Team" (2026) — فريق «الموقع»، 1.0',
+        inviterName: 'O\'Brien-محمد_علي',
+        role: TeamRole::Admin,
+        token: str_repeat('A', 43),
+        expiresAt: now()->addDays(7),
+        locale: 'en',
+    );
+
+    $html = (string) $notification->toMail(new AnonymousNotifiable)->render();
+
+    expect($html)->toContain('R&amp;D\'s "Team" (2026) — فريق «الموقع»، 1.0')
+        ->and($html)->toContain('O\'Brien-محمد_علي')
+        ->and($html)->not->toContain('&amp;amp;')
+        ->and($html)->not->toContain('&amp;#039;')
+        ->and($html)->not->toContain('\\');
+});
