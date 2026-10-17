@@ -182,7 +182,8 @@ Files attached to tasks (CORE-008, ADR-027) are stored on a dedicated private di
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `SN3_ATTACHMENTS_DISK` | `attachments` | Filesystem disk for attachment files (`config/filesystems.php`). Use a **dedicated private disk** (for example a private S3 bucket); SN3 only uses keys under `objects/` on it |
+| `SN3_ATTACHMENTS_DISK` | `attachments` | Filesystem disk for attachment files (`config/filesystems.php`). Use a **dedicated private disk** (for example a private S3 bucket); SN3 only uses keys under `objects/` on it. Each attachment remembers the disk it was written to, so you can switch disks without moving files |
+| `SN3_ATTACHMENTS_PREVIOUS_DISKS` | (empty) | Comma-separated disks attachments were stored on earlier and no attachment uses any more; the purge and `attachments:sweep` clean them too. Disks that attachments still use are cleaned anyway |
 | `SN3_ATTACHMENTS_MAX_BYTES` | `26214400` (25 MiB) | Largest file accepted (`413` beyond it); `0` means no limit. PHP's `upload_max_filesize` and `post_max_size` (`deploy/docker/php/sn3.ini`: 26M and 27M) must be raised with it |
 | `SN3_ATTACHMENTS_TEAM_QUOTA_BYTES` | `2147483648` (2 GiB) | Stored attachments per team (`413` beyond it); `0` means no limit |
 | `SN3_RATE_LIMIT_ATTACHMENT_UPLOADS_PER_MINUTE` | `20` | Uploads per user per minute; `0` disables the limit |
@@ -201,7 +202,7 @@ A team's Owner can export the team (members, projects including private ones, wo
 | `SN3_RATE_LIMIT_INVITATIONS_PER_HOUR` | `30` | Invitations a user may create per hour (each email invitation sends mail); `0` disables the limit |
 | `SN3_RATE_LIMIT_INVITATION_TOKENS_PER_MINUTE` | `10` | Invitation previews and accepts per signed-in user per minute, and four times that per IP address; `0` disables the limit |
 
-Exports run on the queue worker, within its 60-second job timeout. On local storage a team with 10,000 tasks, 30,000 comments, 50,000 activity entries and its full 2 GiB of attachments builds in about 11 seconds (ADR-027 §7). Building needs free space in the work directory and on the export disk for the archive, which is as large as the team's attachments. An archive larger than 4 GiB or with more than 65,535 entries is refused (zip without ZIP64).
+Exports run on the queue worker, within its 60-second job timeout. On local storage a team with 10,000 tasks, 30,000 comments, 50,000 activity entries and its full 2 GiB of attachments builds in about 11 seconds (ADR-027 §7). Building needs free space in the work directory and on the export disk for the archive, which is as large as the team's attachments. Archives beyond 4 GiB or 65,535 entries are written as ZIP64, which current zip tools read.
 
 ## Backups
 
