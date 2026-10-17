@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Domain\Tasks\Actions\CreateTask;
+use App\Domain\Tasks\Actions\MoveTask;
 use App\Domain\Tasks\Actions\RestoreTask;
 use App\Domain\Tasks\Actions\TrashTask;
 use App\Domain\Tasks\Actions\UpdateTask;
@@ -12,6 +13,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Pagination\CursorPagination;
 use App\Http\Requests\Tasks\DestroyTaskRequest;
 use App\Http\Requests\Tasks\ListTasksRequest;
+use App\Http\Requests\Tasks\MoveTaskRequest;
 use App\Http\Requests\Tasks\RestoreTaskRequest;
 use App\Http\Requests\Tasks\StoreTaskRequest;
 use App\Http\Requests\Tasks\UpdateTaskRequest;
@@ -76,6 +78,27 @@ class TaskController extends Controller
         $updated = $updateTask->handle($task, $user, IfMatch::version($request), $request->changes());
 
         return self::respond($updated);
+    }
+
+    /**
+     * POST /tasks/{task}/move (API_SPEC.md §6.1; ADR-028 §2): into a status, before or after a task of
+     * that column, or to its end. `If-Match` with the task's version.
+     */
+    public function move(MoveTaskRequest $request, Task $task, MoveTask $moveTask): JsonResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+
+        $moved = $moveTask->handle(
+            $task,
+            $user,
+            IfMatch::version($request),
+            $request->statusId(),
+            $request->beforeTaskId(),
+            $request->afterTaskId(),
+        );
+
+        return self::respond($moved);
     }
 
     public function destroy(DestroyTaskRequest $request, Task $task, TrashTask $trashTask): Response

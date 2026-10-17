@@ -201,3 +201,45 @@ it('never commits two re-parentings that together go deeper than three levels', 
     );
     expect((int) $deepest->depth)->toBeLessThanOrEqual(3);
 });
+
+function moveTaskSnippet(Task $task, User $actor, int $version, string $statusId, ?string $afterId): string
+{
+    return sprintf(
+        'app(App\Domain\Tasks\Actions\MoveTask::class)->handle(App\Models\Task::with("project")->findOrFail("%s"), App\Models\User::findOrFail("%s"), %d, "%s", null, %s); echo "moved";',
+        $task->id,
+        $actor->id,
+        $version,
+        $statusId,
+        $afterId === null ? 'null' : '"'.$afterId.'"',
+    );
+}
+
+it('serialises simultaneous moves into the same slot: every task gets its own rank (CORE-007)', function () {
+    $todo = taskStatusId($this->project, 'todo');
+    $doing = taskStatusId($this->project, 'in_progress');
+    $anchor = taskIn($this->project, ['status_id' => $doing, 'position' => 0]);
+    taskIn($this->project, ['status_id' => $doing, 'position' => 1]);
+    $moving = collect(range(1, 4))->map(fn (int $n) => taskIn($this->project, ['status_id' => $todo, 'position' => $n]));
+
+    $outputs = taskRaceInProcesses($moving->map(fn (Task $task) => moveTaskSnippet($task, $this->member, 1, $doing, $anchor->id))->all());
+
+    expect($outputs)->toBe(['moved', 'moved', 'moved', 'moved']);
+
+    $positions = Task::query()->where('project_id', $this->project->id)->where('status_id', $doing)->pluck('position')->map(fn ($p) => (string) (float) $p);
+    expect($positions->unique()->count())->toBe(6)
+        ->and((float) Task::query()->whereKey($anchor->id)->value('position'))->toBe(0.0);
+});
+
+it('lets one of a move and an edit made from the same version win; the other is stale (CORE-007)', function () {
+    $task = taskIn($this->project);
+    $done = taskStatusId($this->project, 'done');
+
+    $outputs = taskRaceInProcesses([
+        moveTaskSnippet($task, $this->member, 1, $done, null),
+        updateTaskSnippet($task, $this->member, 1, '["title" => "Edited"]'),
+    ]);
+
+    expect(count(array_intersect($outputs, ['moved', 'updated'])))->toBe(1)
+        ->and($outputs)->toContain('StaleVersionException')
+        ->and($task->fresh()->version)->toBe(2);
+});

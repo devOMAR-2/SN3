@@ -1,60 +1,103 @@
 <script setup lang="ts">
 import { Settings } from '@lucide/vue';
-import { Link } from '@inertiajs/vue3';
+import { router } from '@inertiajs/vue3';
 import { computed, onMounted, ref, watch } from 'vue';
-import PriorityBadge from '@/Components/Tasks/PriorityBadge.vue';
-import QuickAddTask from '@/Components/Tasks/QuickAddTask.vue';
-import StatusChip from '@/Components/Tasks/StatusChip.vue';
+import TaskBoard from '@/Components/Board/TaskBoard.vue';
+import TaskFiltersBar from '@/Components/Board/TaskFiltersBar.vue';
+import TaskListView from '@/Components/Board/TaskListView.vue';
 import AppBadge from '@/Components/ui/AppBadge.vue';
-import AppButton from '@/Components/ui/AppButton.vue';
 import ButtonLink from '@/Components/ui/ButtonLink.vue';
-import EmptyState from '@/Components/ui/EmptyState.vue';
-import LoadError from '@/Components/ui/LoadError.vue';
-import SelectField from '@/Components/ui/SelectField.vue';
-import SkeletonRows from '@/Components/ui/SkeletonRows.vue';
 import TechnicalId from '@/Components/ui/TechnicalId.vue';
 import LockBanner from '@/Components/Workspace/LockBanner.vue';
 import PageHeader from '@/Components/Workspace/PageHeader.vue';
 import VisibilityBadge from '@/Components/Workspace/VisibilityBadge.vue';
 import WorkspaceLayout from '@/Components/Workspace/WorkspaceLayout.vue';
-import { useCursorList } from '@/Composables/useCursorList';
-import { useFormat } from '@/Composables/useFormat';
-import { showToast } from '@/Composables/useToast';
 import { useI18n } from '@/i18n';
 import { pages } from '@/lib/routes';
-import type { Lock, Project, ProjectAbilities, ProjectStatus, Task, Team, TeamAbilities } from '@/types/domain';
+import { readQuery, writeQuery, type ListSort, type ProjectView, type TaskFilters } from '@/lib/taskFilters';
+import type {
+  Assignee,
+  Label,
+  Lock,
+  Project,
+  ProjectAbilities,
+  ProjectStatus,
+  Team,
+  TeamAbilities,
+} from '@/types/domain';
 
 /**
- * `/t/{team_slug}/p/{project_key}`: project header and a deliberately simple task list (CORE-006).
- * The list is GET /api/v1/projects/{project}/tasks in board order with a status filter and paging, just
- * enough to reach and create tasks. CORE-007 replaces this section with the Board and List views.
+ * `/t/{team_slug}/p/{project_key}`: the project's Board and List (CORE-007, DESIGN_SYSTEM.md §5.3).
+ *
+ * - The view, the filters and the List's sort live in the query string (`?view=list&priority=high…`), so a
+ *   filtered view can be shared; the server applies every filter inside the viewer's own access.
+ * - Without `?view`, the project's last view on this device is used (DESIGN_SYSTEM.md §16: "a user's
+ *   explicit view choice persists per project"), else Board on wider screens and List on phones.
  */
 const props = defineProps<{
   team: Team;
   project: Project;
   statuses: ProjectStatus[];
+  labels: Label[];
+  assignees: Assignee[];
+  assigneesTruncated: boolean;
   can: ProjectAbilities;
   teamCan: TeamAbilities;
   lock: Lock;
 }>();
 
 const { t } = useI18n();
-const format = useFormat();
-const statusFilter = ref('');
-const statusById = computed(() => new Map(props.statuses.map((status) => [status.id, status])));
+const initial = readQuery(window.location.search);
+const viewKey = `sn3.projectView.${props.project.id}`;
 
-const tasks = useCursorList<Task>(
-  () => `/projects/${props.project.id}/tasks`,
-  () => ({ sort: 'position', ...(statusFilter.value ? { status_id: [statusFilter.value] } : {}) }),
-  50,
+function storedView(): ProjectView | null {
+  try {
+    const value = window.localStorage.getItem(viewKey);
+
+    return value === 'board' || value === 'list' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+const view = ref<ProjectView>(
+  initial.view ?? storedView() ?? (window.matchMedia('(min-width: 48rem)').matches ? 'board' : 'list'),
 );
+const filters = ref<TaskFilters>(initial.filters);
+const sort = ref<ListSort>(initial.sort);
+const locked = ref(props.lock !== null);
+const canWrite = computed(() => props.can.contribute && !locked.value);
 
-onMounted(() => void tasks.reload());
-watch(statusFilter, () => void tasks.reload());
+const labelsById = computed(() => new Map(props.labels.map((label) => [label.id, label])));
+const assigneeNames = computed(() => new Map(props.assignees.map((person) => [person.user_id, person.name])));
 
-function onCreated(task: Task): void {
-  showToast(t('task.created', { key: task.key }));
-  void tasks.reload();
+function syncUrl(): void {
+  router.replace({
+    url: `${window.location.pathname}?${writeQuery(filters.value, view.value, sort.value)}`,
+    preserveState: true,
+    preserveScroll: true,
+  });
+}
+
+function choose(next: ProjectView): void {
+  view.value = next;
+
+  try {
+    window.localStorage.setItem(viewKey, next);
+  } catch {
+    // Storage blocked: the choice still holds for this visit.
+  }
+}
+
+onMounted(syncUrl);
+watch([view, sort, filters], syncUrl, { deep: true });
+
+function onTabKey(event: KeyboardEvent): void {
+  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+    event.preventDefault();
+    choose(view.value === 'board' ? 'list' : 'board');
+    document.getElementById(`project-view-${view.value}`)?.focus();
+  }
 }
 </script>
 
@@ -90,53 +133,60 @@ function onCreated(task: Task): void {
       {{ project.description }}
     </p>
 
-    <!-- CORE-007 replaces this section with the Board and List views (tabs, drag and drop, filters). -->
-    <section aria-labelledby="project-tasks" class="flex flex-col gap-4" data-replaceable="core-007">
-      <div class="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h2 id="project-tasks" class="text-heading font-semibold">{{ t('task.list.title') }}</h2>
-          <p class="text-small text-text-muted">{{ t('task.list.simple_notice') }}</p>
-        </div>
-        <SelectField v-model="statusFilter" :label="t('task.list.filter_status')" class="w-48">
-          <option value="">{{ t('task.list.all_statuses') }}</option>
-          <option v-for="status in statuses" :key="status.id" :value="status.id">{{ status.name }}</option>
-        </SelectField>
+    <section aria-labelledby="project-tasks" class="flex flex-col gap-4">
+      <h2 id="project-tasks" class="sr-only">{{ t('task.list.title') }}</h2>
+      <div role="tablist" :aria-label="t('board.views.label')" class="flex gap-1 border-b" @keydown="onTabKey">
+        <button
+          v-for="option in ['board', 'list'] as const"
+          :id="`project-view-${option}`"
+          :key="option"
+          type="button"
+          role="tab"
+          :aria-selected="view === option"
+          :aria-controls="`project-panel-${option}`"
+          :tabindex="view === option ? 0 : -1"
+          class="-mb-px border-b-2 px-4 py-2 text-body font-medium"
+          :class="
+            view === option ? 'border-primary text-primary' : 'border-transparent text-text-muted hover:text-text'
+          "
+          @click="choose(option)"
+        >
+          {{ t(`board.views.${option}`) }}
+        </button>
       </div>
 
-      <QuickAddTask v-if="can.contribute" :project-id="project.id" @created="onCreated" />
-
-      <SkeletonRows v-if="tasks.loading.value" />
-      <LoadError v-else-if="tasks.error.value" :error="tasks.error.value" @retry="tasks.reload" />
-      <EmptyState
-        v-else-if="tasks.items.value.length === 0"
-        :title="t('empty.tasks')"
-        :description="can.contribute ? t('empty.tasks_writer') : undefined"
+      <TaskFiltersBar
+        v-model="filters"
+        :labels="labels"
+        :assignees="assignees"
+        :assignees-truncated="assigneesTruncated"
+        :statuses="statuses"
+        :show-status="view === 'list'"
       />
-      <ul v-else class="flex flex-col divide-y rounded-card border bg-surface" :aria-label="t('task.list.title')">
-        <li v-for="task in tasks.items.value" :key="task.id">
-          <Link
-            :href="pages.task(task.id)"
-            class="flex flex-wrap items-center gap-x-3 gap-y-1 p-3 hover:bg-surface-hover"
-          >
-            <TechnicalId class="text-small text-text-muted">{{ task.key }}</TechnicalId>
-            <span class="min-w-0 flex-1 basis-48 font-medium break-words" dir="auto">{{ task.title }}</span>
-            <StatusChip :status="statusById.get(task.status_id)" />
-            <PriorityBadge :priority="task.priority" />
-            <span v-if="task.due_date" class="text-small text-text-muted">{{
-              t('task.due_on', { date: format.date(task.due_date) })
-            }}</span>
-          </Link>
-        </li>
-      </ul>
-      <AppButton
-        v-if="tasks.hasMore.value"
-        class="self-start"
-        variant="secondary"
-        :loading="tasks.loadingMore.value"
-        @click="tasks.loadMore"
-      >
-        {{ t('ui.load_more') }}
-      </AppButton>
+
+      <div :id="`project-panel-${view}`" role="tabpanel" :aria-labelledby="`project-view-${view}`">
+        <TaskBoard
+          v-if="view === 'board'"
+          :project-id="project.id"
+          :statuses="statuses"
+          :filters="filters"
+          :labels-by-id="labelsById"
+          :assignee-names="assigneeNames"
+          :can-write="canWrite"
+          @locked="locked = true"
+        />
+        <TaskListView
+          v-else
+          v-model:sort="sort"
+          :project-id="project.id"
+          :project-name="project.name"
+          :statuses="statuses"
+          :filters="filters"
+          :labels-by-id="labelsById"
+          :assignee-names="assigneeNames"
+          :can-write="canWrite"
+        />
+      </div>
     </section>
   </WorkspaceLayout>
 </template>

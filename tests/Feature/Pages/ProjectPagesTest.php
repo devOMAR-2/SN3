@@ -2,6 +2,7 @@
 
 use App\Domain\Projects\ProjectRole;
 use App\Domain\Teams\TeamRole;
+use App\Models\Label;
 use App\Models\Project;
 use App\Models\Task;
 use App\Models\Team;
@@ -227,4 +228,35 @@ it('applies the restore rule before the 100-row limit of the deleted-projects li
     // The Owner may restore all of them and sees the newest 100.
     $this->actingAs($this->team->owner)->get("/t/{$this->team->slug}/projects")
         ->assertInertia(fn (Assert $page) => $page->has('deletedProjects', 100));
+});
+
+it('gives the board the project’s labels and exactly the eligible assignees (CORE-007)', function () {
+    $project = pageProject($this->team, 'private');
+    $owner = $this->team->owner;
+    $contributor = pageTeamMember($this->team);
+    pageProjectMember($project, $contributor);
+    $viewerManager = pageTeamMember($this->team, TeamRole::Viewer);
+    pageProjectMember($project, $viewerManager, ProjectRole::Manager);
+    pageTeamMember($this->team, TeamRole::Admin); // no membership: not eligible on a private project
+    $bug = Label::factory()->for($project)->create(['name' => 'Bug']);
+    $api = Label::factory()->for($project)->create(['name' => 'API']);
+    Label::factory()->for(pageProject($this->team))->create(['name' => 'Elsewhere']);
+
+    $props = $this->actingAs($owner)->get(pageProjectUrl($this->team, $project))->assertOk()->viewData('page')['props'];
+
+    expect(collect($props['labels'])->pluck('id')->all())->toBe([$api->id, $bug->id])
+        ->and(collect($props['assignees'])->pluck('user_id')->sort()->values()->all())
+        ->toBe(collect([$owner->id, $contributor->id])->sort()->values()->all())
+        ->and($props['assigneesTruncated'])->toBeFalse();
+});
+
+it('caps the board’s assignee list and says so (CORE-007)', function () {
+    $project = pageProject($this->team);
+    foreach (range(1, 200) as $n) {
+        pageTeamMember($this->team);
+    }
+
+    $props = $this->actingAs($this->team->owner)->get(pageProjectUrl($this->team, $project))->viewData('page')['props'];
+
+    expect($props['assignees'])->toHaveCount(200)->and($props['assigneesTruncated'])->toBeTrue();
 });

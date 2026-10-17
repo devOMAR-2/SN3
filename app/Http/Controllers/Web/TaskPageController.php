@@ -68,11 +68,12 @@ class TaskPageController extends Controller
         $assigneesTruncated = count($assignees) > self::ASSIGNEE_LIMIT;
         $assignees = array_slice($assignees, 0, self::ASSIGNEE_LIMIT);
 
-        // The current assignee is always eligible (ADR-023 §5) but may sort past the cap: keep them
-        // selectable, so the picker never shows an empty value for an assigned task.
+        // The current assignee may sort past the cap: keep them selectable, so the picker never shows an
+        // empty value for an assigned task, but only while they are still eligible (a disabled account
+        // is not released from its tasks, and the API would refuse it).
         $assigneeId = $task->assignee_user_id;
 
-        if ($assigneeId !== null && ! in_array($assigneeId, array_column($assignees, 'user_id'), true)) {
+        if ($assigneeId !== null && ! in_array($assigneeId, array_column($assignees, 'user_id'), true) && TaskAssignments::eligible($project->id, $assigneeId)) {
             $current = User::query()->whereKey($assigneeId)->first();
 
             if ($current instanceof User) {

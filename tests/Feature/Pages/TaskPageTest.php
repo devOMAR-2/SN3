@@ -180,3 +180,19 @@ it('caps the assignee list, says so, and keeps the current assignee selectable',
     $this->actingAs($this->other->owner)->get("/tasks/{$small->id}")
         ->assertInertia(fn (Assert $page) => $page->where('assigneesTruncated', false)->has('assignees', 1));
 });
+
+it('does not offer a current assignee past the cap who is no longer eligible', function () {
+    $project = pageProject($this->team);
+    $this->team->owner->forceFill(['name' => 'B owner'])->save();
+    foreach (range(1, 200) as $n) {
+        pageTeamMember($this->team)->forceFill(['name' => sprintf('A member %03d', $n)])->save();
+    }
+    $last = pageTeamMember($this->team);
+    $last->forceFill(['name' => 'Zz last member'])->save();
+    $task = Task::factory()->for($project)->assignedTo($last)->create();
+    $last->forceFill(['disabled_at' => now()])->save();
+
+    $ids = collect($this->actingAs($this->team->owner)->get("/tasks/{$task->id}")->viewData('page')['props']['assignees'])->pluck('user_id');
+
+    expect($ids)->toHaveCount(200)->not->toContain($last->id);
+});
