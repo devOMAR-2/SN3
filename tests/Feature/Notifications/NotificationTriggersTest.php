@@ -4,8 +4,11 @@ require_once __DIR__.'/NotificationHelpers.php';
 
 use App\Domain\Invitations\Actions\CreateInvitation;
 use App\Domain\Invitations\InvitationType;
+use App\Domain\Notifications\NotificationType;
+use App\Domain\Notifications\Notifier;
 use App\Domain\Teams\TeamRole;
 use App\Models\InboxNotification;
+use App\Models\Task;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
@@ -212,6 +215,101 @@ it('hides an invitation notification once the invitation is accepted, revoked or
     expect(inboxOf($invitee)->json('data'))->toBe([])->and(unreadCountOf($invitee))->toBe(0);
 })->with(['accepted', 'revoked', 'expired']);
 
+/**
+ * An invitation notification for `invitee@example.com`, visible to start with.
+ *
+ * @return array{invitee: User, invitation: TeamInvitation, token: string}
+ */
+function invitationNotification(Team $team, User $owner): array
+{
+    $invitee = User::factory()->create(['email' => 'invitee@example.com']);
+    ['invitation' => $invitation, 'token' => $token] = app(CreateInvitation::class)->handle($team, $owner, InvitationType::Email, TeamRole::Member, 'invitee@example.com');
+
+    expect(inboxTypes($invitee))->toBe(['team.invitation'])->and(unreadCountOf($invitee))->toBe(1);
+
+    return ['invitee' => $invitee, 'invitation' => $invitation, 'token' => $token];
+}
+
+function expectInvitationHidden(User $invitee): void
+{
+    $invitee->refresh();
+    expect(inboxOf($invitee)->json('data'))->toBe([])
+        ->and(unreadCountOf($invitee))->toBe(0)
+        ->and(storedNotificationsOf($invitee))->toHaveCount(1);
+}
+
+it('hides an invitation notification from a recipient whose email moves away from the invited address', function () {
+    ['invitee' => $invitee] = invitationNotification($this->team, $this->owner);
+
+    DB::table('users')->where('id', $invitee->id)->update(['email' => 'moved@example.com']);
+    expectInvitationHidden($invitee);
+
+    // Read time: the address coming back brings it back.
+    DB::table('users')->where('id', $invitee->id)->update(['email' => 'invitee@example.com']);
+    expect(inboxTypes($invitee->refresh()))->toBe(['team.invitation']);
+});
+
+it('hides an invitation notification once the recipient\'s email is unverified or the account is disabled', function (string $state) {
+    ['invitee' => $invitee] = invitationNotification($this->team, $this->owner);
+
+    DB::table('users')->where('id', $invitee->id)->update($state === 'unverified' ? ['email_verified_at' => null] : ['disabled_at' => now()]);
+
+    expectInvitationHidden($invitee);
+})->with(['unverified', 'disabled']);
+
+it('keeps an accepted invitation hidden after the recipient leaves the team again', function () {
+    ['invitee' => $invitee, 'token' => $token] = invitationNotification($this->team, $this->owner);
+
+    $this->actingAs($invitee)->postJson("/api/v1/invitations/{$token}/accept")->assertCreated();
+    $this->actingAs($invitee)->deleteJson("/api/v1/teams/{$this->team->id}/members/{$invitee->id}")->assertNoContent();
+
+    expectInvitationHidden($invitee);
+});
+
+it('hides an invitation notification for an accepted invitation, or a trashed team, by that check alone', function (string $state) {
+    ['invitee' => $invitee, 'invitation' => $invitation] = invitationNotification($this->team, $this->owner);
+
+    // Straight in the database, the recipient never a member, nothing revoked: only the one check is
+    // left to hide it. (`accepted_at` and the use count move together: team_invitations_accepted_check.)
+    match ($state) {
+        'accepted' => DB::table('team_invitations')->where('id', $invitation->id)->update(['accepted_at' => now(), 'use_count' => DB::raw('max_uses')]),
+        'team trashed' => DB::table('teams')->where('id', $this->team->id)->update(['deleted_at' => now()]),
+    };
+
+    expectInvitationHidden($invitee);
+})->with(['accepted', 'team trashed']);
+
+it('hides an invitation notification when its team is trashed', function () {
+    ['invitee' => $invitee] = invitationNotification($this->team, $this->owner);
+
+    $this->actingAs($this->owner)->deleteJson("/api/v1/teams/{$this->team->id}")->assertNoContent();
+
+    expectInvitationHidden($invitee);
+});
+
+it('leaves the actor out when choosing who an event is for (first layer, on its own)', function () {
+    [$actor, $a, $b, $c] = ['actor', 'a', 'b', 'c'];
+
+    expect(Notifier::recipients([$a, $actor, null, $b, $a, $c], $actor, [$c]))->toBe([$a, $b])
+        ->and(Notifier::recipients([$actor], $actor))->toBe([])
+        ->and(Notifier::recipients([$actor, $b], $actor, [null]))->toBe([$b]);
+});
+
+it('never delivers to the actor, even when the caller passes them (second layer, on its own)', function () {
+    // deliver() is called directly, so the event-level layer (Notifier::recipients) is not involved.
+    $notifier = app(Notifier::class);
+    $deliver = Closure::bind(
+        fn (string $actorId, array $userIds) => $this->deliver(NotificationType::TaskUpdated, Task::query()->findOrFail(test()->task->id), $actorId, $userIds, ['fields' => ['title']]),
+        $notifier,
+        Notifier::class,
+    );
+
+    $deliver($this->alice->id, [$this->alice->id, $this->bob->id]);
+
+    expect(storedNotificationsOf($this->alice))->toBeEmpty()
+        ->and(inboxTypes($this->bob))->toBe(['task.updated']);
+});
+
 it('records nothing for users who turned both email and in-app notifications off', function () {
     $this->actingAs($this->bob)->patchJson('/api/v1/me', ['email_notifications' => false, 'in_app_notifications' => false])->assertOk();
 
@@ -245,5 +343,8 @@ it('validates the notification preferences as strict booleans', function (string
 })->with([
     'string' => ['email_notifications', 'yes', 'boolean'],
     'number' => ['in_app_notifications', 1, 'boolean'],
+    'number one' => ['email_notifications', 1, 'boolean'],
+    'string one' => ['email_notifications', '1', 'boolean'],
+    'number zero' => ['email_notifications', 0, 'boolean'],
     'null' => ['email_notifications', null, 'required'],
 ]);

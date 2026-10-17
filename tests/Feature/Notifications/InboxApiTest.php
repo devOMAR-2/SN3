@@ -9,6 +9,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
+use Inertia\Testing\AssertableInertia as Assert;
 
 // CORE-009: the inbox endpoints (API_SPEC.md §9: GET /notifications, POST /notifications/{id}/read,
 // POST /notifications/read-all, GET /notifications/unread-count; §1.2 envelopes, §1.4 cursors;
@@ -164,4 +165,32 @@ it('renders a deleted actor as null', function () {
     DB::table('notifications')->update(['actor_user_id' => null]);
 
     expect(inboxOf($this->bob)->json('data.0.actor'))->toBeNull();
+});
+
+it('caps the unread count at 100, in the API and on every page, while the list keeps everything', function () {
+    // 50 tasks with three unread task notifications each: 150 unread, straight in the table.
+    $rows = [];
+
+    foreach (range(1, 50) as $i) {
+        $task = taskIn($this->project);
+
+        foreach (['task.assigned', 'task.updated', 'task.commented'] as $type) {
+            $rows[] = [
+                'id' => (string) Str::uuid7(), 'recipient_user_id' => $this->bob->id, 'team_id' => $this->team->id,
+                'project_id' => $this->project->id, 'task_id' => $task->id, 'actor_user_id' => $this->alice->id,
+                'type' => $type, 'payload' => '{}', 'created_at' => now(), 'updated_at' => now(),
+            ];
+        }
+    }
+
+    DB::table('notifications')->insert($rows);
+
+    expect(unreadCountOf($this->bob))->toBe(100)
+        ->and(inboxOf($this->bob, ['status' => 'unread', 'limit' => 100])->json('meta.has_more'))->toBeTrue();
+    $this->actingAs($this->bob)->get('/inbox')->assertInertia(fn (Assert $page) => $page->where('inbox.unread_count', 100));
+
+    // Below the cap the count is exact.
+    DB::table('notifications')->whereIn('id', array_column(array_slice($rows, 0, 51), 'id'))->update(['read_at' => now()]);
+    expect(unreadCountOf($this->bob))->toBe(99);
+    $this->actingAs($this->bob)->get('/inbox')->assertInertia(fn (Assert $page) => $page->where('inbox.unread_count', 99));
 });

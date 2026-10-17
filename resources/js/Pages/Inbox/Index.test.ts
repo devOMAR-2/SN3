@@ -109,10 +109,119 @@ describe('Inbox', () => {
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
     await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
 
-    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Marked as read.'));
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('WEB-7 marked as read.'));
     expect(http.post).toHaveBeenCalledWith('/notifications/n1/read');
     expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(1);
     expect(screen.getAllByRole('link', { name: 'Inbox, 1 unread' }).length).toBeGreaterThan(0);
+    expect(http.get).not.toHaveBeenCalledWith('/notifications/unread-count');
+  });
+
+  it('announces every mark as read as a change, even the same text twice in a row', async () => {
+    // Both unread items are about WEB-7: the second announcement has the same words as the first.
+    http.post.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: { data: { ...items[url.includes('n1') ? 0 : 1]!, read_at: '2026-10-17T12:00:00Z' } },
+      }),
+    );
+    renderInbox();
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
+
+    const region = screen.getByRole('status');
+    const said: string[] = [];
+    const observer = new MutationObserver(() => said.push(region.textContent ?? ''));
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+    await waitFor(() => expect(region.textContent).toBe('WEB-7 marked as read.'));
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+    await waitFor(() => expect(said.filter((text) => text === 'WEB-7 marked as read.')).toHaveLength(2));
+    observer.disconnect();
+
+    // Cleared in between, so the second one is a new announcement.
+    expect(said).toEqual(['WEB-7 marked as read.', '', 'WEB-7 marked as read.']);
+  });
+
+  it('keeps the live region empty for 75 ms, and lets only the latest announcement through', async () => {
+    vi.useFakeTimers();
+    try {
+      http.post.mockImplementation((url: string) =>
+        Promise.resolve(
+          url === '/notifications/read-all'
+            ? { data: { data: { marked_read: 1 } } }
+            : { data: { data: { ...items[0]!, read_at: '2026-10-17T12:00:00Z' } } },
+        ),
+      );
+      const { unmount } = renderInbox();
+      await vi.advanceTimersByTimeAsync(0);
+      const region = screen.getByRole('status');
+
+      await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+      await vi.advanceTimersByTimeAsync(74);
+      expect(region.textContent).toBe('');
+      await vi.advanceTimersByTimeAsync(1);
+      expect(region.textContent).toBe('WEB-7 marked as read.');
+
+      // A second announcement within the gap replaces the first: the first never shows.
+      await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+      await vi.advanceTimersByTimeAsync(30);
+      await fireEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
+      await vi.advanceTimersByTimeAsync(50);
+      expect(region.textContent).toBe('');
+      await vi.advanceTimersByTimeAsync(100);
+      expect(region.textContent).toBe('All notifications are marked as read.');
+
+      // Leaving the page drops a pending announcement.
+      await fireEvent.click(screen.getByRole('button', { name: 'Mark all as read' }));
+      await vi.advanceTimersByTimeAsync(10);
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('names the task or the team in the announcement', async () => {
+    http.post.mockResolvedValue({ data: { data: { ...items[0], read_at: '2026-10-17T12:00:00Z' } } });
+    renderInbox('ar');
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'تعليم كمقروء' })).toHaveLength(2));
+    await fireEvent.click(screen.getAllByRole('button', { name: 'تعليم كمقروء' })[0]!);
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('عُلّمت WEB-7 كمقروءة.'));
+  });
+
+  it('names the team when an invitation is marked read', async () => {
+    const invitation = { ...items[2]!, read_at: null };
+    renderInbox();
+    http.get.mockImplementation((url: string) =>
+      Promise.resolve(url === '/notifications' ? page([invitation]) : { data: { data: { unread_count: 0 } } }),
+    );
+    http.post.mockResolvedValue({ data: { data: { ...invitation, read_at: '2026-10-17T12:00:00Z' } } });
+    // The Unread filter reloads the list: only the unread invitation now.
+    await fireEvent.click(screen.getByRole('button', { name: 'Unread' }));
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(1));
+    await fireEvent.click(screen.getByRole('button', { name: 'Mark as read' }));
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Invitation to Beta marked as read.'));
+    expect(http.post).toHaveBeenCalledWith('/notifications/n3/read');
+  });
+
+  it('asks the server for the count again when it is at the cap (100 means 100 or more)', async () => {
+    http.post.mockResolvedValue({ data: { data: { ...items[0], read_at: '2026-10-17T12:00:00Z' } } });
+    renderInbox('en', 100);
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
+    // The top-bar bell and the sidebar link each say it (WorkspaceLayout, WorkspaceNav).
+    expect(within(screen.getByRole('banner')).getAllByRole('link', { name: 'Inbox, 99+ unread' })).toHaveLength(1);
+    const sidebar = screen
+      .getAllByRole('navigation')
+      .flatMap((nav) => within(nav).queryAllByRole('link', { name: 'Inbox, 99+ unread' }));
+    expect(sidebar.length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('link', { name: 'Inbox, 100 unread' })).toHaveLength(0);
+    await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
+
+    await waitFor(() => expect(http.get).toHaveBeenCalledWith('/notifications/unread-count'));
   });
 
   it('opens the task through its route after marking the notification read', async () => {

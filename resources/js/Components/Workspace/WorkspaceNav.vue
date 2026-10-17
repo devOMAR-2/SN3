@@ -54,7 +54,8 @@ const general = computed<Item[]>(() => [
     icon: Inbox,
     exact: true,
     badge: unread.count.value,
-    accessibleLabel: unread.count.value > 0 ? t('inbox.link_unread', { count: unread.count.value }) : undefined,
+    accessibleLabel:
+      unread.count.value > 0 ? t('inbox.link_unread', { count: badgeText(unread.count.value) }) : undefined,
   },
   { href: pages.teams(), label: t('nav.teams'), icon: LayoutGrid, exact: true },
 ]);

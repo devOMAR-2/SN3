@@ -61,13 +61,13 @@ final class Notifier
 
             $assignee = $event->assignedUserId;
 
-            if ($assignee !== null && $assignee !== $event->actorId && $task->assignee_user_id === $assignee) {
-                $this->deliver(NotificationType::TaskAssigned, $task, $event->actorId, [$assignee]);
+            if ($assignee !== null && $task->assignee_user_id === $assignee) {
+                $this->deliver(NotificationType::TaskAssigned, $task, $event->actorId, self::recipients([$assignee], $event->actorId));
             }
 
             if ($event->fields !== []) {
-                $watchers = array_diff(TaskWatchers::of($task), [$event->actorId, $assignee]);
-                $this->deliver(NotificationType::TaskUpdated, $task, $event->actorId, array_values($watchers), ['fields' => self::fields($event->fields)]);
+                $watchers = self::recipients(TaskWatchers::of($task), $event->actorId, [$assignee]);
+                $this->deliver(NotificationType::TaskUpdated, $task, $event->actorId, $watchers, ['fields' => self::fields($event->fields)]);
             }
         });
     }
@@ -82,8 +82,8 @@ final class Notifier
                 return;
             }
 
-            $watchers = array_diff(TaskWatchers::of($task), [$event->actorId], CommentMentions::of($comment));
-            $this->deliver(NotificationType::TaskCommented, $task, $event->actorId, array_values($watchers));
+            $watchers = self::recipients(TaskWatchers::of($task), $event->actorId, CommentMentions::of($comment));
+            $this->deliver(NotificationType::TaskCommented, $task, $event->actorId, $watchers);
         });
     }
 
@@ -98,8 +98,8 @@ final class Notifier
             }
 
             // Still mentioned now: an edit may have removed the mention since.
-            $mentioned = array_intersect($event->userIds, CommentMentions::of($comment));
-            $this->deliver(NotificationType::CommentMentioned, $task, $event->actorId, array_values(array_diff($mentioned, [$event->actorId])), comment: $comment);
+            $mentioned = array_values(array_intersect($event->userIds, CommentMentions::of($comment)));
+            $this->deliver(NotificationType::CommentMentioned, $task, $event->actorId, self::recipients($mentioned, $event->actorId), comment: $comment);
         });
     }
 
@@ -150,8 +150,34 @@ final class Notifier
     }
 
     /**
+     * Who an event is for (the first of the two "never the actor" layers): `$candidates` without the
+     * actor, without `$except`, without duplicates or nulls, in their order. deliver() drops the actor
+     * again on its own (the second layer), so neither layer depends on the other.
+     *
+     * @internal public for NotificationTriggersTest only
+     *
+     * @param  list<string|null>  $candidates
+     * @param  list<string|null>  $except
+     * @return list<string>
+     */
+    public static function recipients(array $candidates, string $actorId, array $except = []): array
+    {
+        $excluded = [$actorId, ...$except];
+        $recipients = [];
+
+        foreach ($candidates as $id) {
+            if ($id !== null && ! in_array($id, $excluded, true) && ! in_array($id, $recipients, true)) {
+                $recipients[] = $id;
+            }
+        }
+
+        return $recipients;
+    }
+
+    /**
      * Records `$type` for each recipient who can see the task's project now and wants notifications,
      * in a fixed order (by user ID), so concurrent deliveries never deadlock on the unique indexes.
+     * Never the actor, whatever the caller passed (the second "never the actor" layer).
      *
      * @param  list<string|null>  $userIds
      * @param  array{fields?: list<string>}  $payload
