@@ -151,12 +151,35 @@ describe('Inbox', () => {
     await waitFor(() => expect(screen.getByRole('status').textContent).toBe('عُلّمت WEB-7 كمقروءة.'));
   });
 
+  it('names the team when an invitation is marked read', async () => {
+    const invitation = { ...items[2]!, read_at: null };
+    renderInbox();
+    http.get.mockImplementation((url: string) =>
+      Promise.resolve(url === '/notifications' ? page([invitation]) : { data: { data: { unread_count: 0 } } }),
+    );
+    http.post.mockResolvedValue({ data: { data: { ...invitation, read_at: '2026-10-17T12:00:00Z' } } });
+    // The Unread filter reloads the list: only the unread invitation now.
+    await fireEvent.click(screen.getByRole('button', { name: 'Unread' }));
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(1));
+    await fireEvent.click(screen.getByRole('button', { name: 'Mark as read' }));
+
+    await waitFor(() => expect(screen.getByRole('status').textContent).toBe('Invitation to Beta marked as read.'));
+    expect(http.post).toHaveBeenCalledWith('/notifications/n3/read');
+  });
+
   it('asks the server for the count again when it is at the cap (100 means 100 or more)', async () => {
     http.post.mockResolvedValue({ data: { data: { ...items[0], read_at: '2026-10-17T12:00:00Z' } } });
     renderInbox('en', 100);
 
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'Mark as read' })).toHaveLength(2));
-    expect(screen.getAllByRole('link', { name: 'Inbox, 99+ unread' }).length).toBeGreaterThan(0);
+    // The top-bar bell and the sidebar link each say it (WorkspaceLayout, WorkspaceNav).
+    expect(within(screen.getByRole('banner')).getAllByRole('link', { name: 'Inbox, 99+ unread' })).toHaveLength(1);
+    const sidebar = screen
+      .getAllByRole('navigation')
+      .flatMap((nav) => within(nav).queryAllByRole('link', { name: 'Inbox, 99+ unread' }));
+    expect(sidebar.length).toBeGreaterThan(0);
+    expect(screen.queryAllByRole('link', { name: 'Inbox, 100 unread' })).toHaveLength(0);
     await fireEvent.click(screen.getAllByRole('button', { name: 'Mark as read' })[0]!);
 
     await waitFor(() => expect(http.get).toHaveBeenCalledWith('/notifications/unread-count'));

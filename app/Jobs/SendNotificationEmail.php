@@ -8,10 +8,12 @@ use App\Domain\Notifications\NotificationPreferences;
 use App\Models\InboxNotification;
 use App\Models\User;
 use App\Notifications\Inbox\InboxNotificationMail;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\Queue\ShouldBeEncrypted;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -24,18 +26,25 @@ use Throwable;
  *   window was lost, below), and dispatches the job after the commit, delayed by
  *   `sn3.notifications.email_delay_seconds`. Events collapsed into the notification meanwhile go out
  *   in this one email.
- * - The payload is the notification ID only (encrypted on the queue all the same). When it runs, it
- *   locks the row and re-checks everything: the row still exists and is due; the recipient is enabled,
+ * - The payload is the notification ID and the due time of the job's own window (encrypted on the
+ *   queue all the same). When it runs, it locks the row and re-checks everything: the row still exists
+ *   and its open window is still this job's (`email_due_at` equals `dueAt`); the recipient is enabled,
  *   verified and still wants email; they may still see what it is about (Inbox, the read-time
  *   predicate); and, if they use the inbox, they have not read it there already. Otherwise nothing is
  *   sent. Titles and names are read now (InboxPresenter), never carried by the queue.
  * - Either way the window closes (`email_due_at` cleared), so the next event opens a new one.
  * - **A window never stays open for good.** If every try fails (an SMTP error rolls the transaction
- *   back), failed() closes the window. If the job was lost before it ran (a queue flushed, a worker
- *   gone), the next event reopens a window that is overdue by RECOVERY_GRACE_SECONDS and queues a new
- *   job. The grace is far longer than the retries' backoff, so a healthy window, whose job is waiting
- *   or retrying, is never queued twice. Delivery stays at least once: a job that was only very late
- *   and a recovery job may both run, and the first to lock the row sends the email.
+ *   back), failed() closes the job's own window. If the job was lost before it ran (a queue flushed, a
+ *   worker gone), the next event reopens a window that is overdue by RECOVERY_GRACE_SECONDS and queues
+ *   a new job. The grace is far longer than the delay plus the retries' backoff, so a healthy window,
+ *   whose job is waiting or retrying, is never queued twice.
+ * - **Each job owns one window.** A job whose window was closed or replaced (a late job after a
+ *   recovery reopened the window) changes nothing and sends nothing: only the job of the open window
+ *   sends it, at that window's end, and only its failure closes it. So one window is never emailed
+ *   twice or early, and a late failure never closes a newer window.
+ * - After a failure or a lost job, the email goes out only when a later event on the notification
+ *   reopens a window; nothing retries by itself.
+ * - Jobs queued before `dueAt` existed (null) keep the earlier rule: any open window is theirs.
  */
 final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
 {
@@ -52,7 +61,10 @@ final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
      */
     public const RECOVERY_GRACE_SECONDS = 900;
 
-    public function __construct(public readonly string $notificationId)
+    /**
+     * @param  string|null  $dueAt  the job's own window end (`email_due_at`, ISO 8601 UTC, whole seconds)
+     */
+    public function __construct(public readonly string $notificationId, public readonly ?string $dueAt = null)
     {
         $this->afterCommit();
     }
@@ -64,7 +76,8 @@ final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
     public static function schedule(string $notificationId): void
     {
         $delay = max(0, config()->integer('sn3.notifications.email_delay_seconds', 120));
-        $due = now()->addSeconds($delay);
+        // Whole seconds: the job compares its window with the stored column exactly.
+        $due = now()->addSeconds($delay)->startOfSecond();
 
         $opened = DB::table('notifications')
             ->where('id', $notificationId)
@@ -75,7 +88,7 @@ final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
             ->update(['email_due_at' => $due]);
 
         if ($opened === 1) {
-            self::dispatch($notificationId)->delay($due);
+            self::dispatch($notificationId, $due->toIso8601ZuluString())->delay($due);
         }
     }
 
@@ -84,7 +97,7 @@ final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
         DB::transaction(function () use ($inbox, $presenter): void {
             $notification = InboxNotification::query()->whereKey($this->notificationId)->lockForUpdate()->first();
 
-            if (! $notification instanceof InboxNotification || $notification->email_due_at === null) {
+            if (! $notification instanceof InboxNotification || ! $this->ownsWindow($notification->email_due_at)) {
                 return;
             }
 
@@ -105,20 +118,38 @@ final class SendNotificationEmail implements ShouldBeEncrypted, ShouldQueue
     }
 
     /**
-     * Every try failed: close the window, so the next event opens a new one (and emails what this one
-     * could not). A window reopened meanwhile, still in the future, belongs to another job and stays.
+     * Every try failed: close this job's window, so the next event opens a new one (and emails what
+     * this one could not). A window reopened meanwhile belongs to another job and stays open.
      */
     public function failed(?Throwable $exception = null): void
     {
-        DB::table('notifications')
-            ->where('id', $this->notificationId)
-            ->where('email_due_at', '<=', now())
-            ->update(['email_due_at' => null]);
+        $window = DB::table('notifications')->where('id', $this->notificationId);
+
+        if ($this->dueAt !== null) {
+            $window->where('email_due_at', Carbon::parse($this->dueAt));
+        } else {
+            $window->where('email_due_at', '<=', now());
+        }
+
+        $window->update(['email_due_at' => null]);
 
         Log::warning('notification_email.failed', [
             'notification_id' => $this->notificationId,
             'exception' => $exception === null ? null : $exception::class,
         ]);
+    }
+
+    /**
+     * Whether the notification's open window is this job's (any open window for a job queued before
+     * `dueAt` existed).
+     */
+    private function ownsWindow(?CarbonInterface $openWindow): bool
+    {
+        if ($openWindow === null) {
+            return false;
+        }
+
+        return $this->dueAt === null || $openWindow->equalTo(Carbon::parse($this->dueAt));
     }
 
     private function wanted(InboxNotification $notification, User $recipient, Inbox $inbox): bool

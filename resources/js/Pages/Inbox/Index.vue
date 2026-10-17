@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { router, usePage } from '@inertiajs/vue3';
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import AppAlert from '@/Components/ui/AppAlert.vue';
 import AppButton from '@/Components/ui/AppButton.vue';
 import EmptyState from '@/Components/ui/EmptyState.vue';
@@ -71,15 +71,22 @@ function changed(item: InboxNotification): string | null {
   });
 }
 
+/** How long the live region stays empty before the next announcement (ms). */
+const ANNOUNCE_GAP_MS = 75;
+let pendingAnnouncement: ReturnType<typeof setTimeout> | undefined;
+
 /**
- * Says `text` in the live region. It is cleared first and set on the next tick, so the same text twice
- * in a row (two items marked read) is still a change that screen readers announce.
+ * Says `text` in the live region. It is cleared first and set again a moment later (a tick is not
+ * always enough for screen readers), so the same text twice in a row (two items marked read) is still
+ * a change they announce.
  */
-async function announce(text: string): Promise<void> {
+function announce(text: string): void {
+  clearTimeout(pendingAnnouncement);
   announcement.value = '';
-  await nextTick();
-  announcement.value = text;
+  pendingAnnouncement = setTimeout(() => (announcement.value = text), ANNOUNCE_GAP_MS);
 }
+
+onBeforeUnmount(() => clearTimeout(pendingAnnouncement));
 
 function markedReadText(item: InboxNotification): string {
   return item.task !== null
@@ -123,7 +130,7 @@ async function markRead(item: InboxNotification): Promise<boolean> {
   } else {
     unread.set(unread.count.value - 1);
   }
-  void announce(markedReadText(item));
+  announce(markedReadText(item));
 
   return true;
 }
@@ -146,7 +153,7 @@ async function markAllRead(): Promise<void> {
     return;
   }
 
-  void announce(result.marked_read > 0 ? t('inbox.all_marked_read') : t('inbox.nothing_to_mark'));
+  announce(result.marked_read > 0 ? t('inbox.all_marked_read') : t('inbox.nothing_to_mark'));
   await list.reload();
   await refreshCount();
 }

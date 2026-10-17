@@ -84,7 +84,7 @@ it('writes the email in Arabic or English, and user-written text as plain text',
     'Arabic' => ['ar', 'المهمة WEB-1'],
 ]);
 
-it('queues one encrypted email per window, after the commit, carrying only the notification ID', function () {
+it('queues one encrypted email per window, after the commit, carrying only the notification ID and its window', function () {
     Queue::fake();
     notifyWatch($this->bob, $this->task)->assertCreated();
 
@@ -102,6 +102,7 @@ it('queues one encrypted email per window, after the commit, carrying only the n
         ->and($job->afterCommit)->toBeTrue()
         ->and($job->delay)->not->toBeNull()
         ->and(serialize($job))->not->toContain('Secret new title')
+        ->and($job->dueAt)->toBe(storedNotificationsOf($this->bob)->first()->email_due_at->utc()->toIso8601ZuluString())
         ->and(storedNotificationsOf($this->bob)->first()->event_count)->toBe(2);
 });
 
@@ -172,6 +173,22 @@ it('queues no email for users with email off, for invitations, or for disabled a
     Notification::assertNothingSent();
 });
 
+/**
+ * Runs one queued email job as the worker would.
+ */
+function runEmailJob(SendNotificationEmail $job): void
+{
+    $job->handle(app(Inbox::class), app(InboxPresenter::class));
+}
+
+it('keeps the recovery grace well above the delay and the retries, so a healthy window is never reopened', function () {
+    $job = new SendNotificationEmail('00000000-0000-0000-0000-000000000000');
+    $retries = array_sum($job->backoff);
+
+    // Delay (120) + backoff (150) + a 5-minute margin for a busy worker.
+    expect(SendNotificationEmail::RECOVERY_GRACE_SECONDS)->toBeGreaterThan(config()->integer('sn3.notifications.email_delay_seconds') + $retries + 300);
+});
+
 it('closes the window when every try failed, so the next event is emailed', function () {
     Queue::fake([SendNotificationEmail::class]);
     notifyWatch($this->bob, $this->task)->assertCreated();
@@ -195,20 +212,17 @@ it('reopens a window whose job was lost once it is overdue by the grace, and ema
     Notification::fake();
     notifyWatch($this->bob, $this->task)->assertCreated();
     notifyEditTask($this->alice, $this->task, ['priority' => 'high'])->assertOk();
-    $lost = Queue::pushed(SendNotificationEmail::class)->first();
 
-    // The job never ran (a flushed queue). Past due plus the grace, the next event queues a new one.
-    $this->travel(120 + SendNotificationEmail::RECOVERY_GRACE_SECONDS + 1)->seconds();
+    // The job never ran (a flushed queue). 2 minutes delay + 15 minutes grace later, the next event
+    // queues a new one.
+    $this->travel(18)->minutes();
     notifyEditTask($this->alice, $this->task->fresh(), ['title' => 'Renamed'])->assertOk();
     Queue::assertPushed(SendNotificationEmail::class, 2);
     $row = storedNotificationsOf($this->bob)->first();
     expect($row->email_due_at->isFuture())->toBeTrue();
 
-    // The lost job failing late leaves the new window (still in the future) alone.
-    $lost->failed(new RuntimeException('late'));
-    expect($row->fresh()->email_due_at)->not->toBeNull();
-
-    runEmailJobs();
+    $this->travel(2)->minutes();
+    runEmailJob(Queue::pushed(SendNotificationEmail::class)->last());
     Notification::assertSentTimes(InboxNotificationMail::class, 1);
     expect($row->fresh()->email_due_at)->toBeNull()->and($row->fresh()->emailed_at)->not->toBeNull();
 });
@@ -219,11 +233,81 @@ it('never queues a second job for a healthy window, even past its due time withi
     notifyEditTask($this->alice, $this->task, ['priority' => 'high'])->assertOk();
     $due = storedNotificationsOf($this->bob)->first()->email_due_at;
 
-    // Its job is waiting or retrying (backoff): the window is still healthy.
-    $this->travel(120 + SendNotificationEmail::RECOVERY_GRACE_SECONDS - 5)->seconds();
-    notifyEditTask($this->alice, $this->task->fresh(), ['title' => 'Renamed'])->assertOk();
+    // Its job is waiting or retrying: 2 minutes past due, then 16 minutes after the event (just under
+    // delay + grace), the window is still healthy.
+    foreach ([4, 12] as $minutes) {
+        $this->travel($minutes)->minutes();
+        notifyEditTask($this->alice, $this->task->fresh(), ['title' => "Renamed {$minutes}"])->assertOk();
+    }
 
     Queue::assertPushed(SendNotificationEmail::class, 1);
     expect(storedNotificationsOf($this->bob)->first()->email_due_at->equalTo($due))->toBeTrue()
-        ->and(storedNotificationsOf($this->bob)->first()->event_count)->toBe(2);
+        ->and(storedNotificationsOf($this->bob)->first()->event_count)->toBe(3);
+});
+
+it('lets a late job of a replaced window send nothing, so one window is never emailed twice or early', function () {
+    Queue::fake([SendNotificationEmail::class]);
+    Notification::fake();
+    notifyWatch($this->bob, $this->task)->assertCreated();
+    notifyEditTask($this->alice, $this->task, ['priority' => 'high'])->assertOk();
+
+    // Worker down: job A (window W1) waits on the queue; recovery reopens W2 with job B.
+    $this->travel(18)->minutes();
+    notifyEditTask($this->alice, $this->task->fresh(), ['title' => 'R1'])->assertOk();
+    [$a, $b] = Queue::pushed(SendNotificationEmail::class)->values()->all();
+
+    // Worker back: A runs at once. W2 is not its window: nothing is sent, nothing changes.
+    runEmailJob($a);
+    Notification::assertNothingSent();
+    expect(storedNotificationsOf($this->bob)->first()->email_due_at)->not->toBeNull();
+
+    // B runs at W2's end and sends it, once.
+    $this->travel(2)->minutes();
+    runEmailJob($b);
+    Notification::assertSentTimes(InboxNotificationMail::class, 1);
+
+    // A new event opens W3 (job C); A or B running again changes nothing; C sends W3 at its end.
+    $this->travel(10)->seconds();
+    notifyEditTask($this->alice, $this->task->fresh(), ['title' => 'R2'])->assertOk();
+    $c = Queue::pushed(SendNotificationEmail::class)->last();
+    runEmailJob($b);
+    runEmailJob($a);
+    Notification::assertSentTimes(InboxNotificationMail::class, 1);
+    $this->travel(2)->minutes();
+    runEmailJob($c);
+    Notification::assertSentTimes(InboxNotificationMail::class, 2);
+});
+
+it('lets a late failure close only its own window, never a reopened one that is already due', function () {
+    Queue::fake([SendNotificationEmail::class]);
+    Notification::fake();
+    notifyWatch($this->bob, $this->task)->assertCreated();
+    notifyEditTask($this->alice, $this->task, ['priority' => 'high'])->assertOk();
+    $this->travel(18)->minutes();
+    notifyEditTask($this->alice, $this->task->fresh(), ['title' => 'R1'])->assertOk();
+    [$a, $b] = Queue::pushed(SendNotificationEmail::class)->values()->all();
+
+    // W2 is due; B has not run yet (busy worker); A's last try fails now.
+    $this->travel(125)->seconds();
+    $a->failed(new RuntimeException('smtp'));
+    expect(storedNotificationsOf($this->bob)->first()->email_due_at)->not->toBeNull();
+
+    runEmailJob($b);
+    Notification::assertSentTimes(InboxNotificationMail::class, 1);
+});
+
+it('keeps the earlier rule for jobs queued without their window (before this change)', function () {
+    Queue::fake([SendNotificationEmail::class]);
+    Notification::fake();
+    notifyAssign($this->alice, $this->task, $this->bob);
+    $row = storedNotificationsOf($this->bob)->first();
+
+    // Any open window is a legacy job's: it sends it, and its failure closes a due one.
+    $this->travel(3)->minutes();
+    runEmailJob(new SendNotificationEmail($row->id));
+    Notification::assertSentTimes(InboxNotificationMail::class, 1);
+
+    DB::table('notifications')->where('id', $row->id)->update(['email_due_at' => now()->subMinute()]);
+    (new SendNotificationEmail($row->id))->failed(new RuntimeException('smtp'));
+    expect($row->fresh()->email_due_at)->toBeNull();
 });
