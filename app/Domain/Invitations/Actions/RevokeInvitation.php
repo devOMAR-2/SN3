@@ -2,6 +2,7 @@
 
 namespace App\Domain\Invitations\Actions;
 
+use App\Domain\Activity\Activity;
 use App\Models\Team;
 use App\Models\TeamInvitation;
 use App\Models\User;
@@ -10,7 +11,6 @@ use App\Support\Exceptions\ResourceLockedException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Log;
 
 /**
  * Revokes an invitation (API_SPEC.md §3.1 `DELETE /teams/{team}/invitations/{invitation}`; ADR-025
@@ -53,11 +53,7 @@ final class RevokeInvitation
             $row->revoked_at = now();
             $row->save();
 
-            Log::info('team.invitation_revoked', [
-                'team_id' => $locked->id,
-                'invitation_id' => $row->id,
-                'actor_id' => $actor->id,
-            ]);
+            Activity::team($locked->id, $actor, 'team.invitation_revoked', ['invitation_id' => $row->id]);
         });
     }
 }

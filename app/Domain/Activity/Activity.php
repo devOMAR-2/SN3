@@ -66,6 +66,12 @@ final class Activity
         'team.member_role_changed' => ['user_id', 'from', 'to'],
         'team.member_removed' => ['user_id'],
         'team.ownership_transferred' => ['from_user_id', 'to_user_id'],
+        // Invitations (CORE-002, ADR-025; ADR-027 §3): IDs, type and role only, never the address or
+        // the token. A membership created by accepting one is `team.member_added`, by the joining user.
+        'team.member_added' => ['user_id', 'role', 'invitation_id'],
+        'team.invitation_created' => ['invitation_id', 'type', 'role'],
+        'team.invitation_revoked' => ['invitation_id'],
+        'team.invitations_revoked' => ['issuer_id', 'reason', 'count'],
     ];
 
     /** Longest string value: an ID, enum value, date or field name. */
