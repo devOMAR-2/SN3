@@ -10,6 +10,11 @@ export default {
   timezone: 'Choose a valid time zone.',
   boolean: '{attribute} must be yes or no.',
   unknown_field: '{attribute} cannot be changed here.',
+  regex: '{attribute} has an invalid format.',
+  exists: 'Choose a valid {attribute}.',
+  uuid: 'Choose a valid {attribute}.',
+  date_format: 'Enter a valid date.',
+  after_or_equal: '{attribute} is too early.',
   invalid: '{attribute} is invalid.',
   network_error: 'Could not reach the server. Check your connection and try again.',
 };

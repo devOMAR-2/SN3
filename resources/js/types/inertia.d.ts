@@ -1,6 +1,7 @@
 import type { PageProps } from '@inertiajs/core';
 import type { ThemePreference } from '@/Composables/useTheme';
 import type { Direction, Locale } from '@/i18n';
+import type { WorkspaceProps } from '@/types/domain';
 
 /** The signed-in user's own profile (App\Http\Resources\MeResource). */
 export interface AuthUser {
@@ -25,6 +26,8 @@ export interface SharedProps extends PageProps {
   auth: { user: AuthUser | null };
   flash: { status: string | null };
   features: { registration: boolean };
+  /** CORE-006: the signed-in user's teams for the team switcher; null for guests. */
+  workspace: WorkspaceProps | null;
 }
 
 declare module '@inertiajs/core' {

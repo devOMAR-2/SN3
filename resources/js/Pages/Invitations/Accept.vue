@@ -7,6 +7,7 @@ import AppButton from '@/Components/ui/AppButton.vue';
 import { intlLocales, useI18n } from '@/i18n';
 import GuestLayout from '@/Layouts/GuestLayout.vue';
 import { api, toApiError, type ApiEnvelope } from '@/lib/api';
+import { pages } from '@/lib/routes';
 import {
   forgetPendingInvitation,
   peekPendingInvitation,
@@ -37,6 +38,8 @@ const preview = ref<Preview | null>(null);
 const loading = ref(token !== null);
 const joining = ref(false);
 const joined = ref<'joined' | 'already' | null>(null);
+// The joined team's page (CORE-006): the accept response is the team, with its slug.
+const joinedSlug = ref<string | null>(null);
 const problem = ref<Problem | null>(token === null ? 'missing' : null);
 const message = ref<string | null>(null);
 
@@ -119,8 +122,9 @@ async function join(): Promise<void> {
   message.value = null;
 
   try {
-    const response = await api.post<ApiEnvelope<unknown>>(`/invitations/${token}/accept`);
+    const response = await api.post<ApiEnvelope<{ slug?: unknown }>>(`/invitations/${token}/accept`);
     joined.value = response.status === 201 ? 'joined' : 'already';
+    joinedSlug.value = typeof response.data.data.slug === 'string' ? response.data.data.slug : null;
     forgetPendingInvitation();
   } catch (thrown) {
     const error = toApiError(thrown);
@@ -146,7 +150,9 @@ async function join(): Promise<void> {
         }}
       </AppAlert>
       <p class="mt-6 text-center">
-        <TextLink href="/">{{ t('invitations.accept.continue') }}</TextLink>
+        <TextLink :href="joinedSlug ? pages.team(joinedSlug) : pages.home()">{{
+          t('invitations.accept.continue')
+        }}</TextLink>
       </p>
     </template>
 

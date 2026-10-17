@@ -43,6 +43,35 @@ final class TaskAssignments
     }
 
     /**
+     * Every user who may be the project's assignee right now, by name (the assignee picker of the task
+     * detail page, CORE-006, ADR-026 §5). The same SQL rule as eligible(), so the picker never offers
+     * someone the API would refuse.
+     *
+     * At most `$limit` users, by name.
+     *
+     * @return list<array{user_id: string, name: string}>
+     */
+    public static function eligibleUsers(string $projectId, int $limit): array
+    {
+        $rows = DB::select(
+            'SELECT u.id AS user_id, u.name FROM team_memberships AS tm JOIN users AS u ON u.id = tm.user_id '
+            .'WHERE tm.team_id = (SELECT p.team_id FROM projects AS p WHERE p.id = ?::uuid) AND '.self::predicate('?::uuid', 'tm.user_id')
+            .' ORDER BY u.name, u.id LIMIT ?',
+            [$projectId, $projectId, max(1, $limit)],
+        );
+
+        $users = [];
+
+        foreach ($rows as $row) {
+            if ($row instanceof stdClass && is_string($row->user_id ?? null) && is_string($row->name ?? null)) {
+                $users[] = ['user_id' => $row->user_id, 'name' => $row->name];
+            }
+        }
+
+        return $users;
+    }
+
+    /**
      * Unassigns a user from every task of the team: they are leaving it.
      *
      * @return int how many tasks were unassigned

@@ -28,9 +28,11 @@ export const USERS = fixture.users as unknown as SeededUser[];
 export const TEAMS = fixture.teams as unknown as SeededTeam[];
 /** Seeded users in no team, for flows that change data (they never appear in USERS' isolation checks). */
 export const WORKFLOW_USERS = fixture.workflow_users as unknown as SeededUser[];
+/** Verified accounts outside every seeded team, for tests that create data (CORE-006 journey). */
+export const JOURNEY_USERS = fixture.journey_users as unknown as SeededUser[];
 
 export function user(key: string): SeededUser {
-  const found = [...USERS, ...WORKFLOW_USERS].find((u) => u.key === key);
+  const found = [...USERS, ...WORKFLOW_USERS, ...JOURNEY_USERS].find((u) => u.key === key);
   if (!found) throw new Error(`Unknown seeded user "${key}"`);
   return found;
 }

@@ -105,13 +105,15 @@ describe('Invitation page', () => {
 
   it('joins a verified user', async () => {
     state.user = { email_verified: true };
-    api.post.mockResolvedValue({ status: 201, data: { data: {} } });
+    api.post.mockResolvedValue({ status: 201, data: { data: { id: 'team-1', slug: 'website' } } });
     renderPage();
 
     await fireEvent.click(await screen.findByRole('button', { name: 'Join the team' }));
 
     expect(api.post).toHaveBeenCalledWith(`/invitations/${token}/accept`);
     expect(await screen.findByText('You are now a member of Website.')).toBeTruthy();
+    // Continue goes to the team just joined (CORE-006).
+    expect(screen.getByRole('link', { name: 'Continue' }).getAttribute('href')).toBe('/t/website');
   });
 
   it('reads the token back from the sign-in round trip when the URL has none', async () => {
