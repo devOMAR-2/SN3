@@ -42,8 +42,8 @@ final class Activity
         // Tasks (API_SPEC.md §6.1; DATABASE.md §11 "insert task and activity atomically").
         'task.created' => ['status_id', 'assignee_user_id', 'parent_task_id', 'priority', 'due_date'],
         'task.updated' => ['fields', 'status_id', 'assignee_user_id', 'parent_task_id', 'priority', 'due_date'],
-        // A board move (CORE-007, ADR-028 §2): from and to status; the same status for a reorder.
-        'task.moved' => ['from_status_id', 'status_id'],
+        // A board move (CORE-007, ADR-028 §2): `status_id` as a {from, to} pair; equal for a reorder.
+        'task.moved' => ['status_id'],
         'task.trashed' => [],
         'task.restored' => [],
         // An assignee who lost write access is unassigned by the change that took it (ADR-023 §5).

@@ -7,7 +7,7 @@ import { apiPost, signIn } from '../support/tenants';
 // `board_en` journey user, who belongs to no seeded team.
 
 async function project(page: Page): Promise<{ slug: string; projectId: string }> {
-  const suffix = Date.now().toString(36);
+  const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
   const team = await apiPost(page, '/teams', { name: `Board ${suffix}` });
   expect(team.status()).toBe(201);
   const { id: teamId, slug } = (await team.json()).data as { id: string; slug: string };

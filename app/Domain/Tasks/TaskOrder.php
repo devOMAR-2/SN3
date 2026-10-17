@@ -38,6 +38,11 @@ final class TaskOrder
      */
     public static function place(string $projectId, string $statusId, string $taskId, ?string $beforeId, ?string $afterId, ?string $currentPosition): ?string
     {
+        if ($beforeId === null && $afterId === null && $currentPosition !== null && self::strictlyBetween($currentPosition, self::lastLive($projectId, $statusId, $taskId), null)) {
+            // Already after every live task: a trashed task further down does not make it a move.
+            return $currentPosition;
+        }
+
         $neighbours = self::neighbours($projectId, $statusId, $taskId, $beforeId, $afterId);
 
         if ($neighbours === null) {
@@ -98,21 +103,33 @@ final class TaskOrder
             return null;
         }
 
-        // The live task on the other side of the anchor, in board order (position, then id).
+        // The live task on the other side of the anchor, in board order (position, then id). ORDER BY names
+        // the column, not the `position` text alias, which would sort '10' before '2'.
         $other = $beforeId !== null
             ? DB::selectOne(
                 'SELECT position::text AS position FROM tasks WHERE project_id = ? AND status_id = ? AND deleted_at IS NULL AND id <> ? '
-                .'AND (position, id) < (?::numeric, ?::uuid) ORDER BY position DESC, id DESC LIMIT 1',
+                .'AND (tasks.position, tasks.id) < (?::numeric, ?::uuid) ORDER BY tasks.position DESC, tasks.id DESC LIMIT 1',
                 [$projectId, $statusId, $taskId, $anchor->position, $anchorId],
             )
             : DB::selectOne(
                 'SELECT position::text AS position FROM tasks WHERE project_id = ? AND status_id = ? AND deleted_at IS NULL AND id <> ? '
-                .'AND (position, id) > (?::numeric, ?::uuid) ORDER BY position, id LIMIT 1',
+                .'AND (tasks.position, tasks.id) > (?::numeric, ?::uuid) ORDER BY tasks.position, tasks.id LIMIT 1',
                 [$projectId, $statusId, $taskId, $anchor->position, $anchorId],
             );
         $otherPosition = $other instanceof stdClass && is_string($other->position ?? null) ? $other->position : null;
 
         return $beforeId !== null ? [$otherPosition, $anchor->position] : [$anchor->position, $otherPosition];
+    }
+
+    /** The rank of the column's last live task other than `$taskId`, or null for none. */
+    private static function lastLive(string $projectId, string $statusId, string $taskId): ?string
+    {
+        $row = DB::selectOne(
+            'SELECT max(position)::text AS last FROM tasks WHERE project_id = ? AND status_id = ? AND deleted_at IS NULL AND id <> ?',
+            [$projectId, $statusId, $taskId],
+        );
+
+        return $row instanceof stdClass && is_string($row->last ?? null) ? $row->last : null;
     }
 
     private static function strictlyBetween(string $rank, ?string $previous, ?string $next): bool

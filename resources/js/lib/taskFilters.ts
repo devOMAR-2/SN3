@@ -27,7 +27,26 @@ export function emptyFilters(): TaskFilters {
   return { q: '', assignee: '', priority: [], label: [], dueAfter: '', dueBefore: '', status: [] };
 }
 
-const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** API limits (ListTasksRequest): at most 20 labels and 50 statuses per request. */
+export const MAX_LABELS = 20;
+const MAX_STATUSES = 50;
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+
+/** A real calendar date from 1000-01-01 on, as the API accepts (`date_format:Y-m-d`). */
+export function isDate(value: string): boolean {
+  const match = DATE.exec(value);
+
+  if (match === null) {
+    return false;
+  }
+
+  const [year, month, day] = [Number(match[1]), Number(match[2]), Number(match[3])];
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  return (
+    year >= 1000 && date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+  );
+}
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function ids(values: string[]): string[] {
@@ -42,16 +61,19 @@ export function readQuery(search: string): { filters: TaskFilters; view: Project
     .filter((value): value is Priority => (priorities as string[]).includes(value));
   const view = query.get('view');
   const sort = query.get('sort');
+  const dueAfter = isDate(query.get('due_after') ?? '') ? (query.get('due_after') as string) : '';
+  const dueBefore = isDate(query.get('due_before') ?? '') ? (query.get('due_before') as string) : '';
 
   return {
     filters: {
       q: (query.get('q') ?? '').slice(0, 200),
       assignee: ids([query.get('assignee') ?? ''])[0] ?? '',
       priority: [...new Set(priority)],
-      label: ids(query.getAll('label')),
-      dueAfter: DATE.test(query.get('due_after') ?? '') ? (query.get('due_after') as string) : '',
-      dueBefore: DATE.test(query.get('due_before') ?? '') ? (query.get('due_before') as string) : '',
-      status: ids(query.getAll('status')),
+      label: ids(query.getAll('label')).slice(0, MAX_LABELS),
+      dueAfter,
+      // An empty range is refused by the API (`after_or_equal`): keep the start, drop the end.
+      dueBefore: dueAfter !== '' && dueBefore !== '' && dueBefore < dueAfter ? '' : dueBefore,
+      status: ids(query.getAll('status')).slice(0, MAX_STATUSES),
     },
     view: view === 'board' || view === 'list' ? view : null,
     sort: (listSorts as readonly string[]).includes(sort ?? '') ? (sort as ListSort) : 'position',
@@ -117,7 +139,8 @@ export function apiParams(filters: TaskFilters, withStatus: boolean): Record<str
     params.due_after = filters.dueAfter;
   }
 
-  if (filters.dueBefore !== '') {
+  // An end before the start would be a 422 for every column; it is left out until the range is valid.
+  if (filters.dueBefore !== '' && (filters.dueAfter === '' || filters.dueBefore >= filters.dueAfter)) {
     params.due_before = filters.dueBefore;
   }
 

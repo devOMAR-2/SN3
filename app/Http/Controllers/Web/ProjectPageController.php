@@ -61,7 +61,7 @@ class ProjectPageController extends Controller
     }
 
     /**
-     * `/t/{team_slug}/p/{project_key}`: the board and the list and the list (CORE-007, ADR-028 §3). Tasks come page by page from /api/v1; the page
+     * `/t/{team_slug}/p/{project_key}`: the board and the list (CORE-007, ADR-028 §3). Tasks come page by page from /api/v1; the page
      * props carry the bounded lists the filters and cards need: labels (at most 100 per project) and
      * the people tasks can be assigned to (capped like the task page, ADR-026 §5).
      */

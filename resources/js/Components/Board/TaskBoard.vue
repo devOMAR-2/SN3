@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, ref, useTemplateRef, watch } from 'vue';
 import SelectField from '@/Components/ui/SelectField.vue';
 import { useCursorList, type CursorList } from '@/Composables/useCursorList';
 import { useMediaQuery } from '@/Composables/useMediaQuery';
 import { showToast } from '@/Composables/useToast';
 import { useI18n } from '@/i18n';
 import { api, toApiError, type ApiEnvelope } from '@/lib/api';
-import { moveBody, placeAt } from '@/lib/boardMove';
+import { endOfColumn, moveBody, placeAt } from '@/lib/boardMove';
 import { classifyWriteError, ifMatch } from '@/lib/http';
 import { apiParams, type TaskFilters } from '@/lib/taskFilters';
 import type { Label, ProjectStatus, Task } from '@/types/domain';
@@ -56,6 +56,8 @@ const dragging = ref<Task | null>(null);
 const announcement = ref('');
 const dialogOpen = ref(false);
 const dialogTask = ref<Task | null>(null);
+const lastMoved = ref<string | null>(null);
+const root = useTemplateRef<HTMLElement>('root');
 
 function reloadAll(): void {
   lists.forEach((list) => void list.reload());
@@ -72,7 +74,12 @@ function indexOf(task: Task): number {
   return list(task.status_id)?.items.value.findIndex((item) => item.id === task.id) ?? -1;
 }
 
-async function moveTo(task: Task, statusId: string, index: number): Promise<void> {
+/**
+ * Moves `task` to `index` of the loaded cards of `statusId`, or to the end of the whole column (`toEnd`, the
+ * dialog's "Bottom"). A card sent past the loaded cards of a column with more pages leaves the view: it is
+ * listed again when "Load more" reaches it, never twice.
+ */
+async function moveTo(task: Task, statusId: string, index: number, toEnd = false): Promise<void> {
   const from = list(task.status_id);
   const to = list(statusId);
 
@@ -82,16 +89,22 @@ async function moveTo(task: Task, statusId: string, index: number): Promise<void
 
   const before = { from: from.items.value, to: to.items.value };
   const target = to.items.value.filter((item) => item.id !== task.id);
-  const body = moveBody(
-    statusId,
-    target.map((item) => item.id),
-    index,
-  );
-  const at = Math.min(index, target.length);
+  const hasMore = to.hasMore.value;
+  const body = toEnd
+    ? endOfColumn(statusId)
+    : moveBody(
+        statusId,
+        target.map((item) => item.id),
+        index,
+        hasMore,
+      );
+  const hidden = toEnd && hasMore;
+  const at = toEnd ? target.length : Math.min(index, target.length);
 
   // Optimistic: the card moves now; the server's answer replaces or reverts it.
   from.items.value = from.items.value.filter((item) => item.id !== task.id);
-  to.items.value = placeAt(target, { ...task, status_id: statusId }, at);
+  to.items.value = hidden ? target : placeAt(target, { ...task, status_id: statusId }, at);
+  lastMoved.value = task.id;
   announcement.value = t('board.move.moving', { key: task.key });
 
   try {
@@ -99,12 +112,12 @@ async function moveTo(task: Task, statusId: string, index: number): Promise<void
       headers: ifMatch(task.version),
     });
     to.replace((item) => item.id === task.id, response.data.data);
-    announcement.value = t('board.move.moved', {
-      key: task.key,
-      status: statusById.value.get(statusId)?.name ?? '',
-      position: at + 1,
-      total: to.items.value.length,
-    });
+    const status = statusById.value.get(statusId)?.name ?? '';
+    announcement.value = hidden
+      ? t('board.move.moved_end', { key: task.key, status })
+      : hasMore
+        ? t('board.move.moved_at', { key: task.key, status, position: at + 1 })
+        : t('board.move.moved', { key: task.key, status, position: at + 1, total: to.items.value.length });
   } catch (thrown) {
     from.items.value = before.from;
     to.items.value = before.to;
@@ -121,7 +134,8 @@ async function moveTo(task: Task, statusId: string, index: number): Promise<void
     announcement.value = message;
     showToast(message, 'error');
 
-    if (outcome === 'conflict' || outcome === 'gone') {
+    // The board was out of date (a changed or vanished task, or an anchor that is gone): refresh it.
+    if (outcome === 'conflict' || outcome === 'gone' || outcome === 'invalid') {
       void from.reload();
 
       if (to !== from) {
@@ -151,10 +165,21 @@ function openMove(task: Task): void {
 
 function onDialogMove(task: Task, statusId: string, place: MovePlace): void {
   const current = indexOf(task);
-  const length = list(statusId)?.items.value.filter((item) => item.id !== task.id).length ?? 0;
-  const index = place === 'top' ? 0 : place === 'up' ? current - 1 : place === 'down' ? current + 1 : length;
+  const index = place === 'top' ? 0 : place === 'up' ? current - 1 : current + 1;
 
-  void moveTo(task, statusId, Math.max(0, index));
+  void moveTo(task, statusId, Math.max(0, index), place === 'bottom');
+}
+
+/**
+ * Where focus goes when the Move dialog closes (DESIGN_SYSTEM.md §8): the moved card's Move button, which
+ * may now be in another column; if the card is not on screen (another column on a phone, or past the
+ * loaded cards), the board itself, so focus is never lost to the page.
+ */
+function focusAfterMove(): HTMLElement | null {
+  const id = lastMoved.value;
+  const card = id === null ? null : root.value?.querySelector<HTMLElement>(`[data-task-id="${CSS.escape(id)}"] button`);
+
+  return card ?? root.value;
 }
 
 function onCreated(task: Task): void {
@@ -169,7 +194,7 @@ const dialogTotal = computed(() =>
 </script>
 
 <template>
-  <div class="flex flex-col gap-3">
+  <div ref="root" class="flex flex-col gap-3 focus:outline-none" tabindex="-1">
     <p class="sr-only" aria-live="polite">{{ announcement }}</p>
     <p v-if="canWrite" class="text-small text-text-muted">{{ t('board.move.drag_hint') }}</p>
 
@@ -201,6 +226,7 @@ const dialogTotal = computed(() =>
       :statuses="statuses"
       :index="dialogIndex"
       :total="dialogTotal"
+      :return-focus="focusAfterMove"
       @move="onDialogMove"
     />
   </div>

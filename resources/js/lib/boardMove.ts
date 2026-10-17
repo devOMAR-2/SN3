@@ -1,21 +1,33 @@
 /**
  * Board moves (CORE-007, API_SPEC.md §6.1 `POST /tasks/{id}/move`): turns "put this task at index i of that
- * column" into the endpoint's anchor form. The anchor is the task that will follow it (`before_task_id`), or
- * none for the end of the column, which the server treats as "after the last task".
+ * column" into the endpoint's anchor form. The anchor is the task that will follow it (`before_task_id`); past
+ * the last loaded card of a column that has more pages, it is the last loaded card (`after_task_id`), since
+ * the tasks not loaded yet come after it; no anchor is the end of the whole column.
  */
-export interface MoveBody {
-  status_id: string;
-  before_task_id: string | null;
-}
+export type MoveBody =
+  { status_id: string; before_task_id: string | null } | { status_id: string; after_task_id: string };
 
 /**
- * @param columnIds the target column's task IDs in board order, without the moving task
- * @param index where the task goes in that list (0 = top; `columnIds.length` or more = end)
+ * @param columnIds the target column's loaded task IDs in board order, without the moving task
+ * @param index where the task goes in that list (0 = top; `columnIds.length` or more = after the last one)
+ * @param hasMore whether the column has tasks beyond the loaded ones
  */
-export function moveBody(statusId: string, columnIds: readonly string[], index: number): MoveBody {
+export function moveBody(statusId: string, columnIds: readonly string[], index: number, hasMore = false): MoveBody {
   const at = Math.max(0, Math.min(index, columnIds.length));
+  const last = columnIds[columnIds.length - 1];
 
-  return { status_id: statusId, before_task_id: at < columnIds.length ? (columnIds[at] ?? null) : null };
+  if (at < columnIds.length) {
+    return { status_id: statusId, before_task_id: columnIds[at] ?? null };
+  }
+
+  return hasMore && last !== undefined
+    ? { status_id: statusId, after_task_id: last }
+    : { status_id: statusId, before_task_id: null };
+}
+
+/** The end of the whole column, loaded or not ("Bottom of the column"). */
+export function endOfColumn(statusId: string): MoveBody {
+  return { status_id: statusId, before_task_id: null };
 }
 
 /**

@@ -212,7 +212,7 @@ it('records the move in the activity log, with IDs only, and nothing for a no-op
         ->and($entries[0]->task_id)->toBe($a->id)
         ->and($entries[0]->project_id)->toBe($this->project->id)
         ->and($entries[0]->actor_user_id)->toBe($this->member->id)
-        ->and($entries[0]->changes)->toEqual(['from_status_id' => $this->todo, 'status_id' => $this->done]);
+        ->and($entries[0]->changes)->toBe(['status_id' => ['to' => $this->done, 'from' => $this->todo]]);
 });
 
 it('leaves a task that already sits between the requested neighbours where it is', function () {
@@ -226,4 +226,87 @@ it('leaves a task that already sits between the requested neighbours where it is
     move($c, ['status_id' => $this->todo, 'before_task_id' => $b->id])->assertOk()->assertJsonPath('data.version', 1);
 
     expect((float) DB::table('tasks')->where('id', $c->id)->value('position'))->toBe(3.0);
+});
+
+/** Ranks set by hand (decimal strings), keyed by task. @param array<string, string> $ranks */
+function setRanks(array $ranks): void
+{
+    foreach ($ranks as $id => $rank) {
+        DB::table('tasks')->where('id', $id)->update(['position' => $rank]);
+    }
+}
+
+function rankOf(Task $task): string
+{
+    return (string) DB::table('tasks')->where('id', $task->id)->value('position');
+}
+
+it('orders neighbours by rank, not by its text, in long columns and with negative ranks', function () {
+    $tasks = boardTasks($this->project, 12); // ranks 0..11
+    $this->actingAs($this->member);
+
+    move($tasks[11], ['status_id' => $this->todo, 'after_task_id' => $tasks[1]->id])->assertOk();
+    expect(column($this->project, $this->todo))->toBe(['T1', 'T2', 'T12', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T11']);
+
+    $this->actingAs($this->member);
+    move($tasks[0]->fresh(), ['status_id' => $this->todo, 'before_task_id' => $tasks[10]->id])->assertOk();
+    expect(column($this->project, $this->todo))->toBe(['T2', 'T12', 'T3', 'T4', 'T5', 'T6', 'T7', 'T8', 'T9', 'T10', 'T1', 'T11']);
+
+    // Negative ranks: -10 and -2 as text would sort the wrong way round too.
+    setRanks([$tasks[2]->id => '-10', $tasks[3]->id => '-2']);
+    $this->actingAs($this->member);
+    move($tasks[4]->fresh(), ['status_id' => $this->todo, 'after_task_id' => $tasks[2]->id])->assertOk();
+    expect(array_slice(column($this->project, $this->todo), 0, 3))->toBe(['T3', 'T5', 'T4'])
+        ->and(rankOf($tasks[4]))->toBe('-6.0000000000');
+});
+
+it('ignores trashed tasks as neighbours: the rank is the midpoint of the live ones', function () {
+    [$a, $trashed, $b, $x] = boardTasks($this->project, 4);
+    setRanks([$a->id => '0', $trashed->id => '1', $b->id => '4', $x->id => '9']);
+    $trashed->delete();
+    $this->actingAs($this->member);
+
+    move($x, ['status_id' => $this->todo, 'before_task_id' => $b->id])->assertOk();
+    expect(rankOf($x))->toBe('2.0000000000');
+
+    $this->actingAs($this->member);
+    move($x->fresh(), ['status_id' => $this->todo, 'after_task_id' => $a->id])->assertOk()->assertJsonPath('data.version', 2);
+});
+
+it('renumbers trashed tasks with the column, so a restored task comes back in its place', function () {
+    [$a, $b, $trashed, $d, $c] = boardTasks($this->project, 5);
+    setRanks([$a->id => '0', $b->id => '0.0000000001', $trashed->id => '0.0000000002', $d->id => '1', $c->id => '5']);
+    $trashed->delete();
+    $this->actingAs($this->member);
+
+    move($c, ['status_id' => $this->todo, 'after_task_id' => $a->id])->assertOk();
+
+    $this->actingAs($this->owner)->postJson("/api/v1/tasks/{$trashed->id}/restore")->assertOk();
+    expect(column($this->project, $this->todo))->toBe(['T1', 'T5', 'T2', 'T3', 'T4']);
+});
+
+it('counts trashed tasks for the end of a column, so a later restore does not tie', function () {
+    [$x, $trashed] = boardTasks($this->project, 2);
+    $this->actingAs($this->member);
+    move($trashed, ['status_id' => $this->done])->assertOk();
+    setRanks([$trashed->id => '5']);
+    $trashed->delete();
+
+    $this->actingAs($this->member);
+    move($x, ['status_id' => $this->done])->assertOk();
+
+    expect(rankOf($x))->toBe('6.0000000000');
+});
+
+it('keeps a task that is already after every live task where it is when moved to the end', function () {
+    [$a, $x, $trashed] = boardTasks($this->project, 3);
+    $trashed->delete();
+    $this->actingAs($this->member);
+
+    move($x, ['status_id' => $this->todo])->assertOk()->assertJsonPath('data.version', 1);
+    expect(TaskActivity::query()->where('action', 'task.moved')->count())->toBe(0);
+
+    $this->actingAs($this->member);
+    move($a, ['status_id' => $this->todo])->assertOk()->assertJsonPath('data.version', 2);
+    expect(column($this->project, $this->todo))->toBe(['T2', 'T1']);
 });

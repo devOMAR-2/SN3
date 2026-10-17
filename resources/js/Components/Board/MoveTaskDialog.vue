@@ -12,7 +12,14 @@ import type { ProjectStatus, Task } from '@/types/domain';
  */
 export type MovePlace = 'top' | 'bottom' | 'up' | 'down';
 
-const props = defineProps<{ task: Task | null; statuses: ProjectStatus[]; index: number; total: number }>();
+const props = defineProps<{
+  task: Task | null;
+  statuses: ProjectStatus[];
+  index: number;
+  total: number;
+  /** Where focus goes on close; defaults to the button that opened the dialog. */
+  returnFocus?: () => HTMLElement | null;
+}>();
 const open = defineModel<boolean>('open', { default: false });
 const emit = defineEmits<{ move: [task: Task, statusId: string, place: MovePlace] }>();
 
@@ -20,11 +27,14 @@ const { t } = useI18n();
 const statusId = ref('');
 const place = ref<MovePlace>('bottom');
 
+// Every opening starts from the task's own column, also after a cancelled choice for the same task.
 watch(
-  () => props.task,
-  (task) => {
-    statusId.value = task?.status_id ?? '';
-    place.value = 'bottom';
+  [() => props.task, open],
+  ([task, isOpen]) => {
+    if (isOpen || task !== null) {
+      statusId.value = task?.status_id ?? '';
+      place.value = 'bottom';
+    }
   },
   { immediate: true },
 );
@@ -59,7 +69,11 @@ function submit(): void {
 </script>
 
 <template>
-  <AppDialog v-model:open="open" :title="task ? t('board.move.title', { key: task.key }) : ''">
+  <AppDialog
+    v-model:open="open"
+    :return-focus="returnFocus"
+    :title="task ? t('board.move.title', { key: task.key }) : ''"
+  >
     <form class="flex flex-col gap-4" @submit.prevent="submit">
       <SelectField v-model="statusId" :label="t('board.move.status')">
         <option v-for="status in statuses" :key="status.id" :value="status.id">{{ status.name }}</option>

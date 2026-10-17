@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dropIndex, moveBody, placeAt } from './boardMove';
+import { dropIndex, endOfColumn, moveBody, placeAt } from './boardMove';
 
 describe('board moves', () => {
   it('anchors before the task that will follow, or to the end of the column', () => {
@@ -8,6 +8,14 @@ describe('board moves', () => {
     expect(moveBody('s', ['a', 'b', 'c'], 3)).toEqual({ status_id: 's', before_task_id: null });
     expect(moveBody('s', ['a', 'b', 'c'], 99)).toEqual({ status_id: 's', before_task_id: null });
     expect(moveBody('s', [], -1)).toEqual({ status_id: 's', before_task_id: null });
+  });
+
+  it('anchors after the last loaded card when the column has more pages', () => {
+    expect(moveBody('s', ['a', 'b', 'c'], 3, true)).toEqual({ status_id: 's', after_task_id: 'c' });
+    expect(moveBody('s', ['a', 'b', 'c'], 99, true)).toEqual({ status_id: 's', after_task_id: 'c' });
+    expect(moveBody('s', ['a', 'b', 'c'], 1, true)).toEqual({ status_id: 's', before_task_id: 'b' });
+    expect(moveBody('s', [], 0, true)).toEqual({ status_id: 's', before_task_id: null });
+    expect(endOfColumn('s')).toEqual({ status_id: 's', before_task_id: null });
   });
 
   it('finds the drop index from the card midpoints', () => {

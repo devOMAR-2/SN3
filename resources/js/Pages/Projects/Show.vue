@@ -92,11 +92,24 @@ function choose(next: ProjectView): void {
 onMounted(syncUrl);
 watch([view, sort, filters], syncUrl, { deep: true });
 
+// Tabs (WAI-ARIA tabs pattern, automatic activation): arrows move to the other tab, Home and End to the
+// first and last. With two tabs, both arrows lead to the other one, in either direction.
 function onTabKey(event: KeyboardEvent): void {
-  if (event.key === 'ArrowLeft' || event.key === 'ArrowRight' || event.key === 'Home' || event.key === 'End') {
+  const next: ProjectView | null =
+    event.key === 'Home'
+      ? 'board'
+      : event.key === 'End'
+        ? 'list'
+        : event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+          ? view.value === 'board'
+            ? 'list'
+            : 'board'
+          : null;
+
+  if (next !== null) {
     event.preventDefault();
-    choose(view.value === 'board' ? 'list' : 'board');
-    document.getElementById(`project-view-${view.value}`)?.focus();
+    choose(next);
+    document.getElementById(`project-view-${next}`)?.focus();
   }
 }
 </script>
@@ -143,7 +156,7 @@ function onTabKey(event: KeyboardEvent): void {
           type="button"
           role="tab"
           :aria-selected="view === option"
-          :aria-controls="`project-panel-${option}`"
+          :aria-controls="view === option ? 'project-panel' : undefined"
           :tabindex="view === option ? 0 : -1"
           class="-mb-px border-b-2 px-4 py-2 text-body font-medium"
           :class="
@@ -164,7 +177,7 @@ function onTabKey(event: KeyboardEvent): void {
         :show-status="view === 'list'"
       />
 
-      <div :id="`project-panel-${view}`" role="tabpanel" :aria-labelledby="`project-view-${view}`">
+      <div id="project-panel" role="tabpanel" :aria-labelledby="`project-view-${view}`">
         <TaskBoard
           v-if="view === 'board'"
           :project-id="project.id"

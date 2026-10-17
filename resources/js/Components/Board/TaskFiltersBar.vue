@@ -4,7 +4,7 @@ import AppButton from '@/Components/ui/AppButton.vue';
 import SelectField from '@/Components/ui/SelectField.vue';
 import TextField from '@/Components/ui/TextField.vue';
 import { useI18n } from '@/i18n';
-import { activeFilterCount, emptyFilters, priorities, type TaskFilters } from '@/lib/taskFilters';
+import { activeFilterCount, emptyFilters, MAX_LABELS, priorities, type TaskFilters } from '@/lib/taskFilters';
 import type { Assignee, Label, ProjectStatus } from '@/types/domain';
 
 /**
@@ -57,7 +57,7 @@ function clear(): void {
 }
 
 const chip =
-  'inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 py-1 text-small has-checked:border-primary has-checked:bg-primary/10 has-focus-visible:ring-2 has-focus-visible:ring-focus';
+  'inline-flex cursor-pointer items-center gap-1.5 rounded-pill border px-2.5 py-1 text-small has-checked:border-primary has-checked:bg-primary/10 has-focus-visible:ring-2 has-focus-visible:ring-focus has-disabled:cursor-not-allowed has-disabled:opacity-50';
 </script>
 
 <template>
@@ -122,6 +122,7 @@ const chip =
           type="checkbox"
           class="sr-only"
           :checked="filters.label.includes(label.id)"
+          :disabled="!filters.label.includes(label.id) && filters.label.length >= MAX_LABELS"
           @change="toggle('label', label.id)"
         />
         <span dir="auto">{{ label.name }}</span>

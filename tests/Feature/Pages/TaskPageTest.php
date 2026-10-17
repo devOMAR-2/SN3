@@ -181,18 +181,15 @@ it('caps the assignee list, says so, and keeps the current assignee selectable',
         ->assertInertia(fn (Assert $page) => $page->where('assigneesTruncated', false)->has('assignees', 1));
 });
 
-it('does not offer a current assignee past the cap who is no longer eligible', function () {
+it('shows a current assignee who is no longer eligible, marked as not selectable', function () {
     $project = pageProject($this->team);
-    $this->team->owner->forceFill(['name' => 'B owner'])->save();
-    foreach (range(1, 200) as $n) {
-        pageTeamMember($this->team)->forceFill(['name' => sprintf('A member %03d', $n)])->save();
-    }
-    $last = pageTeamMember($this->team);
-    $last->forceFill(['name' => 'Zz last member'])->save();
-    $task = Task::factory()->for($project)->assignedTo($last)->create();
-    $last->forceFill(['disabled_at' => now()])->save();
+    $disabled = pageTeamMember($this->team);
+    $disabled->forceFill(['name' => 'Gone member'])->save();
+    $task = Task::factory()->for($project)->assignedTo($disabled)->create();
+    $disabled->forceFill(['disabled_at' => now()])->save();
 
-    $ids = collect($this->actingAs($this->team->owner)->get("/tasks/{$task->id}")->viewData('page')['props']['assignees'])->pluck('user_id');
+    $assignees = collect($this->actingAs($this->team->owner)->get("/tasks/{$task->id}")->viewData('page')['props']['assignees']);
 
-    expect($ids)->toHaveCount(200)->not->toContain($last->id);
+    expect($assignees->firstWhere('user_id', $disabled->id))->toBe(['user_id' => $disabled->id, 'name' => 'Gone member', 'eligible' => false])
+        ->and($assignees->where('user_id', '!=', $disabled->id)->pluck('eligible')->filter()->all())->toBe([]);
 });

@@ -69,7 +69,7 @@ final class MoveTask
 
             if ($moved->wasChanged()) {
                 // In the move's transaction (ADR-027 §3); IDs only.
-                Activity::task($moved, $actor, 'task.moved', ['from_status_id' => $from, 'status_id' => $moved->status_id]);
+                Activity::task($moved, $actor, 'task.moved', ['status_id' => ['from' => $from, 'to' => $moved->status_id]]);
             }
 
             return $moved->setRelation('project', $project);
