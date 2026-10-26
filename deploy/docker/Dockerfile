@@ -49,7 +49,7 @@ RUN composer install --no-dev --no-interaction --no-progress --no-scripts --no-a
 # ---------------------------------------------------------------------------
 # Frontend assets, built from package-lock.json.
 # ---------------------------------------------------------------------------
-FROM node:22.23.3-trixie-slim AS assets
+FROM node:22.23.4-trixie-slim AS assets
 
 ARG VITE_APP_NAME=SN3
 ENV VITE_APP_NAME=${VITE_APP_NAME}
