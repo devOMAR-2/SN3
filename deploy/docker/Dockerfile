@@ -5,7 +5,7 @@
 # Base image versions are pinned; see docs/adr/ADR-012-container-runtime.md.
 
 # Image tags are literal (not ARGs) so Dependabot can propose patch updates.
-FROM composer:2.10.3 AS composer-bin
+FROM composer:2.11.0 AS composer-bin
 
 # ---------------------------------------------------------------------------
 # PHP runtime base: required extensions only, build toolchain removed afterwards.
