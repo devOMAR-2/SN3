@@ -159,7 +159,7 @@ services:
       start_period: 60s
 
   proxy:
-    image: caddy:2.11.7-alpine
+    image: caddy:2.11.9-alpine
     profiles: ["proxy"]
     restart: unless-stopped
     environment:
