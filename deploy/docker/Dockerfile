@@ -13,7 +13,7 @@ FROM composer:2.10.3 AS composer-bin
 # fileinfo (attachment type sniffing) and zlib (export compression) are bundled with PHP and only
 # checked (CORE-008, ADR-027).
 # ---------------------------------------------------------------------------
-FROM php:8.3.35-apache-trixie AS php-base
+FROM php:8.3.36-apache-trixie AS php-base
 
 RUN set -eux; \
     savedAptMark="$(apt-mark showmanual)"; \
