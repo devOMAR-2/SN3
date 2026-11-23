@@ -104,7 +104,7 @@ services:
       start_period: 30s
 
   postgres:
-    image: postgres:16.15-trixie
+    image: postgres:16.16-trixie
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_DATABASE:-sn3}
@@ -124,7 +124,7 @@ services:
   # Opt-in: `docker compose --profile backup up -d backup`. Runbook: docs/BACKUP_RESTORE.md.
   # The PostgreSQL image already has pg_dump/pg_restore (same major as the server), gpg and tar.
   backup:
-    image: postgres:16.15-trixie
+    image: postgres:16.16-trixie
     profiles: ["backup"]
     restart: unless-stopped
     init: true
